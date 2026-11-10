@@ -1,0 +1,7 @@
+# Written into the linked mod folder by the Herdr app.
+mods/*/gpui-kit.d.ts
+mods/*/herdr.d.ts
+mods/*/jsconfig.json
+*.error
+# Coordinator task records and worker reports.
+.herdr-tasks/
