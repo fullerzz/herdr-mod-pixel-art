@@ -13,10 +13,28 @@
 // Rect is { x, y, w, h, color } in cells. `feet[0]` is the creature's left foot (screen
 // left), `feet[1]` the right one. `top` is the first row with art.
 
+/** @typedef {`#${string}`} Hex A `#rrggbb` color. */
+/** @typedef {{ x: number, y: number, w: number, h: number, color: Hex }} Rect In cells. */
+/** @typedef {"open" | "look" | "closed" | "happy"} Mood */
+/**
+ * @typedef {object} Sprite
+ * @property {string} seed
+ * @property {number} grid
+ * @property {string} kind The archetype, e.g. "blob".
+ * @property {number} top The first row with art.
+ * @property {{ body: Rect[], feet: [Rect[], Rect[]], eyes: Record<Mood, Rect[]> }} parts
+ */
+/** @typedef {() => number} Rng Returns a number in [0, 1), like `Math.random`. */
+
 export const GRID = 12;
 const MID = 5; // last column of the left half
 const MAX_RECTS = 96;
 
+/**
+ * FNV-1a over the seed's string form, then a final avalanche.
+ * @param {unknown} seed
+ * @returns {number} An unsigned 32-bit hash.
+ */
 export function hashSeed(seed) {
   const s = String(seed);
   let h = 2166136261;
@@ -30,6 +48,11 @@ export function hashSeed(seed) {
   return h >>> 0;
 }
 
+/**
+ * A seeded generator (mulberry32): the same seed gives the same sequence.
+ * @param {number} a
+ * @returns {Rng}
+ */
 function rng(a) {
   return () => {
     a = (a + 0x6d2b79f5) | 0;
@@ -41,13 +64,21 @@ function rng(a) {
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
+/**
+ * Six characters from `a-z0-9`: a seed a label can hold.
+ * @param {Rng} [rand]
+ * @returns {string}
+ */
 export function randomSeed(rand = Math.random) {
   let s = "";
   for (let i = 0; i < 6; i++) s += ALPHABET[Math.min(35, Math.floor(rand() * 36))];
   return s;
 }
 
+/** @typedef {[outline: Hex, shade: Hex, base: Hex, light: Hex]} Ramp */
+
 // Ramps run dark (outline) to light: [outline, shade, base, light].
+/** @type {Ramp[]} */
 const RAMPS = [
   ["#4a1a24", "#b8404c", "#e8665c", "#ffa892"], // tomato
   ["#4d2410", "#c4622d", "#f2954b", "#ffd08a"], // tangerine
@@ -71,29 +102,65 @@ const INK = "#16141f";
 const WHITE = "#ffffff";
 const BLUSH = "#ff8fa8";
 
+/**
+ * @template T
+ * @param {Rng} r
+ * @param {readonly T[]} list
+ * @returns {T}
+ */
 const pick = (r, list) => list[Math.floor(r() * list.length)];
+/** @type {(r: Rng, p: number) => boolean} */
 const chance = (r, p) => r() < p;
 
 // ---- the left half ----
 // A board of labels, GRID by GRID, only columns 0..MID written; mirrored later.
 
+/**
+ * What a cell of the board is: "b" body, "f" foot, the rest accents and features.
+ * @typedef {"b" | "f" | "acc" | "ear" | "horn" | "tip" | "stalk" | "leaf" | "hat" | "cap" | "beak"} Label
+ */
+/** @typedef {(Label | null)[][]} Board Rows of labels, indexed `b[y][x]`. */
+/** @typedef {(Hex | null)[][]} Colors Rows of colors, indexed `colors[y][x]`. */
+
+/** @returns {any[][]} GRID rows of GRID nulls: an empty {@link Board} or {@link Colors}. */
 function board() {
   return Array.from({ length: GRID }, () => Array(GRID).fill(null));
 }
 
-/** Fills columns x0..MID (the span to the center) of row y with a label. */
+/**
+ * Fills columns x0..MID (the span to the center) of row y with a label.
+ * @param {Board} b
+ * @param {number} y
+ * @param {number} x0
+ * @param {Label} [label]
+ * @param {number} [x1] The last column, if short of the center.
+ */
 function span(b, y, x0, label = "b", x1 = MID) {
   if (y < 1 || y > 10) return;
   for (let x = Math.max(1, x0); x <= Math.min(MID, x1); x++) b[y][x] = label;
 }
 
+/** @type {(b: Board, x: number, y: number, label: Label | null) => void} */
 const put = (b, x, y, label) => {
   if (x >= 1 && x <= MID && y >= 1 && y <= 10) b[y][x] = label;
 };
 
+/**
+ * Where an archetype put things; see ARCHETYPES.
+ * @typedef {object} Anatomy
+ * @property {number} top
+ * @property {number} eyeY
+ * @property {number} eyeX
+ * @property {boolean} [square] Robot head: square eyes only.
+ * @property {boolean} [cap] Mushroom cap: no features on top.
+ * @property {boolean} [narrow] Too narrow for two eye boxes.
+ * @property {boolean} [beak]
+ */
+
 // Each archetype fills the left half and returns where things go:
 // top (first body row), eyeY (top row of the 2-tall eye box), eyeX (left column of the left
 // eye box), and whether it has room for features above `top`.
+/** @type {Record<string, (b: Board, r: Rng) => Anatomy>} */
 const ARCHETYPES = {
   blob(b, r) {
     const top = pick(r, [3, 4, 4, 5]);
@@ -232,7 +299,9 @@ const KINDS = Object.keys(ARCHETYPES);
 
 // Features above the body. Each takes the board, the body's top row, the leftmost column
 // of that row (so a feature always stands on the head), and the rng.
+/** @type {(r: Rng, lo: number, hi: number) => number} An integer in lo..hi, or lo when hi < lo. */
 const from = (r, lo, hi) => lo + Math.floor(r() * (Math.max(lo, hi) - lo + 1));
+/** @type {Record<string, (b: Board, top: number, hx: number, r: Rng) => void>} */
 const FEATURES = {
   ears(b, top, hx, r) {
     const x = from(r, Math.max(2, hx - 1), 3);
@@ -263,7 +332,13 @@ const FEATURES = {
   },
 };
 
-/** The features that fit above a body starting at `top`. */
+/**
+ * The features that fit above a body starting at `top`.
+ * @param {Rng} r
+ * @param {Anatomy} info
+ * @param {string} kind
+ * @returns {string | null} A FEATURES key, or null for none.
+ */
 function featureFor(r, info, kind) {
   const room = info.top - 1; // rows above the body
   if (info.cap) return null;
@@ -277,13 +352,25 @@ function featureFor(r, info, kind) {
 
 // ---- mirrored board, outline and tones ----
 
+/** @param {Board} b Copies columns 1..MID onto their mirror columns, in place. */
 function mirror(b) {
   for (let y = 0; y < GRID; y++) for (let x = 1; x <= MID; x++) b[y][GRID - 1 - x] = b[y][x];
 }
 
+/** @type {(b: Board, x: number, y: number) => boolean} Whether the cell is on the board and has art. */
 const inMask = (b, x, y) => x >= 0 && y >= 0 && x < GRID && y < GRID && b[y][x] !== null;
+/** @type {(b: Board, x: number, y: number) => boolean} Whether a side of the cell has no art: an outline cell. */
 const isEdge = (b, x, y) => !inMask(b, x - 1, y) || !inMask(b, x + 1, y) || !inMask(b, x, y - 1) || !inMask(b, x, y + 1);
 
+/**
+ * Colors every labeled cell: outline, the body ramp and its pattern, accents from `acc`.
+ * @param {Board} b The mirrored board.
+ * @param {Anatomy} info
+ * @param {Rng} r
+ * @param {Ramp} ramp The body's colors.
+ * @param {Ramp} acc The accents' colors.
+ * @returns {Colors}
+ */
 function paint(b, info, r, ramp, acc) {
   const colors = board();
   const [dark, shade, base, light] = ramp;
@@ -296,6 +383,7 @@ function paint(b, info, r, ramp, acc) {
       if (label === null) continue;
       const edge = isEdge(b, x, y);
       const half = x <= MID ? x : GRID - 1 - x; // 1..5, 5 is beside the center line
+      /** @type {Hex} */
       let c;
       switch (label) {
         case "f":
@@ -355,9 +443,16 @@ function paint(b, info, r, ramp, acc) {
 
 // ---- rectangles ----
 
-/** Merges runs of equal cells into rectangles: rows first, then equal runs downward. */
+/**
+ * Merges runs of equal cells into rectangles: rows first, then equal runs downward.
+ * @param {Colors} colors
+ * @param {(x: number, y: number) => boolean} [keep] Which cells to include; all by default.
+ * @returns {Rect[]}
+ */
 function rects(colors, keep = () => true) {
+  /** @type {Map<string, Rect>} */
   const open = new Map(); // "x,w,color" -> rect still growing downward
+  /** @type {Rect[]} */
   const out = [];
   for (let y = 0; y < GRID; y++) {
     const runs = [];
@@ -380,7 +475,7 @@ function rects(colors, keep = () => true) {
         next.set(key, grow);
       } else {
         const [x, w, color] = key.split(",");
-        const rect = { x: Number(x), y, w: Number(w), h: 1, color };
+        const rect = { x: Number(x), y, w: Number(w), h: 1, color: /** @type {Hex} */ (color) };
         out.push(rect);
         next.set(key, rect);
       }
@@ -398,8 +493,13 @@ function rects(colors, keep = () => true) {
 // left eye's open pattern copied, not mirrored, into the right box), closed (a lid line)
 // and happy (a ^ caret one cell wider than the box, reaching outward).
 
+/** @typedef {[dx: number, dy: number, color: Hex]} EyeCell */
+
+/** @type {EyeCell[]} */
 const CLOSED = [[0, 1, INK], [1, 1, INK]];
+/** @type {EyeCell[]} */
 const HAPPY = [[-1, 1, INK], [0, 0, INK], [1, 1, INK]];
+/** @type {Record<string, EyeCell[]>} */
 const EYES = {
   round: [[0, 0, WHITE], [1, 0, WHITE], [0, 1, WHITE], [1, 1, INK]], // white, pupil inner bottom
   bead: [[1, 0, INK], [1, 1, INK]], // a tall dark bead on the inner column
@@ -407,6 +507,14 @@ const EYES = {
   big: [[0, 0, WHITE], [1, 0, INK], [0, 1, INK], [1, 1, INK]], // dark, glint outer top
 };
 
+/**
+ * Both eyes in one mood, as rectangles.
+ * @param {string} style An EYES key.
+ * @param {Mood} mood
+ * @param {number} eyeX The left eye box's left column.
+ * @param {number} eyeY The eye boxes' top row.
+ * @returns {Rect[]}
+ */
 function eyeRects(style, mood, eyeX, eyeY) {
   const cells = mood === "closed" ? CLOSED : mood === "happy" ? HAPPY : EYES[style];
   const out = [];
@@ -418,6 +526,10 @@ function eyeRects(style, mood, eyeX, eyeY) {
   return mergeCells(out);
 }
 
+/**
+ * @param {Rect[]} cells One-cell rectangles.
+ * @returns {Rect[]} The same cells, equal neighbors merged.
+ */
 function mergeCells(cells) {
   const colors = board();
   for (const c of cells) colors[c.y][c.x] = c.color;
@@ -426,6 +538,11 @@ function mergeCells(cells) {
 
 // ---- the creature ----
 
+/**
+ * @param {string} seed
+ * @param {boolean} simple Leaves out the feature, mouth and blush: fewer rectangles.
+ * @returns {Sprite}
+ */
 function build(seed, simple) {
   const r = rng(hashSeed(seed));
   const kind = KINDS[Math.floor(r() * KINDS.length)];
@@ -442,7 +559,14 @@ function build(seed, simple) {
   const colors = paint(b, info, r, ramp, acc);
 
   // Face extras, painted symmetrically onto interior body cells only.
+  /** @type {(x: number, y: number) => boolean} */
   const skin = (x, y) => y >= 1 && y <= 10 && ["b", "beak"].includes(b[y][x]) && !isEdge(b, x, y);
+  /**
+   * Paints the cells and their mirrors, only if all of them are skin.
+   * @param {[x: number, y: number][]} cells
+   * @param {Hex} color
+   * @returns {boolean} Whether it painted.
+   */
   const dab = (cells, color) => {
     if (!cells.every(([x, y]) => skin(x, y) && skin(GRID - 1 - x, y))) return false;
     for (const [x, y] of cells) colors[y][x] = colors[y][GRID - 1 - x] = color;
@@ -458,27 +582,39 @@ function build(seed, simple) {
   }
   if (!simple && chance(r, 0.35)) dab([[info.eyeX - 1, my - 1]], BLUSH) || dab([[info.eyeX - 1, my]], BLUSH);
 
+  /** @type {(x: number, y: number) => boolean} */
   const isFoot = (x, y) => b[y][x] === "f";
   const body = rects(colors, (x, y) => !isFoot(x, y));
+  /** @type {[Rect[], Rect[]]} */
   const feet = [
     rects(colors, (x, y) => isFoot(x, y) && x <= MID),
     rects(colors, (x, y) => isFoot(x, y) && x > MID),
   ];
   const style = info.narrow ? "pip" : info.square ? pick(r, ["round", "big"]) : pick(r, ["round", "round", "bead", "big"]);
-  const eyes = {};
-  for (const mood of ["open", "look", "closed", "happy"]) eyes[mood] = eyeRects(style, mood, info.eyeX, info.eyeY);
+  const eyes = /** @type {Record<Mood, Rect[]>} */ ({});
+  for (const mood of /** @type {Mood[]} */ (["open", "look", "closed", "happy"])) eyes[mood] = eyeRects(style, mood, info.eyeX, info.eyeY);
 
   let top = GRID;
   for (let y = 0; y < GRID && top === GRID; y++) if (b[y].some((c) => c !== null)) top = y;
   return { seed: String(seed), grid: GRID, kind, top, parts: { body, feet, eyes } };
 }
 
-/** Rectangles drawn at once in the busiest pose: body, feet and the largest eye mood. */
+/**
+ * Rectangles drawn at once in the busiest pose: body, feet and the largest eye mood.
+ * @param {Sprite} sprite
+ * @returns {number}
+ */
 export function rectCount(sprite) {
   const { body, feet, eyes } = sprite.parts;
   return body.length + feet[0].length + feet[1].length + Math.max(...Object.values(eyes).map((e) => e.length));
 }
 
+/**
+ * The creature for a seed: the same one every time. A creature that would draw more than
+ * MAX_RECTS rectangles is made again without its extras.
+ * @param {unknown} seed Any value; its string form is used, and null or undefined as "".
+ * @returns {Sprite}
+ */
 export function makeSprite(seed) {
   const s = typeof seed === "string" ? seed : String(seed ?? "");
   const sprite = build(s, false);

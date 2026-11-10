@@ -15,12 +15,24 @@ import { clearAvatar, hasAvatar, seedFor, setAvatar } from "./identity.js";
 import { makeSprite, randomSeed } from "./sprites.js";
 import { spriteElement } from "./sprite-view.js";
 
+/** @import { ClickEvent, Context, Element } from "gpui-kit" */
+/** @import { ExecResult } from "herdr" */
+/** @import { Sprite } from "./sprites.js" */
+/** @import { Theme } from "./sprite-view.js" */
+
+/** @typedef {{ seed: string, sprite: Sprite }} Candidate */
+/** @typedef {(event: ClickEvent, cx: Context) => void} ClickHandler */
+
 const COUNT = 16;
 const PER_ROW = 4;
 const PX = 3; // 12 cells * 3 = a 36 px sprite
 const CELL = 48; // the hover cell: the sprite with 6 px on each side, as in the drawer
 
-/** Distinct new seeds, none of them the one shown now. */
+/**
+ * Distinct new seeds, none of them the one shown now.
+ * @param {string} current
+ * @returns {string[]} COUNT seeds.
+ */
 function freshSeeds(current) {
   const seeds = new Set();
   while (seeds.size < COUNT) {
@@ -30,23 +42,31 @@ function freshSeeds(current) {
   return [...seeds];
 }
 
-/** Runs one label write. Resolves with null when it saved, else a short reason. */
+/**
+ * Runs one label write. Resolves with null when it saved, else a short reason.
+ * @param {() => Promise<ExecResult>} write
+ * @returns {Promise<string | null>}
+ */
 async function attempt(write) {
   try {
     const r = await write();
     if (r?.code === 0) return null;
     const why = r?.stderr?.trim();
     return `Not saved: hc exited ${r?.code ?? "?"}${why ? ` (${why})` : ""}`;
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     return `Not saved: ${err?.message ?? err}`;
   }
 }
 
 export default class Picker {
+  /** @param {{ terminal?: string, overlay?: string }} props `overlay`: this overlay's id, from Herdr. */
   init(props) {
+    /** @type {string | null} */
     this.terminal = props?.terminal ?? null;
     this.overlay = props?.overlay;
+    /** @type {string | null} */
     this.error = null;
+    /** @type {Candidate | null} */
     this.current = null; // { seed, sprite } of the sprite shown now
     if (this.terminal) this.shuffle();
   }
@@ -57,7 +77,11 @@ export default class Picker {
     this.error = null;
   }
 
-  /** Runs a write; closes on success, shows the reason and stays open on failure. */
+  /**
+   * Runs a write; closes on success, shows the reason and stays open on failure.
+   * @param {() => Promise<ExecResult>} write
+   * @param {Context} cx
+   */
   save(write, cx) {
     cx.spawn(async (cx) => {
       this.error = await attempt(write);
@@ -66,14 +90,16 @@ export default class Picker {
     });
   }
 
+  /** @returns {Sprite} The terminal's sprite now, made again only when its seed changed. */
   currentSprite() {
     const seed = seedFor(this.terminal);
     if (this.current?.seed !== seed) this.current = { seed, sprite: makeSprite(seed) };
     return this.current.sprite;
   }
 
+  /** @param {Context} _cx */
   render(_cx) {
-    const t = theme();
+    const t = /** @type {Theme} */ (theme());
     const root = v_flex().id("pp-picker").size_full().min_h(0).p(12).gap(10).text_size(12).text_color(t.foreground);
     if (!this.terminal) return this.renderMissing(root, t);
     return root
@@ -84,6 +110,10 @@ export default class Picker {
       .child(this.renderFooter(t));
   }
 
+  /**
+   * @param {Element} root
+   * @param {Theme} t
+   */
   renderMissing(root, t) {
     return root
       .child(div().text_size(13).font_semibold().child("No agent to pick for"))
@@ -91,6 +121,7 @@ export default class Picker {
       .child(h_flex().justify_end().child(button("pp-close", "Close", t, (_e) => closeOverlay(this.overlay))));
   }
 
+  /** @param {Theme} t */
   renderHeader(t) {
     const name = agents().find((a) => a.address === this.terminal)?.title || this.terminal;
     const chosen = hasAvatar(this.terminal);
@@ -104,7 +135,9 @@ export default class Picker {
       .child(div().flex_none().text_size(11).text_color(t.dim).child("Esc"));
   }
 
+  /** @param {Theme} t */
   renderGrid(t) {
+    /** @type {(c: Candidate, i: number) => Element} */
     const cell = ({ seed, sprite }, i) =>
       h_flex().id(`pp-cand-${i}`).size(CELL).flex_none().items_center().justify_center().rounded(8)
         .cursor_pointer().hover((s) => s.bg(t.hover))
@@ -117,6 +150,7 @@ export default class Picker {
     return v_flex().id("pp-grid").flex_1().min_h(0).gap(6).justify_center().children(rows);
   }
 
+  /** @param {Theme} t */
   renderFooter(t) {
     const canReset = hasAvatar(this.terminal);
     const shuffle = button("pp-shuffle", "Shuffle", t, (_e, cx) => {
@@ -134,6 +168,13 @@ export default class Picker {
   }
 }
 
+/**
+ * @param {string} id
+ * @param {string} label
+ * @param {Theme} t
+ * @param {ClickHandler | null} onClick null: a button that doesn't react to the pointer.
+ * @returns {Element}
+ */
 function button(id, label, t, onClick) {
   const el = h_flex().id(id).h(28).px(12).flex_none().items_center().rounded(7).border_1().border_color(t.input)
     .bg(t.raised).text_color(t.foreground).text_size(12);

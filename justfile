@@ -13,6 +13,10 @@ install:
 check:
     herdr-app check "$PWD/mods/pixel-party"
 
+# Check the mod's JSDoc types against types/ (no Herdr needed; run `pnpm install` once)
+typecheck:
+    pnpm typecheck
+
 # Run the sprite and view tests (no Herdr needed)
 test:
     node --import ./tests/mocks/register.mjs --test 'tests/*.test.mjs'

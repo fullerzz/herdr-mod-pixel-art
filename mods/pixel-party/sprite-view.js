@@ -16,16 +16,43 @@ import { div } from "gpui-kit";
 import { theme } from "herdr";
 import { GRID } from "./sprites.js";
 
+/** @import { Color, Element } from "gpui-kit" */
+/** @import { Status } from "herdr" */
+/** @import { Mood, Rect, Sprite } from "./sprites.js" */
+
+/**
+ * `theme()`, its values typed as the hex colors they are so they can go to `.bg()`.
+ * `herdr.d.ts` declares them as plain strings.
+ * @typedef {Record<string, Color>} Theme
+ */
+
+/** @type {(r: Rect, u: number) => Element} One rectangle, `u` px per cell. */
 const cell = (r, u) => div().absolute().left(r.x * u).top(r.y * u).w(r.w * u).h(r.h * u).bg(r.color);
+/** @type {(rects: Rect[], u: number) => Element} A full-size layer of rectangles. */
 const layer = (rects, u) => div().absolute().left(0).top(0).size(GRID * u).children(rects.map((r) => cell(r, u)));
 
-/** Rectangles in cells, for accents. Any color. */
+/** @typedef {[x: number, y: number, w?: number, h?: number][]} Cells w and h default to 1. */
+
+/**
+ * Rectangles in cells, for accents. Any color.
+ * @param {Cells} cells
+ * @param {Color} color
+ * @param {number} u
+ * @returns {Element}
+ */
 const mark = (cells, color, u) => layer(cells.map(([x, y, w = 1, h = 1]) => ({ x, y, w, h, color })), u);
 
+/** @type {Partial<Record<Status, Mood>>} */
 const EYES = { working: "look", done: "happy", idle: "closed" };
 
+/**
+ * The status's marks, drawn behind or in front of the creature.
+ * @param {Status | null} status
+ * @param {number} u
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
 function accents(status, u) {
-  const t = theme();
+  const t = /** @type {Theme} */ (theme());
   switch (status) {
     case "working": {
       const lines = mark([[0, 5], [0, 7]], t.working, u);
@@ -39,6 +66,7 @@ function accents(status, u) {
       return { behind: [], front: [badge.loop("opacity", { from: 1, to: 0.35, period: 800 })] };
     }
     case "done": {
+      /** @type {(x: number, y: number) => Cells} A plus sign centered on x, y. */
       const plus = (x, y) => [[x - 1, y, 3, 1], [x, y - 1, 1, 3]];
       const a = mark(plus(1, 1), t.done, u).loop("opacity", { from: 1, to: 0.15, period: 900 });
       const b = mark(plus(10, 3), t.done, u).loop("opacity", { from: 0.15, to: 1, period: 900 });
@@ -54,7 +82,16 @@ function accents(status, u) {
   }
 }
 
-export function spriteElement(sprite, { id, px: u = 3, status = null } = {}) {
+/**
+ * A sprite as an element, with the look and motion of its agent's status.
+ * @param {Sprite} sprite
+ * @param {object} options
+ * @param {string} options.id The element id: unique in the view and stable across renders.
+ * @param {number} [options.px] Pixels per cell (default 3).
+ * @param {Status | null} [options.status] The agent's status; null draws it still.
+ * @returns {Element} GRID * px square.
+ */
+export function spriteElement(sprite, { id, px: u = 3, status = null } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;

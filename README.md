@@ -69,14 +69,21 @@ link is remade.
 ## Development
 
 ```sh
-just test    # node tests: no Herdr needed
-just check   # Herdr's own loader on the mod
+pnpm install     # once: TypeScript, for the type check
+just typecheck   # the mod's JSDoc types: no Herdr needed
+just test        # node tests: no Herdr needed
+just check       # Herdr's own loader on the mod
 ```
+
+The mod is plain JavaScript typed with JSDoc. `just typecheck` checks it against Herdr's
+own declarations, copied into `types/` so it runs without the app; pull requests run it
+and the tests in `.forgejo/workflows/check.yml`.
 
 `docs/DESIGN.md` has the module contracts and the platform facts they rest on. The tests
 run the mod under stand-ins for Herdr's modules (`tests/mocks/`) that refuse what the app
 refuses, such as a color that is not a hex literal. `herdr-app check` renders with no
 agents, so it never runs the sprite code: the tests are what cover it. After a Herdr
-update, `node tools/snapshot-api.mjs` refreshes the names the stand-ins accept.
+update, `node tools/snapshot-api.mjs` refreshes the names the stand-ins accept and the
+declarations in `types/`.
 
 The mod runs `hc label` to save a choice. It reads no files and reaches no network.

@@ -1,0 +1,26 @@
+{
+  // Checks the mod's JSDoc against Herdr's own declarations, copied into types/ by
+  // `node tools/snapshot-api.mjs`, so it runs without the app (CI has none).
+  //
+  // The options match the jsconfig.json Herdr writes into a linked mod folder, so the
+  // editor and this check agree. `strictNullChecks` is off for the reason it gives: a
+  // view assigns its fields in `init`, which TypeScript can't see as definite assignment.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": [],
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "strictNullChecks": false,
+    "noEmit": true,
+    // The declarations are Herdr's, generated and not ours to fix.
+    "skipLibCheck": true,
+    "paths": { "herdr": ["./types/herdr.d.ts"] }
+  },
+  // Only the mod's .js: the app also writes gpui-kit.d.ts into the linked folder, and a
+  // second copy of its globals would collide with types/.
+  "include": ["mods/pixel-party/*.js", "types/gpui-kit.d.ts"]
+}

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Records the names Herdr's installed type files declare, so the tests can refuse a
-// call the app doesn't have without needing the app.
+// call the app doesn't have without needing the app. Copies the type files themselves
+// into types/, so `pnpm typecheck` checks the mod against them without the app, as in CI.
 //
-//   node tools/snapshot-api.mjs   # rewrites tests/mocks/api.json
+//   node tools/snapshot-api.mjs   # rewrites tests/mocks/api.json and types/*.d.ts
 //
 // Run it after a Herdr update. The type files are the app's own, rewritten on every start.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +41,14 @@ const api = {
   app: execFileSync("herdr-app", ["--version"], { encoding: "utf8" }).trim(),
 };
 
-const out = join(dirname(fileURLToPath(import.meta.url)), "../tests/mocks/api.json");
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const out = join(root, "tests/mocks/api.json");
 writeFileSync(out, `${JSON.stringify(api)}\n`);
 console.log(`${out}: ${api.methods.length} methods, ${api.kit.length} gpui-kit, ${api.base.length} gpui-base, ${api.herdr.length} herdr functions`);
+
+// Verbatim: tsconfig.json maps the "herdr" import to herdr.d.ts.
+const types = join(root, "types");
+mkdirSync(types, { recursive: true });
+writeFileSync(join(types, "gpui-kit.d.ts"), kit);
+writeFileSync(join(types, "herdr.d.ts"), herdr);
+console.log(`${types}: gpui-kit.d.ts, herdr.d.ts from ${api.app}`);

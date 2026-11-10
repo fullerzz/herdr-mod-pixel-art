@@ -14,20 +14,40 @@ import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { makeSprite, randomSeed } from "./sprites.js";
 import { spriteElement } from "./sprite-view.js";
 
+/** @import { Color, Context, Element } from "gpui-kit" */
+/** @import { AgentInfo, ExecResult, Status } from "herdr" */
+/** @import { Theme } from "./sprite-view.js" */
+
+/**
+ * One agent as the drawer shows it.
+ * @typedef {object} Item
+ * @property {AgentInfo} a
+ * @property {string} line The status line under its name.
+ * @property {boolean} on Whether it is the agent keys act on, marked as focused.
+ */
+
 const PX = 3; // a 36 px sprite
 const CELL = 48; // the sprite with 6 px either side: the dock script peeks exactly this
 const CELL_H = 44;
 const TEXT_W = 168; // text column beside the cell on a side edge
 const TILE_W = 76; // one agent on a top or bottom edge
 
+/** @type {Record<Status, string>} */
 const WORD = { working: "Working", blocked: "Needs you", done: "Finished", idle: "Idle" };
 
 // A title often starts with the agent's own status glyph ("✳ Fix login").
+/** @type {(s: string | null | undefined) => string} */
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
+/** @type {(a: AgentInfo) => string} */
 const nameOf = (a) => clean(a.title) || a.tab_name || a.program?.name || a.address;
 
-// The agent's own message, else what it is doing and where.
+/**
+ * The agent's own message, else what it is doing and where.
+ * @param {AgentInfo} a
+ * @param {{ report?: { msg?: string } } | undefined} terminal Its `terminals()` entry.
+ * @returns {string}
+ */
 function lineOf(a, terminal) {
   const msg = clean(terminal?.report?.msg);
   if (msg) return msg;
@@ -36,20 +56,27 @@ function lineOf(a, terminal) {
 }
 
 // What the cue says in a theme color. Blocked tints the whole row and its cell too.
-const cueColor = (t, status) => (status === "idle" ? t.idle + "99" : t[status] ?? t.unknown);
+/** @type {(t: Theme, status: Status) => Color} */
+const cueColor = (t, status) => (status === "idle" ? `${t.idle}99` : t[status] ?? t.unknown);
 
 // The agent keys act on, and the row marked as focused: the pane with the keyboard when it
 // is an agent, else Herdr's current agent. `focused().agent` alone is not enough: with the
 // keyboard in a shell pane it names an agent chosen earlier, or simply the first one, and
 // with the keyboard in another agent's pane it can still name the earlier choice.
+/**
+ * @param {AgentInfo[]} list
+ * @returns {string | null} An address in `list`, or null for none.
+ */
 function currentAgent(list) {
   const f = focused();
+  /** @type {(address: string | null) => boolean} */
   const known = (address) => Boolean(address) && list.some((a) => a.address === address);
   if (known(f?.terminal)) return f.terminal;
   return known(f?.agent) ? f.agent : null;
 }
 
 export default class Drawer {
+  /** @param {string} name A `pixel-party.<name>` key command: "pick", "reroll" or "reset". */
   command(name) {
     const target = currentAgent(agents());
     if (!target) return;
@@ -58,10 +85,11 @@ export default class Drawer {
     else if (name === "reset") logFailure(name, clearAvatar(target));
   }
 
+  /** @param {Context} _cx */
   render(_cx) {
     const list = agents();
     if (!list.length) return div();
-    const t = theme();
+    const t = /** @type {Theme} */ (theme());
     const edge = placement()?.edge ?? null;
     const byAddress = new Map(terminals().map((x) => [x.address, x]));
     const shown = currentAgent(list);
@@ -82,16 +110,27 @@ export default class Drawer {
 }
 
 // A key command has nowhere to show a failure: say it in the log rather than drop it.
+/**
+ * @param {string} name
+ * @param {Promise<ExecResult>} promise
+ */
 function logFailure(name, promise) {
   promise
     .then((r) => r?.code && console.log(`pixel-party: ${name} failed: ${r.stderr || r.code}`))
     .catch((e) => console.log(`pixel-party: ${name} failed: ${e?.message ?? e}`));
 }
 
+/** @type {(a: AgentInfo) => null} Focuses the agent's pane. */
 const go = (a) => run("pane.focus", { pane: a.pane });
 
 // The sprite and its cue. `side` is where the stripe goes: "left", "right" or "bottom".
 // The sprite draws its own "!" when blocked, so the cell adds only the tint.
+/**
+ * @param {Theme} t
+ * @param {AgentInfo} a
+ * @param {"left" | "right" | "bottom"} side
+ * @returns {Element}
+ */
 function cell(t, a, side) {
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
@@ -107,27 +146,35 @@ function cell(t, a, side) {
     .items_center()
     .justify_center()
     .rounded(6)
-    .when(blocked, (el) => el.bg(t.blocked + "40"))
+    .when(blocked, (el) => el.bg(`${t.blocked}40`))
     .child(spriteElement(makeSprite(seedFor(a.address)), { id: `pp-spr-${a.address}`, px: PX, status: a.status }))
     .child(stripe);
 }
 
+/** @type {(address: string) => string | null} The machine of a remote address ("mini/t7"), else null. */
 const machineOf = (address) => (address.includes("/") ? address.split("/")[0] : null);
 
 // What every agent's element does, whatever its shape: focus marked, click goes there,
 // right click opens the picker. The id is the address, unique and stable per agent.
+/** @type {(t: Theme, it: Item, el: Element, id: string) => Element} */
 const shell = (t, { a, on }, el, id) =>
   el
     .id(id)
     .rounded(6)
     .cursor_pointer()
-    .when(a.status === "blocked" && !on, (el) => el.bg(t.blocked + "1f"))
+    .when(a.status === "blocked" && !on, (el) => el.bg(`${t.blocked}1f`))
     .when(on, (el) => el.bg(t.selected))
     .hover((s) => s.bg(t.hover))
     .on_click(() => go(a))
     .on_mouse_down("right", () => openPicker(a.address));
 
 // A side edge: the cell on the edge side, the name and status line beside it.
+/**
+ * @param {Theme} t
+ * @param {Item} it
+ * @param {boolean} right Docked on the right edge: the cell goes on the right.
+ * @returns {Element}
+ */
 function row(t, it, right) {
   const { a, line } = it;
   const blocked = a.status === "blocked";
@@ -152,6 +199,11 @@ function row(t, it, right) {
 }
 
 // A top or bottom edge: the sprite standing over its name, the status line under that.
+/**
+ * @param {Theme} t
+ * @param {Item} it
+ * @returns {Element}
+ */
 function tile(t, it) {
   const { a, line } = it;
   const blocked = a.status === "blocked";
