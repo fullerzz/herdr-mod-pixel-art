@@ -6,6 +6,7 @@
 //   node tools/snapshot-api.mjs   # rewrites tests/mocks/api.json and types/*.d.ts
 //
 // Run it after a Herdr update. The type files are the app's own, rewritten on every start.
+// Review THIRD_PARTY_NOTICES.md and upstream licenses when refreshing these copies.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";

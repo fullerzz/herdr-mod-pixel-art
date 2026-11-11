@@ -17,11 +17,20 @@ move according to what their agents are doing.
 - **No setup per agent.** An agent without a choice gets a creature generated from its
   terminal address, the same one every time.
 
+![Six generated Pixel Party creatures](docs/pixel-party-preview.svg)
+
+Static examples from the sprite generator; the drawer animates them in Herdr.
+
 ## Install
 
-Needs the Herdr app, [`just`](https://just.systems) and node.
+Needs the Herdr app, Git, [`just`](https://just.systems), and Node.js.
+The app integration was verified with Herdr 0.1.15; local tests run with Node.js
+26.13.0 and CI targets Node.js 24. Herdr provides `herdr-app` and `hc`.
+The commands below use a POSIX shell (macOS or Linux).
 
 ```sh
+git clone https://github.com/fullerzz/herdr-mod-pixel-art.git
+cd herdr-mod-pixel-art
 just install   # link mods/pixel-party into ~/.config/herdr-app/mods and check it loads
 just dock      # float the drawer on the right edge of the layout you are looking at
 ```
@@ -69,7 +78,22 @@ link is remade.
   { "global": { "ctrl-shift-y": "pixel-party.reroll" } }
   ```
 
+## Contributing
+
+[GitHub](https://github.com/fullerzz/herdr-mod-pixel-art) is the public mirror;
+development is maintained in Forgejo. Open
+[issues](https://github.com/fullerzz/herdr-mod-pixel-art/issues) and
+[pull requests](https://github.com/fullerzz/herdr-mod-pixel-art/pulls) on GitHub.
+Include your Herdr version and reproduction steps for bugs, and run the checks
+below for code changes.
+
+Accepted contributions are integrated into Forgejo and then mirrored back to
+GitHub. Maintainers should not merge directly into GitHub: the push mirror can
+overwrite GitHub-only commits.
+
 ## Development
+
+Use the pnpm version pinned in `package.json` (12.16.1), available through Corepack.
 
 ```sh
 pnpm install     # once: TypeScript, for the type check
@@ -80,7 +104,8 @@ just check       # Herdr's own loader on the mod
 
 The mod is plain JavaScript typed with JSDoc. `just typecheck` checks it against Herdr's
 own declarations, copied into `types/` so it runs without the app; pull requests run it
-and the tests in `.forgejo/workflows/check.yml`.
+and the tests in `.forgejo/workflows/check.yml` and `.github/workflows/check.yml`.
+GitHub also checks pushes to `main`, including mirrored updates.
 
 `docs/DESIGN.md` has the module contracts and the platform facts they rest on. The tests
 run the mod under stand-ins for Herdr's modules (`tests/mocks/`) that refuse what the app
@@ -89,4 +114,17 @@ agents, so it never runs the sprite code: the tests are what cover it. After a H
 update, `node tools/snapshot-api.mjs` refreshes the names the stand-ins accept and the
 declarations in `types/`.
 
-The mod runs `hc label` to save a choice. It reads no files and reaches no network.
+## Local access
+
+The mod runs `hc label` to save a choice. Edit tracking watches local agent
+repositories, runs Git to count changes, and reads up to 50 untracked files per
+scan to count their lines. The mod makes no direct network requests; Herdr and
+`hc` handle connections to any configured remote machines.
+
+The install command creates a symlink in Herdr's mod directory. The dock tool
+edits your chosen layout and keeps a backup on its first change.
+
+## License
+
+Original project code is [MIT licensed](LICENSE). Copied Herdr API declarations
+retain their upstream license; see [third-party notices](THIRD_PARTY_NOTICES.md).
