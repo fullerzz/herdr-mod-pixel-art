@@ -18,6 +18,11 @@ picker lets the person choose another creature for an agent.
   Herdr client, and can be set from a shell: `hc label t7 pixel.avatar=knight7`.
 - **Picker.** A grid of candidate sprites for one agent. Choosing one saves the label.
   Shuffle draws new candidates. Reset removes the label.
+- **Hits.** Lines an agent adds or removes in its repository land on its sprite like hits in
+  a fighting game: green `+12` and red `−3` pop over it, hold for a beat, then curve away
+  and fade: added lines up and to the left, removed lines up and to the right.
+  The sprite flashes the hit's color and is knocked: lifted by added lines, pushed sideways
+  by removed ones.
 - **Keys.** Three commands act on the current agent, for `keys.json` and
   `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`.
 
@@ -38,6 +43,8 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | `focused().agent` names an agent even when the keyboard is in a shell pane, or in another agent's pane. | Commands prefer the pane with the keyboard. |
 | A mod linked into the app's home reloads when the link is made again, not on every save. | `just install` is the reload. |
 | `herdr-app check` hangs inside a command sandbox. | Workers run the node tests; the coordinator runs the check. |
+| Herdr reports no file edits. `panes()` gives each pane's live `cwd`; `watchFolder` and `exec("git", ...)` work from a mod. | Hits come from the agent's repository diff, read again after each watched change. |
+| `.transition(property, ...)` animates a change of that property between two renders of the same id. | A hit renders twice: at full strength, then settled. A new hit gets new ids so it starts over. |
 
 ## Modules
 
@@ -45,6 +52,7 @@ All in `mods/pixel-party/`. Arrows are imports.
 
 ```
 main.js ──> drawer.js ──┬─> identity.js ──> herdr
+        │               ├─> edits.js ──> herdr
         └─> picker.js ──┤
                         ├─> sprite-view.js ──> sprites.js
                         └─> sprites.js
@@ -55,7 +63,8 @@ main.js ──> drawer.js ──┬─> identity.js ──> herdr
 | `main.js` | coordinator | Picks the view from `props().view`; feeds key commands to a view that defines `command`. |
 | `identity.js` | coordinator | The label: `seedFor`, `hasAvatar`, `setAvatar`, `clearAvatar`, `openPicker`. |
 | `sprites.js` | sprites | Seed to sprite. Pure: no imports, runs under plain node. |
-| `sprite-view.js` | sprites | Sprite to element, with motion per status. |
+| `sprite-view.js` | sprites | Sprite to element, with motion per status and a hit's flash and knock. |
+| `edits.js` | drawer | Lines added and removed in the agents' repositories, from git. |
 | `drawer.js` | drawer | The party drawer. |
 | `picker.js` | picker | The picker popup. |
 
@@ -83,7 +92,8 @@ nothing from it. Its shape is the sprites module's own business, with these guar
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, hit = null }): Element;
+export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 ```
 
 - Returns one element exactly `GRID * px` square that does not shrink in a flex row.
@@ -93,6 +103,30 @@ export function spriteElement(sprite, { id, px = 3, status = null }): Element;
   is a single frame.
 - Motion uses only `.loop`, `.frames`, `.spin` and `.transition`. No timers, no `cx`.
 - Status accents may use `theme()` colors. Sprite art uses its own palette.
+- `hit` is `{ n, damage, live } | null`. It adds a flash of the creature's silhouette in
+  `HIT.removed` (`damage`) or `HIT.added`, and a knock of one cell: sideways for damage,
+  up otherwise. `live` draws it at full strength; settled, both ease back with
+  `.transition`. Its ids carry `n`.
+
+### Contract: `edits.js`
+
+```js
+export function parseNumstat(stdout): Diff;           // `git diff --numstat`, binary files left out
+export const countLines = (text) => number;
+export function growth(before, after): Lines;         // { added, removed }: only what grew
+export async function readDiff(root): Diff | null;    // against HEAD, untracked files as added
+export class EditWatcher {
+  constructor(onGrowth: (root, lines, cx) => void);
+  follow(dirs, cx): void;   // watch the repositories these folders are in, and no other
+  rootOf(dir): string | null;
+}
+```
+
+- Git runs with `--no-optional-locks`, so reading a diff never writes the index and never
+  wakes its own watch.
+- Growth counts per file: a commit, stash or revert shrinks the diff and is no hit. The
+  first read is a baseline, so starting Herdr is no hit either.
+- At most 50 untracked files are read per look.
 
 ### Contract: `identity.js`
 
@@ -139,6 +173,11 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - The current agent's row is marked: the pane with the keyboard when it is an agent, else
   Herdr's current agent (`focused().agent`). It is the agent the commands act on.
 - Click: `run("pane.focus", { pane })`. Right click: `openPicker(address)`.
+- A hit in a repository lands on the agents working in it, else on every agent in it. Only
+  agents on this computer are watched. Its numbers sit in the sprite cell, so a closed
+  drawer shows them. It holds 90 ms, then each number curves 14 px up and 14 px aside
+  (`top` eases out while `left` eases in) and fades; it is gone after 1.4 s. A new
+  hit on the same agent replaces the last one.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 

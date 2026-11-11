@@ -11,6 +11,11 @@
 //   blocked  open eyes, still, a blinking "!" badge in the top right corner
 //   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn
 //   idle     closed eyes, dimmed, breathes slowly, a fading "z"
+//
+// A hit (lines its agent added or removed) adds, on top of any status, a flash of the
+// creature's silhouette and a knock: up for added lines, sideways for removed ones. Both
+// start at full strength and ease back with `.transition`, so the caller renders a hit
+// twice: `live` first, then settled.
 
 import { div } from "gpui-kit";
 import { theme } from "herdr";
@@ -41,6 +46,17 @@ const layer = (rects, u) => div().absolute().left(0).top(0).size(GRID * u).child
  * @returns {Element}
  */
 const mark = (cells, color, u) => layer(cells.map(([x, y, w = 1, h = 1]) => ({ x, y, w, h, color })), u);
+
+/** The colors of hits: added lines heal, removed lines hurt. */
+export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" });
+
+/**
+ * A hit as the sprite shows it.
+ * @typedef {object} SpriteHit
+ * @property {number} n The hit's number: a new number is a new hit, drawn from the start.
+ * @property {boolean} damage Lines were removed: a red flash and a sideways knock.
+ * @property {boolean} live Its first frame, at full strength. Settled, it eases back.
+ */
 
 /** @type {Partial<Record<Status, Mood>>} */
 const EYES = { working: "look", done: "happy", idle: "closed" };
@@ -89,9 +105,10 @@ function accents(status, u) {
  * @param {string} options.id The element id: unique in the view and stable across renders.
  * @param {number} [options.px] Pixels per cell (default 3).
  * @param {Status | null} [options.status] The agent's status; null draws it still.
+ * @param {SpriteHit | null} [options.hit] A hit being shown, or null.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, hit = null } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
@@ -118,5 +135,34 @@ export function spriteElement(sprite, { id, px: u = 3, status = null } = /** @ty
   figure.child(left).child(right).child(torso);
 
   const { behind, front } = accents(status, u);
-  return div().id(id).relative().size(size).flex_none().children([...behind, figure, ...front]);
+  return div().id(id).relative().size(size).flex_none().children([...behind, hit ? struck(figure, sprite, id, u, hit) : figure, ...front]);
+}
+
+/**
+ * The figure taking a hit: knocked out of place under a flash of its silhouette.
+ * The ids carry the hit's number, so a new hit starts over rather than easing from the last.
+ * @param {Element} figure
+ * @param {Sprite} sprite
+ * @param {string} id
+ * @param {number} u
+ * @param {SpriteHit} hit
+ * @returns {Element}
+ */
+function struck(figure, sprite, id, u, hit) {
+  const { body, feet } = sprite.parts;
+  const color = hit.damage ? HIT.removed : HIT.added;
+  const flash = layer([...body, ...feet[0], ...feet[1]].map((r) => ({ ...r, color })), u)
+    .id(`${id}-flash-${hit.n}`)
+    .opacity(hit.live ? 0.9 : 0)
+    .transition("opacity", { duration: 320, easing: "ease-out" });
+  return div()
+    .id(`${id}-knock-${hit.n}`)
+    .absolute()
+    .left(hit.live && hit.damage ? -u : 0)
+    .top(hit.live && !hit.damage ? -u : 0)
+    .size(GRID * u)
+    .transition("left", { duration: 220, easing: "ease-out" })
+    .transition("top", { duration: 220, easing: "ease-out" })
+    .child(figure)
+    .child(flash);
 }

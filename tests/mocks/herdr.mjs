@@ -13,10 +13,15 @@ const blank = () => ({
   props: {},
   shared: {},
   layout: null,
+  /** `exec(command, args, options)` answers with this, else succeeds with no output. */
+  exec: null,
+  /** `readTextFile(path)` answers with `files[path]`, else null. */
+  files: {},
 });
 
 const pending = [];
 const queued = [];
+const watching = [];
 
 export const mock = {
   state: blank(),
@@ -28,6 +33,14 @@ export const mock = {
     mock.calls.length = 0;
     pending.length = 0;
     queued.length = 0;
+    watching.length = 0;
+  },
+  /** Ends every pending `watchFolder(path)`, as a change under that folder would. */
+  touch(path) {
+    for (const w of watching.splice(0)) {
+      if (w.path === path) w.resolve([path]);
+      else watching.push(w);
+    }
   },
   /** The recorded calls to one function, as argument lists. */
   of: (fn) => mock.calls.filter((call) => call.fn === fn).map((call) => call.args),
@@ -113,12 +126,12 @@ export const closeOverlay = recorder("closeOverlay");
 export const setAgentOrder = recorder("setAgentOrder");
 export const playSound = recorder("playSound");
 export const presentUpdateNotes = recorder("presentUpdateNotes");
-export const exec = recorder("exec", () => Promise.resolve(ok));
+export const exec = recorder("exec", (...args) => Promise.resolve(mock.state.exec?.(...args) ?? ok));
 export const knownAgents = recorder("knownAgents", () => Promise.resolve([]));
 export const pickFolder = recorder("pickFolder", () => Promise.resolve(null));
-export const readTextFile = recorder("readTextFile", () => Promise.resolve(null));
+export const readTextFile = recorder("readTextFile", (path) => Promise.resolve(mock.state.files[path] ?? null));
 export const writeTextFile = recorder("writeTextFile", () => Promise.resolve(null));
-export const watchFolder = recorder("watchFolder", () => new Promise(() => {}));
+export const watchFolder = recorder("watchFolder", (path) => new Promise((resolve) => watching.push({ path, resolve })));
 export const feedbackPreview = recorder("feedbackPreview");
 export const feedbackPasteImage = recorder("feedbackPasteImage");
 export const feedbackPickImages = recorder("feedbackPickImages", () => Promise.resolve([]));

@@ -151,15 +151,34 @@ export function check(el) {
   return nodes;
 }
 
-/** A callback context like the app's: counts `notify`, runs `spawn` at once. */
+/**
+ * A callback context like the app's: counts `notify`, runs `spawn` at once, and keeps
+ * timers in `cx.timers` ({ ms, handler, every }) for a test to run with `cx.run(ms)`.
+ * `sleep` resolves at once.
+ */
 export function context() {
+  const task = () => ({ cancel() {}, is_done: () => false });
   const cx = {
     notified: 0,
     stopped: 0,
+    timers: [],
     notify: () => void cx.notified++,
     stop_propagation: () => void cx.stopped++,
-    spawn: (task) => task(cx),
-    timer: { every: () => null, after: () => null },
+    spawn: (body) => {
+      body(cx);
+      return task();
+    },
+    sleep: () => Promise.resolve(),
+    timer: {
+      every: (ms, handler) => (cx.timers.push({ ms, handler, every: true }), task()),
+      after: (ms, handler) => (cx.timers.push({ ms, handler, every: false }), task()),
+    },
+    /** Runs the one-shot timers due by `ms` and drops them. */
+    run(ms) {
+      const due = cx.timers.filter((t) => !t.every && t.ms <= ms);
+      cx.timers = cx.timers.filter((t) => !due.includes(t));
+      for (const t of due) t.handler(cx);
+    },
     focus_handle: () => ({ focus() {} }),
   };
   return cx;
