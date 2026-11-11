@@ -1,5 +1,6 @@
 {
   "name": "herdr-mod-pixel-art",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
