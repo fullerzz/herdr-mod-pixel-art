@@ -9,6 +9,10 @@ install:
     ln -sfn "$PWD/mods/pixel-party" "{{ mods }}/pixel-party"
     herdr-app check "{{ mods }}/pixel-party"
 
+# Add the bee hooks to Claude Code and Codex, keeping what their settings hold (`just hooks --dry-run` first; `just hooks claude`)
+hooks *args:
+    node tools/install-hooks.mjs {{ args }}
+
 # Load the mod once and report what's wrong
 check:
     herdr-app check "$PWD/mods/pixel-party"

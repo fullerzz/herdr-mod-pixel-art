@@ -10,6 +10,11 @@
 // Lines an agent adds or removes are hits, as in a fighting game: the numbers ("+12" green,
 // "−3" red) pop over its sprite and curve away, up-left and up-right, while the sprite
 // flashes and is knocked.
+//
+// Each helper an agent has running (an `hc` terminal it started, or a sub-agent) is a honey
+// bee that flies out of its sprite to a lane under it, and stays there until the helper ends.
+// Herdr clips a floating mod to its frame, so the lane is inside the drawer: it is as wide
+// as the sprite cell, and a closed drawer shows it.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -18,8 +23,10 @@ import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { makeSprite, randomSeed } from "./sprites.js";
 import { spriteElement, HIT } from "./sprite-view.js";
 import { EditWatcher } from "./edits.js";
+import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /** @import { AsyncContext, Color, Context, Element } from "gpui-kit" */
+/** @import { Bee } from "./bees.js" */
 /** @import { Lines } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status } from "herdr" */
 /** @import { Theme } from "./sprite-view.js" */
@@ -31,6 +38,12 @@ import { EditWatcher } from "./edits.js";
  * @property {string} line The status line under its name.
  * @property {boolean} on Whether it is the agent keys act on, marked as focused.
  * @property {Hit | null} hit The hit it is taking, if any.
+ * @property {Flier[]} bees Its helpers, as bees.
+ */
+
+/**
+ * A bee being shown.
+ * @typedef {Bee & { id: string, out: boolean }} Flier `out` once it has left the sprite for its place.
  */
 
 /**
@@ -47,6 +60,15 @@ const HIT_HOLD = 90; // ms a hit stays still at full strength, a fighting game's
 const HIT_MS = 1400; // ms a hit shows in all
 const HIT_RISE = 14; // px a hit's numbers rise
 const HIT_SWING = 14; // px they swing aside: left for added lines, right for removed ones
+const BEE_PX = 2; // a 14 by 10 px bee
+const BEE_MAX = 6; // bees drawn per agent; past that the last place holds a count
+const BEE_HOLD = 40; // ms a new bee sits inside its sprite before it flies out
+const BEE_ROW = 3; // bees side by side under a sprite
+const BEE_STEP = 15; // px from one bee to the next: three fill the 48 px cell
+const BEE_LANE = 12; // px a row of bees takes
+const BEE_LIFT = 2; // px over the first row: a flying bee lifts by one of its cells
+/** @type {(n: number) => number} The height of the lanes under a sprite with n bees. */
+const lanes = (n) => (n ? BEE_LIFT + Math.ceil(Math.min(n, BEE_MAX) / BEE_ROW) * BEE_LANE : 0);
 const FOLLOW_MS = 2000; // ms between looks at which folders the agents are in
 
 /** @type {Record<Status, string>} */
@@ -96,6 +118,9 @@ export default class Drawer {
   /** @type {Map<string, Hit>} By agent address. */
   hits = new Map();
   serial = 0;
+  /** @type {Set<string>} The ids of the bees that have flown out to their places. */
+  flown = new Set();
+  launching = false;
 
   /**
    * @param {Record<string, any>} _props
@@ -143,10 +168,40 @@ export default class Drawer {
     else if (name === "reset") logFailure(name, clearAvatar(target));
   }
 
-  /** @param {Context} _cx */
-  render(_cx) {
+  /**
+   * The agents' bees. A bee not seen before starts inside its sprite, and is let out a
+   * beat later, so it is drawn twice and flies between the two.
+   * @param {AgentInfo[]} list
+   * @param {Context} cx
+   * @returns {Map<string, Flier[]>} By agent address.
+   */
+  swarm(list, cx) {
+    const rows = new Set(list.map((a) => a.address));
+    const all = terminals();
+    const ids = new Set();
+    const byAgent = new Map(list.map((a) => [a.address, beesOf(a.address, rows, all).map((bee) => {
+      const id = `pp-bee-${a.address}-${bee.key}`;
+      ids.add(id);
+      return { ...bee, id, out: this.flown.has(id) };
+    })]));
+    // A helper that ended is forgotten, so one that comes back flies out again.
+    for (const id of this.flown) if (!ids.has(id)) this.flown.delete(id);
+    if (!this.launching && ids.size > this.flown.size) {
+      this.launching = true;
+      cx.timer.after(BEE_HOLD, (cx) => {
+        this.launching = false;
+        for (const id of ids) this.flown.add(id);
+        cx.notify();
+      });
+    }
+    return byAgent;
+  }
+
+  /** @param {Context} cx */
+  render(cx) {
     const list = agents();
     if (!list.length) return div();
+    const bees = this.swarm(list, cx);
     const t = /** @type {Theme} */ (theme());
     const edge = placement()?.edge ?? null;
     const byAddress = new Map(terminals().map((x) => [x.address, x]));
@@ -156,6 +211,7 @@ export default class Drawer {
       line: lineOf(a, byAddress.get(a.address)),
       on: a.address === shown,
       hit: this.hits.get(a.address) ?? null,
+      bees: bees.get(a.address) ?? [],
     }));
 
     if (edge === "top" || edge === "bottom") {
@@ -238,30 +294,66 @@ function numbers(address, hit) {
         .child(digits(s, HIT[kind], 0))));
 }
 
+// The bees in the lanes under the sprite's box. Each has a place by its position in the
+// list, so when one leaves the ones after it glide up a place. A new bee starts unseen in
+// the middle of the sprite.
+/**
+ * @param {Flier[]} bees
+ * @returns {Element[]}
+ */
+function hive(bees) {
+  /** @type {(i: number) => [number, number]} The i-th place: left and top in the cell. */
+  const spot = (i) => [2 + (i % BEE_ROW) * BEE_STEP, CELL_H + BEE_LIFT + Math.floor(i / BEE_ROW) * BEE_LANE];
+  const [w, h] = [BEE_W * BEE_PX, BEE_H * BEE_PX];
+  const more = bees.length > BEE_MAX ? bees.length - (BEE_MAX - 1) : 0;
+  const shown = more ? bees.slice(0, BEE_MAX - 1) : bees;
+  const out = shown.map((bee, i) => {
+    const [left, top] = spot(i);
+    return div()
+      .id(bee.id)
+      .absolute()
+      .left(bee.out ? left : (CELL - w) / 2)
+      .top(bee.out ? top : (CELL_H - h) / 2)
+      .opacity(bee.out ? 1 : 0)
+      .transition("left", { duration: 450, easing: "ease-out" })
+      .transition("top", { duration: 450, easing: "ease-out" })
+      .transition("opacity", { duration: 200 })
+      .child(beeElement({ status: bee.status, px: BEE_PX, phase: i }));
+  });
+  if (more) {
+    const [left, top] = spot(BEE_MAX - 1);
+    /** @type {(color: Color, d: number) => Element} */
+    const count = (color, d) => div().absolute().left(left - 2 + d).top(top - 2 + d).w(w + 4).text_center().text_size(10).font_extrabold().text_color(color).child(`+${more}`);
+    out.push(count("#000000c0", 1), count("#f7b521", 0));
+  }
+  return out;
+}
+
 /** @type {(a: AgentInfo) => null} Focuses the agent's pane. */
 const go = (a) => run("pane.focus", { pane: a.pane });
 
-// The sprite and its cue. `side` is where the stripe goes: "left", "right" or "bottom".
-// The sprite draws its own "!" when blocked, so the cell adds only the tint. A hit's
-// numbers go over the sprite, in the cell, so a closed drawer shows them too.
+// The sprite and its cue in a box, and under the box the lanes of its bees. `side` is where
+// the stripe goes: "left", "right" or "bottom". The sprite draws its own "!" when blocked,
+// so the box adds only the tint. A hit's numbers go over the sprite, in the box, so a
+// closed drawer shows them too.
 /**
  * @param {Theme} t
  * @param {AgentInfo} a
  * @param {"left" | "right" | "bottom"} side
  * @param {Hit | null} hit
+ * @param {Flier[]} bees
  * @returns {Element}
  */
-function cell(t, a, side, hit) {
+function cell(t, a, side, hit, bees) {
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
   const stripe = side === "bottom"
     ? div().absolute().left(12).bottom(0).w(CELL - 24).h(3).rounded(2).bg(color)
     : div().absolute().top(6).bottom(6).w(3).rounded(2).bg(color).when(side === "left", (el) => el.left(0)).when(side === "right", (el) => el.right(0));
-  return div()
+  const box = div()
     .relative()
     .w(CELL)
     .h(CELL_H)
-    .flex_none()
     .flex()
     .items_center()
     .justify_center()
@@ -275,6 +367,7 @@ function cell(t, a, side, hit) {
     }))
     .child(stripe)
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)));
+  return div().relative().w(CELL).h(CELL_H + lanes(bees.length)).flex_none().child(box).children(hive(bees));
 }
 
 /** @type {(address: string) => string | null} The machine of a remote address ("mini/t7"), else null. */
@@ -320,7 +413,7 @@ function row(t, it, right) {
     .when(blocked, (el) => el.font_semibold())
     .child(line);
   const text = v_flex().w(TEXT_W).min_w(0).gap(1).when(right, (el) => el.pl(10)).when(!right, (el) => el.pr(10)).child(name).child(status);
-  const parts = [cell(t, a, right ? "right" : "left", it.hit), text];
+  const parts = [cell(t, a, right ? "right" : "left", it.hit, it.bees), text];
   return shell(t, it, h_flex(), `pp-row-${a.address}`).items_center().children(right ? parts.reverse() : parts);
 }
 
@@ -338,7 +431,7 @@ function tile(t, it) {
     .pb(4)
     .items_center()
     .tooltip(`${nameOf(a)}: ${line}`)
-    .child(cell(t, a, "bottom", it.hit))
+    .child(cell(t, a, "bottom", it.hit, it.bees))
     .child(div().w(TILE_W - 8).truncate().text_center().text_size(11).font_medium().text_color(t.foreground).child(nameOf(a)))
     .child(div().w(TILE_W - 8).truncate().text_center().text_size(10).text_color(blocked ? t.blocked : t.dim).when(blocked, (el) => el.font_semibold()).child(line));
 }

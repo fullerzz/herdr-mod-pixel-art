@@ -23,6 +23,9 @@ picker lets the person choose another creature for an agent.
   and fade: added lines up and to the left, removed lines up and to the right.
   The sprite flashes the hit's color and is knocked: lifted by added lines, pushed sideways
   by removed ones.
+- **Bees.** Each helper an agent has running is a honey bee beside its sprite: a terminal
+  it started with `hc run`, or a sub-agent inside its own program. A new bee flies out of
+  the sprite; it leaves when its helper ends.
 - **Keys.** Three commands act on the current agent, for `keys.json` and
   `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`.
 
@@ -44,6 +47,11 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | A mod linked into the app's home reloads when the link is made again, not on every save. | `just install` is the reload. |
 | `herdr-app check` hangs inside a command sandbox. | Workers run the node tests; the coordinator runs the check. |
 | Herdr reports no file edits. `panes()` gives each pane's live `cwd`; `watchFolder` and `exec("git", ...)` work from a mod. | Hits come from the agent's repository diff, read again after each watched change. |
+| `terminals()` gives each terminal's `parent`: the terminal that started it with `hc run`. A helper without a pane is not in `agents()`. | `hc` helpers are bees with no setup. |
+| Herdr sees nothing of a sub-agent inside an agent's program (Claude Code's Agent tool). Its hooks run with `HC_TERMINAL_ID` set, and `hc label` takes a key such as `pixel.bee.a1B2-c_3`. | A hook keeps one label per running sub-agent; the label change re-renders the drawer. |
+| A Claude Code hook's parent process is `claude` itself (measured for SessionStart, SubagentStart and SubagentStop). A `claude -p` run from an agent's tool inherits `HC_TERMINAL_ID` and starts a session of its own. | `clear` tells the owner's own new session from a nested program's session by pid. |
+| Herdr clips a floating mod to its frame: a child placed outside it is not drawn. | Bees get room inside the drawer, in lanes under the sprite. |
+| A `Context` in `render` has the same `timer` as an `AsyncContext`. | A new bee's second render is scheduled from `render`. |
 | `.transition(property, ...)` animates a change of that property between two renders of the same id. | A hit renders twice: at full strength, then settled. A new hit gets new ids so it starts over. |
 
 ## Modules
@@ -53,6 +61,7 @@ All in `mods/pixel-party/`. Arrows are imports.
 ```
 main.js ──> drawer.js ──┬─> identity.js ──> herdr
         │               ├─> edits.js ──> herdr
+        │               ├─> bees.js ──> herdr
         └─> picker.js ──┤
                         ├─> sprite-view.js ──> sprites.js
                         └─> sprites.js
@@ -65,6 +74,7 @@ main.js ──> drawer.js ──┬─> identity.js ──> herdr
 | `sprites.js` | sprites | Seed to sprite. Pure: no imports, runs under plain node. |
 | `sprite-view.js` | sprites | Sprite to element, with motion per status and a hit's flash and knock. |
 | `edits.js` | drawer | Lines added and removed in the agents' repositories, from git. |
+| `bees.js` | drawer | An agent's helpers, and the bee drawn for each. |
 | `drawer.js` | drawer | The party drawer. |
 | `picker.js` | picker | The picker popup. |
 
@@ -128,6 +138,42 @@ export class EditWatcher {
   first read is a baseline, so starting Herdr is no hit either.
 - At most 50 untracked files are read per look.
 
+### Contract: `bees.js`
+
+```js
+export const BEE = "pixel.bee.";                         // label prefix of a running sub-agent
+export function beesOf(address, rows?, all?): Bee[];     // { key, status }
+export const BEE_W = 7, BEE_H = 5;                       // cells
+export function beeElement({ status, px = 2, flip, phase }): Element;
+```
+
+- An agent's bees are its live `hc` helpers depth first, found through ended helpers too, then one per `pixel.bee.<id>`
+  label on its terminal with a value, in key order. `key` is the helper's address or the
+  label's key: unique among one agent's bees and stable while the helper lives.
+- A helper in `rows` (it has a row of its own) is still its parent's bee, but its own
+  helpers are its own bees, not its parent's.
+- `status` is `"working" | "blocked" | "idle"`. A helper that reports nothing is a plain
+  command and works while it lives. `error` is blocked. `done` is idle: a helper reports
+  to its parent, and the parent's done is the news. A label's bee always works.
+- `beeElement` is `BEE_W * px` by `BEE_H * px`, lifts by up to `px` while it flies, and
+  uses no ids and no timers. `flip` mirrors it to face left.
+- `tools/bee-hook.sh start|stop|clear` writes the labels from an agent's hooks. It never
+  fails or stalls its agent: each `hc` call is killed after 2 seconds. It does nothing
+  outside an `hc` terminal. `clear` leaves the labels alone on a compaction, in a
+  sub-agent's own session start, and while another live program owns them: `pixel.hive`
+  holds the pid of the owning program, the hook's parent process, and `clear` takes
+  ownership when that program has died.
+- `tools/install-hooks.mjs` (`just hooks`) adds the three hooks to Claude Code's
+  `settings.json` and Codex's `hooks.json`, which share one shape. It appends, because
+  Codex keys a hook's trust by its place in its list, and never changes a hook already
+  there: an event has the hook only when a command is exactly the one it writes, or that
+  with the path unquoted. It refuses a file that parsing and writing back would change by
+  more than spacing, a hard link, and a link to nothing. It keeps a backup, writes a
+  temporary file with the old file's exact mode, and swaps it in only if the old one is
+  still what it read (a new file only if none appeared). Any failure before the swap is a
+  refusal that leaves the file untouched and nothing beside it, and one program's failure
+  never stops the next.
+
 ### Contract: `identity.js`
 
 ```js
@@ -178,6 +224,13 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   drawer shows them. It holds 90 ms, then each number curves 14 px up and 14 px aside
   (`top` eases out while `left` eases in) and fades; it is gone after 1.4 s. A new
   hit on the same agent replaces the last one.
+- Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
+  the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
+  up to three bees and two for more, and has none without bees. With more than six bees
+  the sixth place shows a count of the rest. They can't leave the drawer: Herdr clips a
+  floating mod to its frame. A bee not seen before is drawn first in the
+  middle of the sprite, unseen, and 40 ms later at its place: it flies there over 450 ms.
+  When a bee leaves, the ones after it glide up a place.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 

@@ -11,6 +11,9 @@ move according to what their agents are doing.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock.
+- **Worker bees.** Every helper an agent starts is a little honey bee that flies out of its
+  creature and hovers beside it until the helper ends: terminals started with `hc run`
+  with no setup, sub-agents with [one hook](#worker-bees).
 - **Yours to choose.** Right-click a row for a grid of other creatures. The choice is saved
   as a label on the agent's terminal, so it stays through restarts and shows on every
   Herdr client.
@@ -78,6 +81,55 @@ link is remade.
   { "global": { "ctrl-shift-y": "pixel-party.reroll" } }
   ```
 
+## Worker bees
+
+![Bees fly out under an agent's creature as its helpers start, and leave as they end](docs/worker-bees.gif)
+
+A bee is one running helper of the agent it hovers beside. It flies while the helper
+works, blinks when the helper is blocked, and rests when the helper is idle. Past six
+helpers, the last place counts the rest.
+
+- **`hc` helpers** need no setup: every live terminal an agent started with `hc run`, and
+  every one those started, is a bee, even after the terminal that started it has ended.
+- **Sub-agents** run inside the agent's own program, where Herdr can't see them. A hook
+  tells the mod: `tools/bee-hook.sh` keeps one `pixel.bee.<id>` label per running
+  sub-agent on the agent's terminal. Install it for Claude Code and Codex with:
+
+  ```sh
+  just hooks --dry-run   # say what would change
+  just hooks             # both, or `just hooks claude` / `just hooks codex`
+  ```
+
+  It adds three hooks to `~/.claude/settings.json` and `~/.codex/hooks.json` after the
+  ones already there, keeps the file as it was beside it (`.bak-pixel-party-<time>`), and
+  is safe to run again. It never changes a hook that is already there: if one of yours
+  also runs a `bee-hook.sh`, the new hook goes after it and a note says so. A file it
+  can't change without risk (comments, a duplicate key, a hard link, a link to nothing, a
+  folder it can't write in) is left untouched and reported. Codex runs hooks only with `hooks = true` under
+  `[features]` in its `config.toml`, and may ask you to trust the new ones.
+
+  By hand, for Claude Code, with the path of your clone:
+
+  ```json
+  {
+    "hooks": {
+      "SubagentStart": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh start", "timeout": 5 }] }],
+      "SubagentStop": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh stop", "timeout": 5 }] }],
+      "SessionStart": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh clear", "timeout": 5 }] }]
+    }
+  }
+  ```
+
+  The hook does nothing outside an `hc` terminal, and gives up on an `hc` call after 2
+  seconds. `clear` removes the labels a killed session left behind. It keeps the labels of
+  a program still running on the same terminal (an agent's own `claude -p` starts a session
+  too): the `pixel.hive` label names the program that owns them. Any other agent can do the same from its own hooks:
+
+  ```sh
+  hc label "$HC_TERMINAL_ID" pixel.bee.review-1=1    # a bee
+  hc label "$HC_TERMINAL_ID" pixel.bee.review-1=     # gone
+  ```
+
 ## Contributing
 
 [GitHub](https://github.com/fullerzz/herdr-mod-pixel-art) is the public mirror;
@@ -116,7 +168,9 @@ declarations in `types/`.
 
 ## Local access
 
-The mod runs `hc label` to save a choice. Edit tracking watches local agent
+The mod runs `hc label` to save a choice. The optional bee hook runs `hc label` and
+`hc get` on its own agent's terminal; `just hooks` edits Claude Code's and Codex's hook
+files and keeps a backup of each. Edit tracking watches local agent
 repositories, runs Git to count changes, and reads up to 50 untracked files per
 scan to count their lines. The mod makes no direct network requests; Herdr and
 `hc` handle connections to any configured remote machines.
