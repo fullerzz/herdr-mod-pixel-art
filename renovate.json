@@ -2,5 +2,20 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices"
+  ],
+  "packageRules": [
+    {
+      "matchCategories": ["ci"],
+      "groupName": "ci",
+      "semanticCommitType": "ci",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "npm development dependencies",
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "deps"
+    }
   ]
 }
