@@ -11,9 +11,9 @@ move according to what their agents are doing.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock.
-- **Worker bees.** Every helper an agent starts is a little honey bee that flies out of its
-  creature and hovers beside it until the helper ends: terminals started with `hc run`
-  with no setup, sub-agents with [one hook](#worker-bees).
+- **Worker bees.** Every helper an agent starts is a little figure that flies out of its
+  creature and stays beside it until the helper ends: a sheep for a terminal started with
+  `hc run`, with no setup, and a honey bee for a sub-agent, with [one hook](#worker-bees).
 - **Yours to choose.** Right-click a row for a grid of other creatures. The choice is saved
   as a label on the agent's terminal, so it stays through restarts and shows on every
   Herdr client.
@@ -85,13 +85,17 @@ link is remade.
 
 ![Bees fly out under an agent's creature as its helpers start, and leave as they end](docs/worker-bees.gif)
 
-A bee is one running helper of the agent it hovers beside. It flies while the helper
-works, blinks when the helper is blocked, and rests when the helper is idle. Past six
-helpers, the last place counts the rest.
+A figure is one running helper of the agent it stays beside: a sheep for a helper Herdr
+runs, a honey bee for a sub-agent. It moves while the helper works (a bee flies, a sheep
+hops), blinks when the helper is blocked, and rests when the helper is idle. Past six
+helpers, the last place counts the rest. The recording above is older than the sheep: it
+shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like this:
 
-- **`hc` helpers** need no setup: every live terminal an agent started with `hc run`, and
-  every one those started, is a bee, even after the terminal that started it has ended.
-- **Sub-agents** run inside the agent's own program, where Herdr can't see them. A hook
+![Two sheep and a honey bee under an agent's creature](docs/worker-sheep.png)
+
+- **`hc` helpers** are sheep, and need no setup: every live terminal an agent started with
+  `hc run`, and every one those started, even after the terminal that started it has ended.
+- **Sub-agents** are honey bees. They run inside the agent's own program, where Herdr can't see them. A hook
   tells the mod: `tools/bee-hook.sh` keeps one `pixel.bee.<id>` label per running
   sub-agent on the agent's terminal. Install it for Claude Code and Codex with:
 

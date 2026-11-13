@@ -23,9 +23,10 @@ picker lets the person choose another creature for an agent.
   and fade: added lines up and to the left, removed lines up and to the right.
   The sprite flashes the hit's color and is knocked: lifted by added lines, pushed sideways
   by removed ones.
-- **Bees.** Each helper an agent has running is a honey bee beside its sprite: a terminal
-  it started with `hc run`, or a sub-agent inside its own program. A new bee flies out of
-  the sprite; it leaves when its helper ends.
+- **Bees.** Each helper an agent has running is a small figure beside its sprite: a sheep
+  for a terminal it started with `hc run`, a honey bee for a sub-agent inside its own
+  program. Both are called bees below. A new bee flies out of the sprite; it leaves when
+  its helper ends.
 - **Keys.** Three commands act on the current agent, for `keys.json` and
   `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`.
 
@@ -142,21 +143,24 @@ export class EditWatcher {
 
 ```js
 export const BEE = "pixel.bee.";                         // label prefix of a running sub-agent
-export function beesOf(address, rows?, all?): Bee[];     // { key, status }
+export function beesOf(address, rows?, all?): Bee[];     // { key, kind, status }
 export const BEE_W = 7, BEE_H = 5;                       // cells
-export function beeElement({ status, px = 2, flip, phase }): Element;
+export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Element;
 ```
 
 - An agent's bees are its live `hc` helpers depth first, found through ended helpers too, then one per `pixel.bee.<id>`
   label on its terminal with a value, in key order. `key` is the helper's address or the
   label's key: unique among one agent's bees and stable while the helper lives.
+- `kind` is `"sheep"` for an `hc` helper, whatever it runs, and `"bee"` for a label: it
+  says who runs the helper, Herdr or the agent's own program.
 - A helper in `rows` (it has a row of its own) is still its parent's bee, but its own
   helpers are its own bees, not its parent's.
 - `status` is `"working" | "blocked" | "idle"`. A helper that reports nothing is a plain
   command and works while it lives. `error` is blocked. `done` is idle: a helper reports
   to its parent, and the parent's done is the news. A label's bee always works.
-- `beeElement` is `BEE_W * px` by `BEE_H * px`, lifts by up to `px` while it flies, and
-  uses no ids and no timers. `flip` mirrors it to face left.
+- `beeElement` draws the figure of its `kind`. It is `BEE_W * px` by `BEE_H * px`, lifts
+  by up to `px` while it works, and uses no ids and no timers. `flip` mirrors it to face
+  left. Blocked, a bee's wings or a sheep's fleece take the theme's blocked color.
 - `tools/bee-hook.sh start|stop|clear` writes the labels from an agent's hooks. It never
   fails or stalls its agent: each `hc` call is killed after 2 seconds. It does nothing
   outside an `hc` terminal. `clear` leaves the labels alone on a compaction, in a

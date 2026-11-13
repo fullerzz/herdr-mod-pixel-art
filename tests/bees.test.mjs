@@ -101,6 +101,14 @@ test("each pixel.bee.<id> label on the agent's terminal is a bee, after its hc h
   assert.deepEqual(keys("t2"), []);
 });
 
+test("an hc helper is a sheep, a sub-agent is a honey bee", () => {
+  mock.agent("t1");
+  helper("t3", "t1");
+  helper("t4", "t3");
+  label("t1", "pixel.bee.a1");
+  assert.deepEqual(beesOf("t1").map((b) => [b.key, b.kind]), [["t3", "sheep"], ["t4", "sheep"], ["pixel.bee.a1", "bee"]]);
+});
+
 test("a bee's status follows its helper: a plain command works, a finished agent rests", () => {
   mock.agent("t1");
   for (const [address, status] of [["t2", undefined], ["t3", "working"], ["t4", "blocked"], ["t5", "error"], ["t6", "idle"], ["t7", "done"]]) {
@@ -110,26 +118,83 @@ test("a bee's status follows its helper: a plain command works, a finished agent
   assert.deepEqual(beesOf("t1").map((b) => b.status), ["working", "working", "blocked", "blocked", "idle", "idle", "working"]);
 });
 
-test("a bee is a small hex-colored figure inside its box, the same one mirrored when it faces left", () => {
-  for (const px of [1, 2, 3]) {
+const colorsOf = (el) => new Set(walk(el).map((n) => last(n, "bg")).filter(Boolean));
+
+test("a bee and a sheep are small hex-colored figures inside their box, the same one mirrored when it faces left", () => {
+  for (const [kind, px] of ["bee", "sheep"].flatMap((kind) => [1, 2, 3].map((px) => [kind, px]))) {
     const shapes = [false, true].map((flip) => {
-      const el = beeElement({ px, flip, status: "idle" });
+      const el = beeElement({ kind, px, flip, status: "idle" });
       assert.deepEqual([last(nodeOf(el), "w"), last(nodeOf(el), "h")], [BEE_W * px, BEE_H * px]);
       const cells = walk(el).filter((n) => last(n, "bg")).map((n) => [last(n, "left") / px, last(n, "top") / px, last(n, "w") / px, last(n, "h") / px, last(n, "bg")]);
       for (const [x, y, w, h] of cells) assert.ok(x >= 0 && y >= 0 && x + w <= BEE_W && y + h <= BEE_H, `outside the box at ${x},${y}`);
       return cells;
     });
     assert.deepEqual(shapes[1].map(([x, y, w, h, c]) => [BEE_W - x - w, y, w, h, c]), shapes[0]);
-    assert.ok(new Set(shapes[0].map((c) => c[4])).size >= 3, "wings, amber and dark stripes");
+    assert.ok(new Set(shapes[0].map((c) => c[4])).size >= 3, "three colors or more");
   }
 });
 
-test("every status has its own look: flying, asking, resting", () => {
-  assert.deepEqual(loops(beeElement({ status: "working" })).sort(), ["opacity", "top"]);
-  const blocked = beeElement({ status: "blocked" });
-  assert.deepEqual(loops(blocked), ["opacity"]);
-  assert.ok(walk(blocked).some((n) => last(n, "bg") === t.blocked));
-  assert.deepEqual(loops(beeElement({ status: "idle" })), []);
+// The art itself, one string per row: a letter per color, "." for an empty cell.
+const drawn = (kind, letters) => {
+  const rows = Array.from({ length: BEE_H }, () => Array(BEE_W).fill("."));
+  for (const n of walk(beeElement({ kind, px: 1, status: "idle" }))) {
+    const color = last(n, "bg");
+    if (!color) continue;
+    assert.ok(color in letters, `${kind}: a color that is not its own, ${color}`);
+    for (let y = last(n, "top"); y < last(n, "top") + last(n, "h"); y++) {
+      for (let x = last(n, "left"); x < last(n, "left") + last(n, "w"); x++) {
+        assert.equal(rows[y][x], ".", `${kind}: two colors at ${x},${y}`);
+        rows[y][x] = letters[color];
+      }
+    }
+  }
+  return rows.map((r) => r.join(""));
+};
+
+test("the honey bee is drawn cell for cell: wings over amber and dark stripes, a stinger", () => {
+  assert.deepEqual(drawn("bee", { "#e6f5ff": "w", "#f7b521": "a", "#2b1b0e": "d" }), [
+    "...ww..",
+    "..www..",
+    ".adadad",
+    "dadadad",
+    ".adad..",
+  ]);
+});
+
+test("the sheep is drawn cell for cell: a fleece with a shaded belly, a face, two legs", () => {
+  assert.deepEqual(drawn("sheep", { "#f4f1ea": "f", "#bdb6a8": "b", "#8d8496": "d" }), [
+    ".ffff..",
+    "fffffdd",
+    "fffffdd",
+    "bbbbb..",
+    ".d..d..",
+  ]);
+});
+
+test("a sheep does not look like a bee, and a figure without a kind is a bee", () => {
+  const [bee, sheep] = ["bee", "sheep"].map((kind) => colorsOf(beeElement({ kind, status: "idle" })));
+  assert.deepEqual([...bee].filter((c) => sheep.has(c)), []);
+  assert.deepEqual(colorsOf(beeElement({ status: "idle" })), bee);
+});
+
+test("every status has its own look, for a bee and a sheep: moving, asking, resting", () => {
+  for (const kind of ["bee", "sheep"]) {
+    assert.deepEqual(loops(beeElement({ kind, status: "working" })).sort(), ["opacity", "top"], kind);
+    const blocked = beeElement({ kind, status: "blocked" });
+    assert.deepEqual(loops(blocked), ["opacity"], kind);
+    assert.ok(walk(blocked).some((n) => last(n, "bg") === t.blocked), kind);
+    assert.deepEqual(loops(beeElement({ kind, status: "idle" })), [], kind);
+  }
+});
+
+test("the drawer draws a sheep for an hc helper and a bee for a sub-agent", () => {
+  mock.agent("t1");
+  helper("t3", "t1", { status: "idle" });
+  label("t1", "pixel.bee.a1");
+  const tree = settled();
+  const drawn = (id) => colorsOf(find(tree, id));
+  assert.deepEqual(drawn("pp-bee-t1-t3"), colorsOf(beeElement({ kind: "sheep", status: "idle" })));
+  assert.deepEqual(drawn("pp-bee-t1-pixel.bee.a1"), colorsOf(beeElement({ kind: "bee" })));
 });
 
 test("the drawer draws an agent's bees under its sprite's box, on every edge, with unique ids", () => {

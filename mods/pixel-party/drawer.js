@@ -11,8 +11,9 @@
 // "−3" red) pop over its sprite and curve away, up-left and up-right, while the sprite
 // flashes and is knocked.
 //
-// Each helper an agent has running (an `hc` terminal it started, or a sub-agent) is a honey
-// bee that flies out of its sprite to a lane under it, and stays there until the helper ends.
+// Each helper an agent has running is a small figure (a sheep for an `hc` terminal it
+// started, a honey bee for a sub-agent; both are "bees" below) that flies out of its sprite
+// to a lane under it, and stays there until the helper ends.
 // Herdr clips a floating mod to its frame, so the lane is inside the drawer: it is as wide
 // as the sprite cell, and a closed drawer shows it.
 
@@ -318,7 +319,7 @@ function hive(bees) {
       .transition("left", { duration: 450, easing: "ease-out" })
       .transition("top", { duration: 450, easing: "ease-out" })
       .transition("opacity", { duration: 200 })
-      .child(beeElement({ status: bee.status, px: BEE_PX, phase: i }));
+      .child(beeElement({ kind: bee.kind, status: bee.status, px: BEE_PX, phase: i }));
   });
   if (more) {
     const [left, top] = spot(BEE_MAX - 1);
