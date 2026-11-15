@@ -23,6 +23,10 @@ picker lets the person choose another creature for an agent.
   and fade: added lines up and to the left, removed lines up and to the right.
   The sprite flashes the hit's color and is knocked: lifted by added lines, pushed sideways
   by removed ones.
+- **Stamps.** A commit made in an agent's repository is a stamp of approval: a rubber stamp
+  slams down on its sprite, the cell dips under the blow, and the stamp lifts away to leave a
+  check that holds a moment, then fades. The check is in the "done" color and says
+  "approved" by its shape: red is the "Needs you" cue, so the stamp never relies on it.
 - **Bees.** Each helper an agent has running is a small figure beside its sprite: a sheep
   for a terminal it started with `hc run`, a honey bee for a sub-agent inside its own
   program. Both are called bees below. A new bee flies out of the sprite; it leaves when
@@ -54,6 +58,10 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | Herdr clips a floating mod to its frame: a child placed outside it is not drawn. | Bees get room inside the drawer, in lanes under the sprite. |
 | A `Context` in `render` has the same `timer` as an `AsyncContext`. | A new bee's second render is scheduled from `render`. |
 | `.transition(property, ...)` animates a change of that property between two renders of the same id. | A hit renders twice: at full strength, then settled. A new hit gets new ids so it starts over. |
+| A commit writes only under `.git`, and `watchFolder` on a repository wakes for it (macOS). A linked worktree's git folder is outside its folder. | Each look also reads HEAD's reflog; a linked worktree's git folder is watched as well. |
+| One look can follow several git commands: a commit and a reset can land in one batch, in the same second, and two reflog entries can read alike. | Each look reads every reflog line added since the last look, from where that one got to, by position in the file, not by time or commit. |
+| `readTextFile` reads at most 1 MiB, and a busy repository's reflog grows past it. | The reflog is read with `tail -n +<line>`: only the new lines, from the last one read. |
+| A folder an agent is in can become a repository later (`git init`). | A folder in no repository is asked again every 10 s. |
 
 ## Modules
 
@@ -126,9 +134,13 @@ export function parseNumstat(stdout): Diff;           // `git diff --numstat`, b
 export const countLines = (text) => number;
 export function growth(before, after): Lines;         // { added, removed }: only what grew
 export async function readDiff(root): Diff | null;    // against HEAD, untracked files as added
+export const START: Cursor;                          // { lines: 0, last: "" }: nothing read yet
+export function parseReflog(lines): HeadMove[];     // reflog file lines, oldest first
+export const isCommit = (subject) => boolean;       // git's note for a new commit made here
+export async function readMoves(log, from: Cursor): { moves: HeadMove[], to: Cursor } | null; // the lines after `from`
 export class EditWatcher {
-  constructor(onGrowth: (root, lines, cx) => void);
-  follow(dirs, cx): void;   // watch the repositories these folders are in, and no other
+  constructor(onGrowth: (root, lines, cx) => void, onCommit?: (root, sha, cx) => void);
+  follow(dirs, cx): void;   // watch the repositories these folders are in, and no other; ask a folder in none again after 10 s
   rootOf(dir): string | null;
 }
 ```
@@ -138,6 +150,27 @@ export class EditWatcher {
 - Growth counts per file: a commit, stash or revert shrinks the diff and is no hit. The
   first read is a baseline, so starting Herdr is no hit either.
 - At most 50 untracked files are read per look.
+- The reflog is HEAD's own file (`rev-parse --git-path logs/HEAD`, relative to the repository
+  unless its git folder is elsewhere, as in a linked worktree; not `--path-format`, which git
+  before 2.31 echoes back). Its path is asked for again on each look until git tells it. A
+  `Cursor` is `{ lines, last }`: the lines read and the text of the last one. A read starts at
+  that last line. When it has moved (`git reflog expire` drops the oldest lines), the read goes
+  on from wherever it is now. When it is gone (the reflog rewritten or deleted), the read goes
+  on from the reflog's end, with no moves. An absent
+  reflog (no commits yet) reads as `START`; a line git has not finished is left for the next
+  read.
+- A `HeadMove` is `{ sha, subject }`: the commit HEAD moved to and git's reflog note. A
+  commit is a move whose note is `commit: `, `commit (initial|amend|merge): ` or
+  `merge <x>: Merge made by ...` (a clean `git merge` that made a merge commit). A
+  checkout, reset, rebase, pull, fast-forward or cherry-pick (`commit (cherry-pick): ` too) is
+  not.
+- Commits count from the first good read: starting Herdr is no commit, and so is anything
+  already in the reflog when that first read failed. A repository found where a folder had
+  none (`git init`) counts from the start of its reflog, and is reported as soon as it is
+  watched. A folder found late in a repository already watched does not make it new. A failed read keeps where the reading got to. One look reports at most one
+  commit, the newest.
+- A linked worktree's git folder (`rev-parse --absolute-git-dir` outside the repository)
+  is watched too. Each watched folder has one pending `watchFolder` at a time.
 
 ### Contract: `bees.js`
 
@@ -228,6 +261,14 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   drawer shows them. It holds 90 ms, then each number curves 14 px up and 14 px aside
   (`top` eases out while `left` eases in) and fades; it is gone after 1.4 s. A new
   hit on the same agent replaces the last one.
+- A commit in a repository stamps the same agents a hit would, in the box over the sprite's
+  lower right, so a closed drawer shows it. The tool, 8 by 9 cells of 3 px, is drawn 14 px
+  above its spot and unseen, then 30 ms later falls onto the spot over 170 ms, easing in, as
+  it shows. The box dips 3 px as it lands. At 330 ms the tool rises back and fades over
+  200 ms, the box rises, and the mark shows where it pressed: a bold check, 8 by 6 cells in
+  `theme().done`, outlined dark so it reads on any creature. The mark holds, fades from
+  1.7 s, and is gone at 2.4 s. A new stamp on the same agent replaces the last, with new
+  ids.
 - Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees

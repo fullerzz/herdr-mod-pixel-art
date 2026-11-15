@@ -11,6 +11,10 @@
 // "−3" red) pop over its sprite and curve away, up-left and up-right, while the sprite
 // flashes and is knocked.
 //
+// A commit made in an agent's repository is a stamp of approval: a rubber stamp slams down
+// on its sprite, the cell dips under the blow, and the stamp lifts away to leave a check
+// mark that holds a moment before it fades.
+//
 // Each helper an agent has running is a small figure (a sheep for an `hc` terminal it
 // started, a honey bee for a sub-agent; both are "bees" below) that flies out of its sprite
 // to a lane under it, and stays there until the helper ends.
@@ -39,8 +43,15 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {string} line The status line under its name.
  * @property {boolean} on Whether it is the agent keys act on, marked as focused.
  * @property {Hit | null} hit The hit it is taking, if any.
+ * @property {Stamp | null} stamp The stamp it is getting, if any.
  * @property {Flier[]} bees Its helpers, as bees.
  */
+
+/**
+ * A commit's stamp, being shown. Each step is one render; transitions move between them.
+ * @typedef {{ n: number, step: StampStep }} Stamp
+ */
+/** @typedef {"drop" | "press" | "lift" | "fade"} StampStep */
 
 /**
  * A bee being shown.
@@ -71,6 +82,15 @@ const BEE_LIFT = 2; // px over the first row: a flying bee lifts by one of its c
 /** @type {(n: number) => number} The height of the lanes under a sprite with n bees. */
 const lanes = (n) => (n ? BEE_LIFT + Math.ceil(Math.min(n, BEE_MAX) / BEE_ROW) * BEE_LANE : 0);
 const FOLLOW_MS = 2000; // ms between looks at which folders the agents are in
+const STAMP_PX = 3; // a stamp's cells, the sprite's size
+const STAMP_W = 8 * STAMP_PX; // px: the mark and the tool are as wide
+const STAMP_X = 21; // px: the stamp lands on the sprite's lower right (the sprite is 6..42 by 4..40)
+const STAMP_FLOOR = 41; // px: where the mark's and the pressed tool's bottoms rest
+const STAMP_RISE = 14; // px the tool waits above where it presses, and lifts back to
+const STAMP_SLAM = 170; // ms from dropped to down
+const STAMP_DIP = 3; // px the cell dips when the tool lands
+/** @type {[ms: number, step: StampStep | null][]} When each step starts; null: gone. */
+const STAMP_STEPS = [[30, "press"], [330, "lift"], [1700, "fade"], [2400, null]];
 
 /** @type {Record<Status, string>} */
 const WORD = { working: "Working", blocked: "Needs you", done: "Finished", idle: "Idle" };
@@ -122,13 +142,15 @@ export default class Drawer {
   /** @type {Set<string>} The ids of the bees that have flown out to their places. */
   flown = new Set();
   launching = false;
+  /** @type {Map<string, Stamp>} By agent address. */
+  stamps = new Map();
 
   /**
    * @param {Record<string, any>} _props
    * @param {AsyncContext} cx
    */
   init(_props, cx) {
-    this.edits = new EditWatcher((root, lines, cx) => this.strike(root, lines, cx));
+    this.edits = new EditWatcher((root, lines, cx) => this.strike(root, lines, cx), (root, _commit, cx) => this.stamp(root, cx));
     /** @type {(cx: AsyncContext) => void} */
     const follow = (cx) => this.edits.follow(folders().values(), cx);
     follow(cx);
@@ -136,15 +158,24 @@ export default class Drawer {
   }
 
   /**
-   * Lines grew in a repository: a hit on the agents working in it, else on every agent in it.
+   * The agents news from a repository lands on: those working in it, else every agent in it.
+   * @param {string} root
+   * @returns {string[]} Addresses.
+   */
+  agentsIn(root) {
+    const here = [...folders()].filter(([, dir]) => this.edits.rootOf(dir) === root).map(([address]) => address);
+    const working = here.filter((address) => agents().find((a) => a.address === address)?.status === "working");
+    return working.length ? working : here;
+  }
+
+  /**
+   * Lines grew in a repository: a hit on its agents.
    * @param {string} root
    * @param {Lines} lines
    * @param {AsyncContext} cx
    */
   strike(root, lines, cx) {
-    const here = [...folders()].filter(([, dir]) => this.edits.rootOf(dir) === root).map(([address]) => address);
-    const working = here.filter((address) => agents().find((a) => a.address === address)?.status === "working");
-    for (const address of working.length ? working : here) {
+    for (const address of this.agentsIn(root)) {
       const hit = { ...lines, n: ++this.serial, live: true };
       this.hits.set(address, hit);
       cx.timer.after(HIT_HOLD, (cx) => {
@@ -156,6 +187,28 @@ export default class Drawer {
         this.hits.delete(address);
         cx.notify();
       });
+    }
+    cx.notify();
+  }
+
+  /**
+   * A commit was made in a repository: a stamp on its agents. A new stamp replaces the last.
+   * @param {string} root
+   * @param {AsyncContext} cx
+   */
+  stamp(root, cx) {
+    for (const address of this.agentsIn(root)) {
+      /** @type {Stamp} */
+      const stamp = { n: ++this.serial, step: "drop" };
+      this.stamps.set(address, stamp);
+      for (const [ms, step] of STAMP_STEPS) {
+        cx.timer.after(ms, (cx) => {
+          if (this.stamps.get(address) !== stamp) return;
+          if (step) stamp.step = step;
+          else this.stamps.delete(address);
+          cx.notify();
+        });
+      }
     }
     cx.notify();
   }
@@ -212,6 +265,7 @@ export default class Drawer {
       line: lineOf(a, byAddress.get(a.address)),
       on: a.address === shown,
       hit: this.hits.get(a.address) ?? null,
+      stamp: this.stamps.get(a.address) ?? null,
       bees: bees.get(a.address) ?? [],
     }));
 
@@ -295,6 +349,93 @@ function numbers(address, hit) {
         .child(digits(s, HIT[kind], 0))));
 }
 
+// A stamp's mark, 8 by 6 cells: a bold check. It says "approved" by its shape, so it reads
+// the same in any theme; red alone would read as the "Needs you" cue. It is solid ink, not
+// cut out of a block: the creature showing through a cut-out check made it a face.
+const MARK = [
+  ".......#",
+  "......##",
+  ".....##.",
+  "##..##..",
+  ".####...",
+  "..##....",
+];
+// The stamp tool from the side, 8 by 9 cells: h handle, l its light, n neck, b block,
+// i the inked rubber.
+const TOOL = [
+  "..hhhh..",
+  ".hllhhh.",
+  ".hhhhhh.",
+  "..hhhh..",
+  "...nn...",
+  "...nn...",
+  "bbbbbbbb",
+  "bbbbbbbb",
+  ".iiiiii.",
+];
+/** @type {Record<string, Color>} The tool's own colors; the rubber takes the ink. */
+const TOOL_PAINT = { h: "#c98b4f", l: "#ebbd85", n: "#9aa5b1", b: "#7a4e2d" };
+const TOOL_H = TOOL.length * STAMP_PX;
+const MARK_H = MARK.length * STAMP_PX;
+const STAMP_DARK = "#101016"; // the outline and shadow that keep a stamp readable on any creature
+/** @type {(grid: string[]) => [x: number, y: number, w: number, c: string][]} Runs of one letter, row by row. */
+const runsOf = (grid) =>
+  grid.flatMap((line, y) => [...line.matchAll(/([^.])\1*/g)].map((m) => /** @type {[number, number, number, string]} */ ([m.index, y, m[0].length, m[1]])));
+const MARK_RUNS = runsOf(MARK);
+const TOOL_RUNS = runsOf(TOOL);
+
+// Cells of STAMP_PX, each run in its color, over dark copies moved by each of `under`.
+/**
+ * @param {[number, number, number, string][]} runs
+ * @param {(c: string) => Color} paint
+ * @param {[dx: number, dy: number][]} under
+ * @returns {Element[]}
+ */
+function pixels(runs, paint, under) {
+  /** @type {(color: (c: string) => Color, dx: number, dy: number) => Element} */
+  const layer = (color, dx, dy) =>
+    div().absolute().left(dx).top(dy).size_full().children(runs.map(([x, y, w, c]) =>
+      div().absolute().left(x * STAMP_PX).top(y * STAMP_PX).w(w * STAMP_PX).h(STAMP_PX).bg(color(c))));
+  return [...under.map(([dx, dy]) => layer(() => STAMP_DARK, dx, dy)), layer(paint, 0, 0)];
+}
+
+// A commit's stamp on the sprite. Dropped, the tool waits unseen above the sprite's lower
+// right; pressed, it slams down there as it shows, faster as it falls, and covers the spot;
+// lifted, it rises away and fades, and leaves the mark where it pressed. The mark holds, then
+// fades. The ids carry the stamp's number, so a new stamp starts over instead of easing back.
+/**
+ * @param {Theme} t
+ * @param {string} address
+ * @param {Stamp} stamp
+ * @returns {Element}
+ */
+function stampElement(t, address, stamp) {
+  const { n, step } = stamp;
+  const down = step === "press";
+  const mark = div()
+    .id(`pp-mark-${address}-${n}`)
+    .absolute()
+    .left(STAMP_X)
+    .top(STAMP_FLOOR - MARK_H)
+    .w(STAMP_W)
+    .h(MARK_H)
+    .opacity(step === "lift" ? 1 : 0)
+    .transition("opacity", step === "fade" ? { duration: 600, easing: "ease-in" } : { duration: 40 })
+    .children(pixels(MARK_RUNS, () => t.done, [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]));
+  const tool = div()
+    .id(`pp-tool-${address}-${n}`)
+    .absolute()
+    .left(STAMP_X)
+    .top(STAMP_FLOOR - TOOL_H - (down ? 0 : STAMP_RISE))
+    .w(STAMP_W)
+    .h(TOOL_H)
+    .opacity(down ? 1 : 0)
+    .transition("top", down ? { duration: STAMP_SLAM, easing: "ease-in" } : { duration: 200, easing: "ease-out" })
+    .transition("opacity", down ? { duration: 60 } : { duration: 200, easing: "ease-in" })
+    .children(pixels(TOOL_RUNS, (c) => (c === "i" ? t.done : TOOL_PAINT[c]), [[1, 1]]));
+  return div().id(`pp-stamp-${address}-${n}`).absolute().left(0).top(0).size_full().child(mark).child(tool);
+}
+
 // The bees in the lanes under the sprite's box. Each has a place by its position in the
 // list, so when one leaves the ones after it glide up a place. A new bee starts unseen in
 // the middle of the sprite.
@@ -335,23 +476,25 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 
 // The sprite and its cue in a box, and under the box the lanes of its bees. `side` is where
 // the stripe goes: "left", "right" or "bottom". The sprite draws its own "!" when blocked,
-// so the box adds only the tint. A hit's numbers go over the sprite, in the box, so a
-// closed drawer shows them too.
+// so the box adds only the tint. A hit's numbers and a stamp go over the sprite, in the box,
+// so a closed drawer shows them too. The box dips as the stamp lands and rises after.
 /**
  * @param {Theme} t
  * @param {AgentInfo} a
  * @param {"left" | "right" | "bottom"} side
  * @param {Hit | null} hit
+ * @param {Stamp | null} stamp
  * @param {Flier[]} bees
  * @returns {Element}
  */
-function cell(t, a, side, hit, bees) {
+function cell(t, a, side, hit, stamp, bees) {
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
   const stripe = side === "bottom"
     ? div().absolute().left(12).bottom(0).w(CELL - 24).h(3).rounded(2).bg(color)
     : div().absolute().top(6).bottom(6).w(3).rounded(2).bg(color).when(side === "left", (el) => el.left(0)).when(side === "right", (el) => el.right(0));
   const box = div()
+    .id(`pp-box-${a.address}`)
     .relative()
     .w(CELL)
     .h(CELL_H)
@@ -367,7 +510,11 @@ function cell(t, a, side, hit, bees) {
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live },
     }))
     .child(stripe)
-    .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)));
+    .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
+    .when(Boolean(stamp), (el) => el
+      .top(stamp.step === "press" ? STAMP_DIP : 0)
+      .transition("top", stamp.step === "press" ? { duration: 60, delay: STAMP_SLAM - 40, easing: "ease-in" } : { duration: 260, easing: "ease-out" })
+      .child(stampElement(t, a.address, stamp)));
   return div().relative().w(CELL).h(CELL_H + lanes(bees.length)).flex_none().child(box).children(hive(bees));
 }
 
@@ -414,7 +561,7 @@ function row(t, it, right) {
     .when(blocked, (el) => el.font_semibold())
     .child(line);
   const text = v_flex().w(TEXT_W).min_w(0).gap(1).when(right, (el) => el.pl(10)).when(!right, (el) => el.pr(10)).child(name).child(status);
-  const parts = [cell(t, a, right ? "right" : "left", it.hit, it.bees), text];
+  const parts = [cell(t, a, right ? "right" : "left", it.hit, it.stamp, it.bees), text];
   return shell(t, it, h_flex(), `pp-row-${a.address}`).items_center().children(right ? parts.reverse() : parts);
 }
 
@@ -432,7 +579,7 @@ function tile(t, it) {
     .pb(4)
     .items_center()
     .tooltip(`${nameOf(a)}: ${line}`)
-    .child(cell(t, a, "bottom", it.hit, it.bees))
+    .child(cell(t, a, "bottom", it.hit, it.stamp, it.bees))
     .child(div().w(TILE_W - 8).truncate().text_center().text_size(11).font_medium().text_color(t.foreground).child(nameOf(a)))
     .child(div().w(TILE_W - 8).truncate().text_center().text_size(10).text_color(blocked ? t.blocked : t.dim).when(blocked, (el) => el.font_semibold()).child(line));
 }

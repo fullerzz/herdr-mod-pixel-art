@@ -11,6 +11,9 @@ move according to what their agents are doing.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock.
+- **Stamps.** When an agent makes a git commit, a rubber stamp slams down on its creature
+  and lifts away to leave a green check: a stamp of approval on finished work. The check
+  holds a moment, then fades.
 - **Worker bees.** Every helper an agent starts is a little figure that flies out of its
   creature and stays beside it until the helper ends: a sheep for a terminal started with
   `hc run`, with no setup, and a honey bee for a sub-agent, with [one hook](#worker-bees).
@@ -80,6 +83,23 @@ link is remade.
   ```json
   { "global": { "ctrl-shift-y": "pixel-party.reroll" } }
   ```
+
+## Stamps
+
+![A rubber stamp slams down on an agent's creature when it commits and lifts away, leaving a check that holds and fades](docs/commit-stamp.gif)
+
+A commit in an agent's repository stamps its creature, with no setup. A rubber stamp drops
+onto the creature's lower right, the cell dips under the blow, and the stamp lifts away to
+leave a check in the theme's "Finished" color. The check, not its color, says the work is
+approved, so it never reads as the red "Needs you" cue. It holds for about a second before
+it fades. A commit lands on the agents working in that
+repository, or on every agent in it when none is working, the same as hits.
+
+Any `git commit` counts, whoever runs it: `--amend`, a merge commit (also one `git merge`
+makes) and the first commit of a new repository included, even one made with `git init`
+where the agent already is. A checkout, reset, rebase, pull or cherry-pick moves the branch
+too, but is no stamp. Commits in a linked worktree count as well, and a commit still counts
+when other git commands follow it right away.
 
 ## Worker bees
 
@@ -175,7 +195,8 @@ declarations in `types/`.
 The mod runs `hc label` to save a choice. The optional bee hook runs `hc label` and
 `hc get` on its own agent's terminal; `just hooks` edits Claude Code's and Codex's hook
 files and keeps a backup of each. Edit tracking watches local agent
-repositories, runs Git to count changes, and reads up to 50 untracked files per
+repositories (and the git folder of a linked worktree), runs Git to count changes and
+read HEAD's reflog for new commits (with `tail`), and reads up to 50 untracked files per
 scan to count their lines. The mod makes no direct network requests; Herdr and
 `hc` handle connections to any configured remote machines.
 
