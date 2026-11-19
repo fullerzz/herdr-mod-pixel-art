@@ -271,12 +271,12 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   hit on the same agent replaces the last one.
 - A commit in a repository stamps the same agents a hit would, in the box over the sprite's
   lower right, so a closed drawer shows it. The tool, 8 by 9 cells of 3 px, is drawn 14 px
-  above its spot and unseen, then 30 ms later falls onto the spot over 170 ms, easing in, as
-  it shows. The box dips 3 px as it lands. At 330 ms the tool rises back and fades over
-  200 ms, the box rises, and the mark shows where it pressed: a bold check, 8 by 6 cells in
-  `theme().done`, outlined dark so it reads on any creature. The mark holds, fades from
-  1.7 s, and is gone at 2.4 s. A new stamp on the same agent replaces the last, with new
-  ids.
+  above its spot and unseen, then 30 ms later falls onto the spot over 340 ms, easing in, as
+  it shows. The box dips 3 px as it lands. The tool stays down until 900 ms, then rises back
+  and fades over 400 ms, the box rises over 500 ms, and the mark shows where it pressed: a
+  bold check, 8 by 6 cells in `theme().done`, outlined dark so it reads on any creature. The
+  mark holds, fades over 1 s from 2.7 s, and is gone at 3.8 s. Each step is slow enough to
+  follow by eye. A new stamp on the same agent replaces the last, with new ids.
 - Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees

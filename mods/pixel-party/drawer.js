@@ -97,10 +97,10 @@ const STAMP_W = 8 * STAMP_PX; // px: the mark and the tool are as wide
 const STAMP_X = 21; // px: the stamp lands on the sprite's lower right (the sprite is 6..42 by 4..40)
 const STAMP_FLOOR = 41; // px: where the mark's and the pressed tool's bottoms rest
 const STAMP_RISE = 14; // px the tool waits above where it presses, and lifts back to
-const STAMP_SLAM = 170; // ms from dropped to down
+const STAMP_SLAM = 340; // ms from dropped to down
 const STAMP_DIP = 3; // px the cell dips when the tool lands
 /** @type {[ms: number, step: Stamp["step"] | null][]} When each step starts; null: gone. */
-const STAMP_STEPS = [[30, "press"], [330, "lift"], [1700, "fade"], [2400, null]];
+const STAMP_STEPS = [[30, "press"], [900, "lift"], [2700, "fade"], [3800, null]];
 /** @type {[ms: number, step: Trick["step"] | null][]} After "wand": the wand taps, smoke goes up, the creature shows. */
 const TRICK_STEPS = [[240, "tap"], [440, "poof"], [760, "reveal"], [1500, null]];
 /** @type {[ms: number, step: Puff["step"] | null][]} After "cloud": it clears as the bee flies out. */
@@ -484,7 +484,7 @@ function stampElement(t, address, stamp) {
     .w(STAMP_W)
     .h(MARK_H)
     .opacity(step === "lift" ? 1 : 0)
-    .transition("opacity", step === "fade" ? { duration: 600, easing: "ease-in" } : { duration: 40 })
+    .transition("opacity", step === "fade" ? { duration: 1000, easing: "ease-in" } : { duration: 40 })
     .children(pixels(MARK_RUNS, () => t.done, [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]));
   const tool = div()
     .id(`pp-tool-${address}-${n}`)
@@ -494,8 +494,8 @@ function stampElement(t, address, stamp) {
     .w(STAMP_W)
     .h(TOOL_H)
     .opacity(down ? 1 : 0)
-    .transition("top", down ? { duration: STAMP_SLAM, easing: "ease-in" } : { duration: 200, easing: "ease-out" })
-    .transition("opacity", down ? { duration: 60 } : { duration: 200, easing: "ease-in" })
+    .transition("top", down ? { duration: STAMP_SLAM, easing: "ease-in" } : { duration: 400, easing: "ease-out" })
+    .transition("opacity", down ? { duration: 60 } : { duration: 400, easing: "ease-in" })
     .children(pixels(TOOL_RUNS, (c) => (c === "i" ? t.done : TOOL_PAINT[c]), [[1, 1]]));
   return div().id(`pp-stamp-${address}-${n}`).absolute().left(0).top(0).size_full().child(mark).child(tool);
 }
@@ -659,7 +659,7 @@ function cell(t, { a, hit, stamp, trick, puff, bees }, side) {
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
       .top(stamp.step === "press" ? STAMP_DIP : 0)
-      .transition("top", stamp.step === "press" ? { duration: 60, delay: STAMP_SLAM - 40, easing: "ease-in" } : { duration: 260, easing: "ease-out" })
+      .transition("top", stamp.step === "press" ? { duration: 60, delay: STAMP_SLAM - 40, easing: "ease-in" } : { duration: 500, easing: "ease-out" })
       .child(stampElement(t, a.address, stamp)));
   return div().relative().w(CELL).h(CELL_H + lanes(bees.length)).flex_none().child(box).children(hive(bees));
 }

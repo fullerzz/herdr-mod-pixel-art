@@ -177,18 +177,28 @@ test("a commit stamps the working agent's sprite: the tool slams down and lifts,
   assert.ok(last(box, "top") > 0, "the cell dips under the blow");
   assert.ok(calls(box, "transition").some(([p, policy]) => p === "top" && policy.delay > 0), "as the tool lands, not before");
 
-  cx.run(330);
+  assert.ok(fall.top.duration >= 300, "slow enough to see it fall");
+
+  cx.run(600);
+  tree = draw(drawer, cx);
+  assert.equal(last(tool(), "opacity"), 1, "it stays down long enough to see");
+
+  cx.run(900);
   tree = draw(drawer, cx);
   assert.equal(last(find(tree, "pp-box-t1"), "top"), 0, "the cell rises again");
   assert.equal(last(tool(), "top"), raised, "the tool lifts away");
   assert.equal(last(tool(), "opacity"), 0);
   assert.equal(last(mark(), "opacity"), 1, "and leaves the mark");
 
-  cx.run(1700);
+  cx.run(2400);
+  tree = draw(drawer, cx);
+  assert.equal(last(mark(), "opacity"), 1, "the mark holds for a while");
+
+  cx.run(2700);
   tree = draw(drawer, cx);
   assert.equal(last(mark(), "opacity"), 0, "which then fades");
 
-  cx.run(2400);
+  cx.run(3800);
   assert.equal(stampOf(draw(drawer, cx), "t1"), null, "and is gone");
 });
 
@@ -293,7 +303,7 @@ test("a commit stamps however many moves follow it before the next look, and whe
   const { drawer, cx } = await start();
   await moves([["b", "commit: x"], ...Array.from({ length: 25 }, () => ["b", "reset: moving to HEAD"])]);
   assert.ok(stampOf(draw(drawer, cx), "t1"), "25 moves after it");
-  cx.run(2400);
+  cx.run(3800);
   // Back to "a" in the same second: the reset's line reads as it did when "a" was first reached.
   await moves([["a", "reset: moving to HEAD~1"]]);
   await moves([["d", "commit: y"], ["a", "reset: moving to HEAD~1"]]);
@@ -326,13 +336,13 @@ test("a second commit starts a new stamp; the first one's steps no longer touch 
   const { drawer, cx } = await start();
   await move("b", "commit: one");
   const first = stampOf(draw(drawer, cx), "t1").id;
-  cx.run(1700);
+  cx.run(2700);
   await move("c", "commit: two");
   let tree = draw(drawer, cx);
   const second = stampOf(tree, "t1");
   assert.notEqual(second.id, first, "a new id: it starts over instead of easing back");
   assert.equal(last(walk(second).find((node) => node.id?.startsWith("pp-tool-")), "opacity"), 0, "dropped again");
-  cx.run(2400);
+  cx.run(3800);
   tree = draw(drawer, cx);
   assert.equal(stampOf(tree, "t1"), null, "the second's own end clears it");
 });

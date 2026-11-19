@@ -102,8 +102,8 @@ goes on. The `!` badge and the tinted cell stay, in the theme's "Needs you" colo
 A commit in an agent's repository stamps its creature, with no setup. A rubber stamp drops
 onto the creature's lower right, the cell dips under the blow, and the stamp lifts away to
 leave a check in the theme's "Finished" color. The check, not its color, says the work is
-approved, so it never reads as the red "Needs you" cue. It holds for about a second before
-it fades. A commit lands on the agents working in that
+approved, so it never reads as the red "Needs you" cue. Each step is slow enough to follow,
+and the check holds for about two seconds before it fades. A commit lands on the agents working in that
 repository, or on every agent in it when none is working, the same as hits.
 
 Any `git commit` counts, whoever runs it: `--amend`, a merge commit (also one `git merge`
