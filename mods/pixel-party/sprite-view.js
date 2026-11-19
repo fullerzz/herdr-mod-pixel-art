@@ -8,7 +8,8 @@
 //
 //   null     open eyes, still
 //   working  eyes glance right, feet step in turn, body bobs, speed lines behind
-//   blocked  open eyes, still, a blinking "!" badge in the top right corner
+//   blocked  open eyes, still, on fire: a bed of flames at its feet, tongues licking up its
+//            sides, and a blinking "!" badge in the top right corner
 //   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn
 //   idle     closed eyes, dimmed, breathes slowly, a fading "z"
 //
@@ -58,6 +59,39 @@ export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" 
  * @property {boolean} live Its first frame, at full strength. Settled, it eases back.
  */
 
+/** The colors of a blocked creature's fire, from its edge in to its core. */
+export const FIRE = /** @type {const} */ ({ red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" });
+
+/**
+ * A blocked creature on fire. The bed at its feet holds still, so a single frame shows the
+ * fire; the tongues flicker in turn over it and up both sides. The tall tongues go behind
+ * the creature, so they show only where the art leaves room, and lick up by a cell.
+ * @param {number} u
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
+function fire(u) {
+  /** @type {(cells: Cells, color: Color, from: number, to: number, period: number) => Element} */
+  const flicker = (cells, color, from, to, period) => mark(cells, color, u).loop("opacity", { from, to, period });
+  /** @type {(el: Element, period: number) => Element} Licks up by a cell and back. */
+  const lick = (el, period) => div().absolute().left(0).top(0).size(GRID * u).child(el).loop("top", { from: 0, to: -u, period });
+  const bed = [
+    mark([[1, 11, 10, 1], [1, 10], [10, 10]], FIRE.red, u),
+    mark([[3, 11, 6, 1], [2, 10], [9, 10]], FIRE.orange, u),
+    mark([[5, 11, 2, 1]], FIRE.yellow, u),
+  ];
+  return {
+    behind: [
+      lick(flicker([[0, 6, 1, 4], [1, 8, 1, 2], [11, 8, 1, 2]], FIRE.red, 1, 0.3, 420), 300),
+      lick(flicker([[11, 5, 1, 3], [10, 8, 1, 2], [0, 9]], FIRE.orange, 0.3, 1, 420), 360),
+    ],
+    front: [
+      ...bed,
+      flicker([[3, 10], [6, 10], [8, 10]], FIRE.orange, 1, 0.2, 260),
+      flicker([[4, 10], [5, 9], [7, 10]], FIRE.yellow, 0.2, 1, 260),
+    ],
+  };
+}
+
 /** @type {Partial<Record<Status, Mood>>} */
 const EYES = { working: "look", done: "happy", idle: "closed" };
 
@@ -75,11 +109,13 @@ function accents(status, u) {
       return { behind: [lines.loop("opacity", { from: 1, to: 0.25, period: 480 })], front: [] };
     }
     case "blocked": {
-      // A badge over the top right corner: a theme-colored tile with a white "!".
+      // A badge over the top right corner: a theme-colored tile with a white "!". It goes
+      // over the fire, which keeps its own colors: the badge carries the theme's cue.
       const badge = div().absolute().left(9 * u).top(0).w(3 * u).h(5 * u).rounded(u).bg(t.blocked)
         .child(div().absolute().left(u).top(Math.round(u / 2)).w(u).h(2 * u).bg("#ffffff"))
         .child(div().absolute().left(u).top(Math.round(3.25 * u)).w(u).h(u).bg("#ffffff"));
-      return { behind: [], front: [badge.loop("opacity", { from: 1, to: 0.35, period: 800 })] };
+      const { behind, front } = fire(u);
+      return { behind, front: [...front, badge.loop("opacity", { from: 1, to: 0.35, period: 800 })] };
     }
     case "done": {
       /** @type {(x: number, y: number) => Cells} A plus sign centered on x, y. */

@@ -3,8 +3,9 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { theme } from "herdr";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { FIRE, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -204,5 +205,25 @@ test("each status has its own tree and its own still frame", () => {
     assert.equal(new Set(trees).size, STATUSES.length, `seed ${seed}: statuses share a tree`);
     const frames = STATUSES.map((status) => JSON.stringify(still(seed, status)));
     assert.equal(new Set(frames).size, STATUSES.length, `seed ${seed}: statuses share a still frame`);
+  }
+});
+
+test("a blocked creature is on fire: a still bed of flames at its feet, tongues that flicker, and its badge", () => {
+  const flames = new Set(Object.values(FIRE));
+  const fireIn = (board) => board.flat().filter((c) => flames.has(c)).length;
+  for (const seed of SEEDS.slice(0, 20)) {
+    const board = still(seed, "blocked");
+    // The bed shows in a single frame, along the bottom row, under the creature's feet.
+    assert.ok(board[GRID - 1].slice(1, GRID - 1).every((c) => flames.has(c)), `seed ${seed}: no fire bed`);
+    assert.ok(board.slice(0, 5).flat().includes(theme().blocked), "the badge still shows, in the theme's blocked color");
+    for (const status of STATUSES.filter((s) => s !== "blocked")) assert.equal(fireIn(still(seed, status)), 0, `${status} is not on fire`);
+
+    // The tongues flicker in turn, and the tall ones lick up by one cell at most.
+    const nodes = walk(spriteElement(makeSprite(seed), { id: "s", px: 3, status: "blocked" }));
+    const flickers = nodes.filter((n) => calls(n, "loop").some(([p]) => p === "opacity") && walk(n).some((c) => flames.has(last(c, "bg"))));
+    assert.ok(flickers.length >= 2, "at least two flickering flame layers");
+    assert.ok(flickers.some((n) => calls(n, "loop")[0][1].from > calls(n, "loop")[0][1].to) && flickers.some((n) => calls(n, "loop")[0][1].from < calls(n, "loop")[0][1].to), "flames flicker in turn");
+    const licks = nodes.flatMap((n) => calls(n, "loop").filter(([p]) => p === "top").map(([, policy]) => policy));
+    assert.ok(licks.length >= 1 && licks.every(({ from, to }) => from === 0 && to === -3), "tongues lick up by one cell");
   }
 });

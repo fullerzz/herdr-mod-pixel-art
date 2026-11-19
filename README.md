@@ -6,8 +6,8 @@ move according to what their agents are doing.
 
 - **Drawer.** One sprite per agent. On a side edge only the sprites show; hover slides out
   each agent's name and what it is doing. Click a row to go to that agent.
-- **Motion.** A sprite walks while its agent works, asks for attention when the agent is
-  blocked, celebrates when it finished, and rests when it is idle.
+- **Motion.** A sprite walks while its agent works, catches fire and asks for attention
+  when the agent is blocked, celebrates when it finished, and rests when it is idle.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock.
@@ -86,6 +86,14 @@ link is remade.
   ```json
   { "global": { "ctrl-shift-y": "pixel-party.reroll" } }
   ```
+
+## Fire
+
+![A blocked agent's creature stands in a bed of flames that flicker and lick up its sides, under its "!" badge](docs/blocked-fire.gif)
+
+An agent that is blocked, waiting on a permission prompt or a question, sets its creature
+on fire. A bed of flames burns at its feet and tongues lick up its sides until the agent
+goes on. The `!` badge and the tinted cell stay, in the theme's "Needs you" color.
 
 ## Stamps
 

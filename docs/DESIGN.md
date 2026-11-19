@@ -10,8 +10,9 @@ picker lets the person choose another creature for an agent.
   shows, and hovering slides out each agent's name and what it is doing. Clicking a row
   goes to that agent. Right-clicking a row opens the picker.
 - **Sprites.** Each sprite is generated from a seed, so the same seed always draws the same
-  creature. A sprite moves natively: it walks while its agent works, asks for attention
-  when the agent is blocked, celebrates when it finished, and rests when it is idle.
+  creature. A sprite moves natively: it walks while its agent works, catches fire and asks
+  for attention when the agent is blocked, celebrates when it finished, and rests when it
+  is idle.
 - **Identity.** An agent's seed is the `pixel.avatar` label on its terminal in herdr-core.
   Without the label the seed is the terminal's address, so every agent has a stable sprite
   from the start. A label survives an agent restart in the same terminal, is seen by every
@@ -115,6 +116,7 @@ nothing from it. Its shape is the sprites module's own business, with these guar
 ```js
 export function spriteElement(sprite, { id, px = 3, status = null, hit = null }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
+export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 ```
 
 - Returns one element exactly `GRID * px` square that does not shrink in a flex row.
@@ -124,6 +126,10 @@ export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
   is a single frame.
 - Motion uses only `.loop`, `.frames`, `.spin` and `.transition`. No timers, no `cx`.
 - Status accents may use `theme()` colors. Sprite art uses its own palette.
+- Blocked, the creature is on fire, in `FIRE`'s colors: a bed of flames along the bottom
+  row holds still, so one frame shows it, and tongues flicker in turn over it and up both
+  sides. The tall tongues go behind the art and lick up by one cell. The `!` badge goes over
+  the fire and keeps the theme's blocked color.
 - `hit` is `{ n, damage, live } | null`. It adds a flash of the creature's silhouette in
   `HIT.removed` (`damage`) or `HIT.added`, and a knock of one cell: sideways for damage,
   up otherwise. `live` draws it at full strength; settled, both ease back with
