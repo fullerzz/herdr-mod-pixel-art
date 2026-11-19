@@ -29,8 +29,10 @@ picker lets the person choose another creature for an agent.
   "approved" by its shape: red is the "Needs you" cue, so the stamp never relies on it.
 - **Bees.** Each helper an agent has running is a small figure beside its sprite: a sheep
   for a terminal it started with `hc run`, a honey bee for a sub-agent inside its own
-  program. Both are called bees below. A new bee flies out of the sprite; it leaves when
-  its helper ends.
+  program. Both are called bees below. A new bee flies out of the sprite from a puff of
+  smoke; it leaves when its helper ends.
+- **Arrivals.** A new agent arrives by a magic trick: a wand taps its empty cell, a puff of
+  smoke and sparkles goes up, and its sprite is there when the smoke clears.
 - **Keys.** Three commands act on the current agent, for `keys.json` and
   `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`.
 
@@ -276,6 +278,19 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   floating mod to its frame. A bee not seen before is drawn first in the
   middle of the sprite, unseen, and 40 ms later at its place: it flies there over 450 ms.
   When a bee leaves, the ones after it glide up a place.
+- An agent not drawn the time before arrives by a trick, in the box over its sprite. The
+  agents of the first draw were there before the drawer, so they get none; an agent that
+  leaves and comes back gets one again, and a new seed for the same agent gets none. The
+  sprite is unseen until the reveal. A wand, 7 by 7 cells of 3 px, shows over the box's
+  upper right, and at 240 ms taps down toward the middle over 180 ms. At 440 ms it fades
+  and a puff goes up over the middle: five round clouds in three greys and four plus-sign
+  sparkles, gold and lilac. At 760 ms the clouds drift out to twice their distance and the
+  sparkles a cell further, all fading over 520 ms, while the sprite fades in over 360 ms.
+  It is gone at 1.5 s. Its status line reads "Abracadabra!" until then.
+- A new bee comes out of the same puff at 2 px cells over the middle of the sprite. It
+  clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
+  get none. Stamps, tricks and puffs share one timeline helper (`play`): each step is one
+  render, and a new one on the same agent replaces the last, with new ids.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 

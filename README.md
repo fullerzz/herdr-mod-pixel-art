@@ -15,8 +15,11 @@ move according to what their agents are doing.
   and lifts away to leave a green check: a stamp of approval on finished work. The check
   holds a moment, then fades.
 - **Worker bees.** Every helper an agent starts is a little figure that flies out of its
-  creature and stays beside it until the helper ends: a sheep for a terminal started with
-  `hc run`, with no setup, and a honey bee for a sub-agent, with [one hook](#worker-bees).
+  creature from a puff of smoke and stays beside it until the helper ends: a sheep for a
+  terminal started with `hc run`, with no setup, and a honey bee for a sub-agent, with
+  [one hook](#worker-bees).
+- **Magic arrivals.** A new agent appears by a magic trick: a wand taps its empty spot, a
+  puff of smoke and sparkles goes up, and its creature is there when the smoke clears.
 - **Yours to choose.** Right-click a row for a grid of other creatures. The choice is saved
   as a label on the agent's terminal, so it stays through restarts and shows on every
   Herdr client.
@@ -100,6 +103,16 @@ makes) and the first commit of a new repository included, even one made with `gi
 where the agent already is. A checkout, reset, rebase, pull or cherry-pick moves the branch
 too, but is no stamp. Commits in a linked worktree count as well, and a commit still counts
 when other git commands follow it right away.
+
+## Magic arrivals
+
+![A wand taps an empty spot in the drawer, a puff of smoke and sparkles goes up, and a new agent's creature is there when it clears](docs/magic-spawn.gif)
+
+An agent that starts while the drawer is open arrives by a trick, with no setup. A wand
+shows over its empty cell and taps it, a puff of smoke and sparkles goes up, and the smoke
+clears to show the creature. Its status line says "Abracadabra!" meanwhile. The whole trick
+takes about a second and a half. A new helper's figure comes out of a small puff of its
+own. The agents and helpers already running when the drawer opens get no trick.
 
 ## Worker bees
 
