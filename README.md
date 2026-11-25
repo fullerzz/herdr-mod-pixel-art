@@ -6,8 +6,13 @@ move according to what their agents are doing.
 
 - **Drawer.** One sprite per agent. On a side edge only the sprites show; hover slides out
   each agent's name and what it is doing. Click a row to go to that agent.
-- **Motion.** A sprite walks while its agent works, catches fire and asks for attention
+- **Motion.** A sprite works while its agent works, catches fire and asks for attention
   when the agent is blocked, celebrates when it finished, and rests when it is idle.
+- **Ways of working.** With [one more hook](#ways-of-working), a working creature does
+  what its agent does: it types while the agent edits files, reads a book while it reads,
+  hammers while it runs commands, sweeps a lens while it searches, holds up an antenna
+  while it fetches from the web, and thinks when a prompt comes in. Without the hook,
+  each creature works its own way, the same every time.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock.
@@ -122,6 +127,38 @@ clears to show the creature. Its status line says "Abracadabra!" meanwhile. The 
 takes about a second and a half. A new helper's figure comes out of a small puff of its
 own. The agents and helpers already running when the drawer opens get no trick.
 
+## Ways of working
+
+![One creature recorded in the drawer working each of the seven ways, side by side: walking, typing, reading, hammering, searching, thinking and signalling](docs/ways-of-working.gif)
+
+A working creature shows what its agent is doing, when the agent's hooks say:
+
+| Way | The agent | Claude Code's tools |
+|---|---|---|
+| typing | edits files | Edit, MultiEdit, Write, NotebookEdit |
+| reading | reads files | Read |
+| hammering | runs commands, builds and tests | Bash |
+| searching | searches code | Grep, Glob |
+| signal | fetches from the web | WebFetch, WebSearch |
+| thinking | has a new prompt to think about | none: a prompt came in |
+
+The way holds until the next tool or prompt, not only while the tool runs: a read is over
+in a moment, and the creature would never be seen reading. Any other tool takes the way
+away, and the creature works its own way again: one of the six or a walk, picked by its
+seed. A creature without the hooks always works its own way.
+
+Codex reads and searches through its shell, which its hooks name `Bash`, so a Codex agent
+mostly hammers. The hook also takes `apply_patch`, `shell` and `web_search` for Codex's
+patches, shell and searches, names not yet checked against a running Codex. The same `just hooks` that installs the bee hooks below installs these two:
+`tools/bee-hook.sh tool` before each tool and `tools/bee-hook.sh think` on each prompt.
+They keep a `pixel.work` label on the agent's terminal. The hooks of a sub-agent's tools
+leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
+
+```sh
+hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the six ways, or walk
+hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
+```
+
 ## Worker bees
 
 ![Bees fly out under an agent's creature as its helpers start, and leave as they end](docs/worker-bees.gif)
@@ -145,10 +182,11 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
   just hooks             # both, or `just hooks claude` / `just hooks codex`
   ```
 
-  It adds three hooks to `~/.claude/settings.json` and `~/.codex/hooks.json` after the
+  It adds five hooks to `~/.claude/settings.json` and `~/.codex/hooks.json` after the
   ones already there, keeps the file as it was beside it (`.bak-pixel-party-<time>`), and
   is safe to run again. It never changes a hook that is already there: if one of yours
-  also runs a `bee-hook.sh`, the new hook goes after it and a note says so. A file it
+  also runs a `bee-hook.sh` (even this one, under a matcher that limits it to some tools),
+  the new hook goes after it and a note says so. A file it
   can't change without risk (comments, a duplicate key, a hard link, a link to nothing, a
   folder it can't write in) is left untouched and reported. Codex runs hooks only with `hooks = true` under
   `[features]` in its `config.toml`, and may ask you to trust the new ones.
@@ -160,13 +198,16 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
     "hooks": {
       "SubagentStart": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh start", "timeout": 5 }] }],
       "SubagentStop": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh stop", "timeout": 5 }] }],
-      "SessionStart": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh clear", "timeout": 5 }] }]
+      "SessionStart": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh clear", "timeout": 5 }] }],
+      "PreToolUse": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh tool", "timeout": 5 }] }],
+      "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh think", "timeout": 5 }] }]
     }
   }
   ```
 
   The hook does nothing outside an `hc` terminal, and gives up on an `hc` call after 2
-  seconds. `clear` removes the labels a killed session left behind. It keeps the labels of
+  seconds. The tool hook takes about 30 ms, so each tool waits that long to start. `clear` removes
+  the labels a killed session left behind, `pixel.work` too. It keeps the labels of
   a program still running on the same terminal (an agent's own `claude -p` starts a session
   too): the `pixel.hive` label names the program that owns them. Any other agent can do the same from its own hooks:
 

@@ -10,9 +10,14 @@ picker lets the person choose another creature for an agent.
   shows, and hovering slides out each agent's name and what it is doing. Clicking a row
   goes to that agent. Right-clicking a row opens the picker.
 - **Sprites.** Each sprite is generated from a seed, so the same seed always draws the same
-  creature. A sprite moves natively: it walks while its agent works, catches fire and asks
+  creature. A sprite moves natively: it works while its agent works, catches fire and asks
   for attention when the agent is blocked, celebrates when it finished, and rests when it
   is idle.
+- **Ways of working.** A working sprite shows what its agent is doing, when the agent's
+  hooks say: it types while the agent edits files, reads a book while it reads, hammers
+  while it runs commands, sweeps a lens while it searches, holds up an antenna while it
+  fetches from the web, and thinks when a prompt comes in. Otherwise it works its own way,
+  one of those six or a walk, picked by its seed.
 - **Identity.** An agent's seed is the `pixel.avatar` label on its terminal in herdr-core.
   Without the label the seed is the terminal's address, so every agent has a stable sprite
   from the start. A label survives an agent restart in the same terminal, is seen by every
@@ -57,6 +62,9 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | Herdr reports no file edits. `panes()` gives each pane's live `cwd`; `watchFolder` and `exec("git", ...)` work from a mod. | Hits come from the agent's repository diff, read again after each watched change. |
 | `terminals()` gives each terminal's `parent`: the terminal that started it with `hc run`. A helper without a pane is not in `agents()`. | `hc` helpers are bees with no setup. |
 | Herdr sees nothing of a sub-agent inside an agent's program (Claude Code's Agent tool). Its hooks run with `HC_TERMINAL_ID` set, and `hc label` takes a key such as `pixel.bee.a1B2-c_3`. | A hook keeps one label per running sub-agent; the label change re-renders the drawer. |
+| A Claude Code `PreToolUse` hook's JSON names the tool (`tool_name`: `Read`, `Grep`, `Agent`, ...). A sub-agent's own tool calls carry `agent_id` and `agent_type`; the main agent's carry neither. `UserPromptSubmit` fires for each prompt, a background sub-agent's report included. (Claude Code 2, measured with `claude -p`.) | The hook says what the agent is doing from `tool_name`, and leaves a sub-agent's tools to its bee. |
+| `hc label` on the caller's own terminal takes about 10 ms; the whole tool hook about 30 ms. A `PreToolUse` JSON holds the tool's whole input (a Write's content: megabytes), after `tool_name` and `agent_id`. | Before a tool or a prompt, the hook parses only up to `"tool_input"`, at most 8 KiB, and reads the rest to throw it away unparsed. A 2 MB Write costs it about 20 ms, not the 530 ms of parsing it all. |
+| `.loop` plays its return leg as the forward leg backwards, easing included: an 8 s ease-in `top` loop is symmetric about its far end, slow to leave home and slow to come back. `.loop("width")` runs too. | Two loops of one period with ease-out and ease-in light in one order and go out in the reverse, as the previews in Chrome (CSS `alternate`) showed. |
 | A Claude Code hook's parent process is `claude` itself (measured for SessionStart, SubagentStart and SubagentStop). A `claude -p` run from an agent's tool inherits `HC_TERMINAL_ID` and starts a session of its own. | `clear` tells the owner's own new session from a nested program's session by pid. |
 | Herdr clips a floating mod to its frame: a child placed outside it is not drawn. | Bees get room inside the drawer, in lanes under the sprite. |
 | A `Context` in `render` has the same `timer` as an `AsyncContext`. | A new bee's second render is scheduled from `render`. |
@@ -84,7 +92,7 @@ main.js ──> drawer.js ──┬─> identity.js ──> herdr
 | `main.js` | coordinator | Picks the view from `props().view`; feeds key commands to a view that defines `command`. |
 | `identity.js` | coordinator | The label: `seedFor`, `hasAvatar`, `setAvatar`, `clearAvatar`, `openPicker`. |
 | `sprites.js` | sprites | Seed to sprite. Pure: no imports, runs under plain node. |
-| `sprite-view.js` | sprites | Sprite to element, with motion per status and a hit's flash and knock. |
+| `sprite-view.js` | sprites | Sprite to element, with motion per status and way of working, and a hit's flash and knock. |
 | `edits.js` | drawer | Lines added and removed in the agents' repositories, from git. |
 | `bees.js` | drawer | An agent's helpers, and the bee drawn for each. |
 | `drawer.js` | drawer | The party drawer. |
@@ -114,9 +122,11 @@ nothing from it. Its shape is the sprites module's own business, with these guar
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, hit = null }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
+export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal
+export function ownWork(sprite): string;        // one of WORKS, the same for the same seed
 ```
 
 - Returns one element exactly `GRID * px` square that does not shrink in a flex row.
@@ -130,6 +140,34 @@ export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
   row holds still, so one frame shows it, and tongues flicker in turn over it and up both
   sides. The tall tongues go behind the art and lick up by one cell. The `!` badge goes over
   the fire and keeps the theme's blocked color.
+- Working, the creature works the way `work` names, one of `WORKS`. Any other value (null,
+  a name it doesn't know, `"__proto__"`) is the creature's own way, `ownWork(sprite)`: a
+  hash of its seed, apart from the art's, so a seed's creature looks as it always did.
+  `work` changes nothing in any other status.
+  - `walk`: eyes glance right, feet step in turn, body bobs, speed lines behind.
+  - `typing`: open eyes, a keyboard under the face, keys lighting in the theme's working
+    color in an uneven rhythm, the body bobbing once a keystroke.
+  - `reading`: eyes glance right, an open book under the face; a leaf turns across the
+    spine and a highlight runs along a line while the body sways.
+  - `hammering`: open eyes, a hammer held up at the top left slams down on an anvil at the
+    bottom left; sparks flick and the body dips with each blow.
+  - `searching`: eyes glance right, a lens wanders across the creature, which shows through
+    its tinted glass.
+  - `thinking`: open eyes, a thought bubble 5 by 2 cells in the top left corner, its dots
+    lighting in turn; a tail leads from it to the head: one puff, or two shrinking ones
+    where there is room, ending in an empty cell beside the art at most 2.5 cells from the
+    bubble, never in the top row or the two left columns. The creature leans slowly.
+  - `signal`: eyes glance right, an antenna held up at its left, two radio arcs pulsing out
+    of its tip in turn.
+- A way of working draws its props over the lower body, in the top left corner or in empty
+  cells, where no kind has an eye. A prop that crosses the face (the hammer, the lens) draws a second copy
+  of the eyes over itself. A prop under the face (the keyboard, the book) covers row 8 down,
+  where some creatures (8% of seeds) have their eyes: it draws those eyes again over
+  itself, with the torso's own loop, so they bob with the body. No way hides an eye in the
+  still frame. Props use their own colors or the theme's working, foreground,
+  dim, canvas and accent, never `HIT`, `FIRE` or the blocked, done and idle cues. Every way
+  stays inside the box through all its motion at any `px`, and loops each property of an
+  element once: a part that moves two ways nests a layer.
 - `hit` is `{ n, damage, live } | null`. It adds a flash of the creature's silhouette in
   `HIT.removed` (`damage`) or `HIT.added`, and a knock of one cell: sideways for damage,
   up otherwise. `live` draws it at full strength; settled, both ease back with
@@ -202,17 +240,33 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
 - `beeElement` draws the figure of its `kind`. It is `BEE_W * px` by `BEE_H * px`, lifts
   by up to `px` while it works, and uses no ids and no timers. `flip` mirrors it to face
   left. Blocked, a bee's wings or a sheep's fleece take the theme's blocked color.
+- `tools/bee-hook.sh tool|think` keeps `pixel.work` from the same hooks: `tool` on
+  `PreToolUse` sets the way the tool names (Read is reading; Edit, MultiEdit, Write,
+  NotebookEdit and apply_patch are typing; Bash and shell are hammering; Grep and Glob are
+  searching; WebFetch, WebSearch and web_search are signal) and removes the label for any
+  other tool. Claude Code's names are measured; Codex's `Bash` is seen in its hook
+  matchers; `apply_patch`, `shell` and `web_search` are unverified guesses at Codex's.
+  `tool` and `think` parse only the JSON before the tool's own input, at most 8 KiB, so
+  keys inside the input are never taken for the hook's; Claude Code puts `agent_id` and
+  `tool_name` there, after short fields only. `start`, `stop` and `clear` are rare and
+  parse all of it, since no order of their fields is promised. `think` on `UserPromptSubmit` sets
+  thinking. Both leave the label alone for a sub-agent's event (`agent_id`). The way holds
+  until the next tool or prompt: a read or an edit is over in a moment, so a label held
+  only while the tool runs would never be seen. A killed agent's label stays until the
+  terminal's next hooked session start, but shows only while the agent works.
 - `tools/bee-hook.sh start|stop|clear` writes the labels from an agent's hooks. It never
   fails or stalls its agent: each `hc` call is killed after 2 seconds. It does nothing
   outside an `hc` terminal. `clear` leaves the labels alone on a compaction, in a
   sub-agent's own session start, and while another live program owns them: `pixel.hive`
   holds the pid of the owning program, the hook's parent process, and `clear` takes
-  ownership when that program has died.
-- `tools/install-hooks.mjs` (`just hooks`) adds the three hooks to Claude Code's
+  ownership when that program has died. `clear` removes `pixel.work` too.
+- `tools/install-hooks.mjs` (`just hooks`) adds the five hooks to Claude Code's
   `settings.json` and Codex's `hooks.json`, which share one shape. It appends, because
   Codex keys a hook's trust by its place in its list, and never changes a hook already
   there: an event has the hook only when a command is exactly the one it writes, or that
-  with the path unquoted. It refuses a file that parsing and writing back would change by
+  with the path unquoted, in a group that runs for everything (no matcher, `""` or `"*"`).
+  The same command under any other matcher runs only for some tools, so it is left with a
+  note and the hook is added after it. It refuses a file that parsing and writing back would change by
   more than spacing, a hard link, and a link to nothing. It keeps a backup, writes a
   temporary file with the old file's exact mode, and swaps it in only if the old one is
   still what it read (a new file only if none appeared). Any failure before the swap is a
@@ -258,6 +312,8 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - The layout never changes on hover: the drawer slides, the content stays.
 - The text column names the agent and shows its status line: the agent's own message
   (`terminals()` entry's `report.msg`) when it has one.
+- A working agent's sprite works the way its terminal's `pixel.work` label names, else its
+  own way. The drawer passes the label as it is; `spriteElement` decides what counts.
 - Status is shown twice: by the sprite, which carries its own motion and status mark, and
   by a theme-colored stripe on the cell's edge side. A blocked agent is the most visible
   thing in the drawer: its cell and row are tinted as well. The sprite draws the only `!`.

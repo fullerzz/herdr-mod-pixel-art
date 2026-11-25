@@ -87,6 +87,14 @@ test("a sub-agent's start adds its label and its stop removes it, quietly", asyn
   assert.deepEqual(calls(), ["label t9 pixel.bee.a1=1", "label t9 pixel.bee.a1="]);
 });
 
+test("a sub-agent's start and stop read all of the hook's JSON: its id can come after long fields", async () => {
+  const long = "x".repeat(20_000);
+  ok(await hook("start", { hook_event_name: "SubagentStart", agent_type: long, agent_id: "a1" }));
+  assert.deepEqual(labels(), ["pixel.bee.a1=1"]);
+  ok(await hook("stop", { hook_event_name: "SubagentStop", last_assistant_message: long, agent_id: "a1" }));
+  assert.deepEqual(labels(), []);
+});
+
 test("outside an hc terminal, a sub-agent's own start, and a compaction change nothing", async () => {
   seed(["pixel.bee.a1=1"]);
   ok(await hook("start", { agent_id: "a2" }, { HC_TERMINAL_ID: "" }));
@@ -106,12 +114,70 @@ test("a second program's session on the same terminal leaves the live owner's be
 
 test("a new session clears what a dead, missing or same owner left, and owns the bees", async () => {
   for (const owner of [["pixel.hive=99999999"], [], [`pixel.hive=${process.pid}`]]) {
-    seed(["pixel.avatar=knight7", "pixel.bee.a1=1", "pixel.bee.b2=1", ...owner]);
+    seed(["pixel.avatar=knight7", "pixel.bee.a1=1", "pixel.bee.b2=1", "pixel.work=reading", ...owner]);
     rmSync(join(dir, "calls"), { force: true });
     ok(await hook("clear", session()));
     assert.deepEqual(labels(), ["pixel.avatar=knight7", `pixel.hive=${process.pid}`], String(owner));
-    assert.deepEqual(calls(), ["get t9 --json", `label t9 pixel.bee.a1= pixel.bee.b2= pixel.hive=${process.pid}`]);
+    assert.deepEqual(calls(), ["get t9 --json", `label t9 pixel.bee.a1= pixel.bee.b2= pixel.work= pixel.hive=${process.pid}`]);
   }
+});
+
+test("a tool about to run says what the agent is doing, in Claude Code's names and Codex's", async () => {
+  const cases = {
+    Read: "reading",
+    Edit: "typing",
+    Write: "typing",
+    MultiEdit: "typing",
+    NotebookEdit: "typing",
+    apply_patch: "typing",
+    Bash: "hammering",
+    shell: "hammering",
+    Grep: "searching",
+    Glob: "searching",
+    WebFetch: "signal",
+    WebSearch: "signal",
+    web_search: "signal",
+  };
+  for (const [tool, work] of Object.entries(cases)) {
+    ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command: "\"tool_name\": \"Read\"" } }));
+    assert.deepEqual(labels(), [`pixel.work=${work}`], tool);
+  }
+});
+
+test("only the fields before the tool's own input count, and a huge input is read quickly", async () => {
+  // A tool's input can hold keys named like the hook's own, and a Write can be megabytes.
+  ok(await hook("tool", { session_id: "s", hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { query: { agent_id: "zz", tool_name: "Bash" } } }));
+  assert.deepEqual(labels(), ["pixel.work=reading"]);
+  ok(await hook("tool", { session_id: "s", hook_event_name: "PreToolUse", tool_name: "mcp__x__y", tool_input: { tool_name: "Read" } }));
+  assert.deepEqual(labels(), []);
+  const r = await hook("tool", { session_id: "s", hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "/a", content: "x".repeat(4_000_000) } });
+  ok(r);
+  assert.ok(r.ms < 1000, `took ${r.ms} ms`);
+  assert.deepEqual(labels(), ["pixel.work=typing"]);
+});
+
+test("a tool that says nothing about the work takes the label away: the creature works its own way", async () => {
+  seed(["pixel.avatar=knight7", "pixel.work=typing"]);
+  for (const tool of ["TodoWrite", "Agent", "mcp__linear__get_issue", "Skill", ""]) {
+    seed(["pixel.avatar=knight7", "pixel.work=typing"]);
+    ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool }));
+    assert.deepEqual(labels(), ["pixel.avatar=knight7"], tool);
+  }
+  seed(["pixel.work=typing"]);
+  ok(await hook("tool", { hook_event_name: "PreToolUse" }));
+  assert.deepEqual(labels(), []);
+});
+
+test("a prompt sets the agent thinking; a sub-agent's tools and prompts leave the label alone", async () => {
+  ok(await hook("think", { hook_event_name: "UserPromptSubmit", prompt: "go" }));
+  assert.deepEqual(labels(), ["pixel.work=thinking"]);
+  rmSync(join(dir, "calls"), { force: true });
+  ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: "Read", agent_id: "a1", agent_type: "Explore" }));
+  ok(await hook("think", { hook_event_name: "UserPromptSubmit", agent_id: "a1" }));
+  assert.deepEqual(calls(), []);
+  assert.deepEqual(labels(), ["pixel.work=thinking"]);
+  ok(await hook("tool", { tool_name: "Read" }, { HC_TERMINAL_ID: "" }));
+  assert.deepEqual(calls(), []);
 });
 
 test("a stalled hc gives up within the hook's 5 s timeout, quietly, on every action", async () => {
@@ -119,6 +185,8 @@ test("a stalled hc gives up within the hook's 5 s timeout, quietly, on every act
     hook("start", { agent_id: "a1" }, { FAKE_STALL: "1" }),
     hook("stop", { agent_id: "a1" }, { FAKE_STALL: "1" }),
     hook("clear", session(), { FAKE_STALL: "1" }),
+    hook("tool", { tool_name: "Read" }, { FAKE_STALL: "1" }),
+    hook("think", {}, { FAKE_STALL: "1" }),
   ]);
   for (const r of runs) {
     ok(r);

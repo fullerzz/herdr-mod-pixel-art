@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Adds the bee hooks (tools/bee-hook.sh) to Claude Code's and Codex's own hook files, so
-// their sub-agents show as bees. Both keep hooks as JSON, in the same shape:
+// their sub-agents show as bees and their creatures do what the agent does. Both keep hooks
+// as JSON, in the same shape:
 //
 //   Claude Code   ~/.claude/settings.json   (or $CLAUDE_CONFIG_DIR)
 //   Codex         ~/.codex/hooks.json       (or $CODEX_HOME)
@@ -9,7 +10,7 @@
 //
 // With no name it does both. Safe to run again: an event already has the hook when one of
 // its commands is exactly the one this writes, or the same with the path unquoted (the
-// by-hand form in README.md). Any other hook is the person's own and is never changed, even
+// by-hand form in README.md), in a group that runs for everything (no matcher, "" or "*"). Any other hook is the person's own and is never changed, even
 // one that runs a bee-hook.sh: ours is added after it, and a note says a second one is there.
 //
 // These are a person's own settings, so it changes a file only when that is provably safe:
@@ -32,7 +33,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The hook event of each program, and what bee-hook.sh is told when it fires. */
-export const EVENTS = /** @type {const} */ ({ SubagentStart: "start", SubagentStop: "stop", SessionStart: "clear" });
+export const EVENTS = /** @type {const} */ ({
+  SubagentStart: "start",
+  SubagentStop: "stop",
+  SessionStart: "clear",
+  PreToolUse: "tool",
+  UserPromptSubmit: "think",
+});
 
 /** A file this won't change, and why. Nothing was written. */
 export class Refusal extends Error {}
@@ -107,11 +114,18 @@ export function merge(text, commands) {
     const groups = Object.hasOwn(hooks, event) ? hooks[event] : [];
     if (!Array.isArray(groups)) throw new Refusal(`its "hooks.${event}" is not a list`);
     const same = [command, unquoted(command)];
-    const existing = groups.flatMap((g) => (isObject(g) && Array.isArray(g.hooks) ? g.hooks : [])).flatMap((h) => (isObject(h) && typeof h.command === "string" ? [h.command] : []));
-    for (const other of existing.filter((c) => !same.includes(c.trim()) && namesBeeHook.test(c))) {
-      notes.push(`${event}: left your hook as it is, though it also names bee-hook.sh: ${other}`);
+    // Each command, and its group's matcher. Our command under a matcher runs only for some
+    // tools or agents (a PreToolUse one only for Bash, say), so it is not the hook.
+    const existing = groups
+      .flatMap((g) => (isObject(g) && Array.isArray(g.hooks) ? g.hooks.map((h) => ({ h, matcher: g.matcher })) : []))
+      .flatMap(({ h, matcher }) => (isObject(h) && typeof h.command === "string" ? [{ command: h.command, matcher }] : []));
+    /** @type {(e: { command: string, matcher: unknown }) => boolean} */
+    const ours = (e) => (e.matcher === undefined || e.matcher === "" || e.matcher === "*") && same.includes(e.command.trim());
+    for (const other of existing.filter((e) => !ours(e) && namesBeeHook.test(e.command))) {
+      const only = other.matcher === undefined ? "" : ` (only for matcher ${JSON.stringify(other.matcher)})`;
+      notes.push(`${event}: left your hook as it is, though it also names bee-hook.sh: ${other.command}${only}`);
     }
-    if (existing.some((c) => same.includes(c.trim()))) continue;
+    if (existing.some(ours)) continue;
     hooks[event] = [...groups, { hooks: [{ type: "command", command, timeout: 5 }] }];
     changes.push(`${event}: add ${command}`);
   }

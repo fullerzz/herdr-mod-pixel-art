@@ -51,6 +51,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Trick | null} trick The trick it arrives by, if it is new.
  * @property {Puff | null} puff The puff a new bee of its flies out of, if any.
  * @property {Flier[]} bees Its helpers, as bees.
+ * @property {string | null} work What it is doing, as its hooks say (`pixel.work`), if they do.
  */
 
 /**
@@ -106,6 +107,8 @@ const TRICK_STEPS = [[240, "tap"], [440, "poof"], [760, "reveal"], [1500, null]]
 /** @type {[ms: number, step: Puff["step"] | null][]} After "cloud": it clears as the bee flies out. */
 const PUFF_STEPS = [[BEE_HOLD + 20, "clear"], [800, null]];
 const TRICK_WORD = "Abracadabra!";
+/** The label an agent's hooks keep what it is doing in (`tools/bee-hook.sh`): one of sprite-view's WORKS. */
+const WORK = "pixel.work";
 
 /** @type {Record<Status, string>} */
 const WORD = { working: "Working", blocked: "Needs you", done: "Finished", idle: "Idle" };
@@ -330,6 +333,7 @@ export default class Drawer {
         trick,
         puff: this.puffs.get(a.address) ?? null,
         bees: bees.get(a.address) ?? [],
+        work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
       };
     });
 
@@ -630,7 +634,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, hit, stamp, trick, puff, bees }, side) {
+function cell(t, { a, hit, stamp, trick, puff, bees, work }, side) {
   const hidden = Boolean(trick) && trick.step !== "reveal";
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
@@ -651,6 +655,7 @@ function cell(t, { a, hit, stamp, trick, puff, bees }, side) {
       id: `pp-spr-${a.address}`,
       px: PX,
       status: a.status,
+      work,
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live },
     }).when(Boolean(trick), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" })))
     .child(stripe)

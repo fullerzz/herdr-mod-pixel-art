@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { theme } from "herdr";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { FIRE, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { FIRE, HIT, WORKS, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -225,5 +225,204 @@ test("a blocked creature is on fire: a still bed of flames at its feet, tongues 
     assert.ok(flickers.some((n) => calls(n, "loop")[0][1].from > calls(n, "loop")[0][1].to) && flickers.some((n) => calls(n, "loop")[0][1].from < calls(n, "loop")[0][1].to), "flames flicker in turn");
     const licks = nodes.flatMap((n) => calls(n, "loop").filter(([p]) => p === "top").map(([, policy]) => policy));
     assert.ok(licks.length >= 1 && licks.every(({ from, to }) => from === 0 && to === -3), "tongues lick up by one cell");
+  }
+});
+
+// ---- ways of working ----
+
+/** One seed of each kind of creature, the first found. */
+const KINDS = (() => {
+  const byKind = new Map();
+  for (let i = 0; byKind.size < 10 && i < 2000; i++) {
+    const sprite = makeSprite(`k${i}`);
+    if (!byKind.has(sprite.kind)) byKind.set(sprite.kind, sprite);
+  }
+  return [...byKind.values()];
+})();
+
+/** Every value a property takes on a node: its own value and both ends of its loop. */
+function values(node, props) {
+  const out = [];
+  for (const [name, args] of node.calls) {
+    if (props.includes(name) || (name === "size" && (props.includes("w") || props.includes("h")))) out.push(args[0]);
+    if (name === "loop" && props.includes(args[0])) out.push(args[1].from, args[1].to);
+  }
+  return out.length ? out : [0];
+}
+
+/** Where each drawn rectangle reaches over its whole motion, in px from the sprite's corner. */
+function reach(node, x0 = [0, 0], y0 = [0, 0], out = []) {
+  const ls = values(node, ["left"]);
+  const ts = values(node, ["top"]);
+  const x = [x0[0] + Math.min(...ls), x0[1] + Math.max(...ls)];
+  const y = [y0[0] + Math.min(...ts), y0[1] + Math.max(...ts)];
+  if (calls(node, "bg").length) out.push({ x: [x[0], x[1] + Math.max(...values(node, ["w", "width"]))], y: [y[0], y[1] + Math.max(...values(node, ["h", "height"]))] });
+  for (const child of node.children) if (nodeOf(child)) reach(nodeOf(child), x, y, out);
+  return out;
+}
+
+const working = (sprite, work, px = 3) => spriteElement(sprite, { id: "s", px, status: "working", work });
+/** An element's whole tree as text: every node's kind and calls, children aside. */
+const tree = (el) => JSON.stringify(walk(el).map((node) => [node.kind, node.calls.filter(([name]) => name !== "child" && name !== "children")]));
+
+test("there are seven ways of working, walk among them, and the test covers every kind", () => {
+  assert.deepEqual([...WORKS].sort(), ["hammering", "reading", "searching", "signal", "thinking", "typing", "walk"]);
+  assert.equal(KINDS.length, 10);
+});
+
+test("every way of working, on every kind, at every size, stays in its box through all its motion", () => {
+  for (const sprite of KINDS) {
+    for (const work of WORKS) {
+      for (const px of [1, 2, 3, 4, 8]) {
+        const size = GRID * px;
+        for (const r of reach(nodeOf(working(sprite, work, px)))) {
+          assert.ok(r.x[0] >= 0 && r.y[0] >= 0 && r.x[1] <= size && r.y[1] <= size, `${work} on a ${sprite.kind} at ${px} px reaches x ${r.x}, y ${r.y}`);
+        }
+      }
+    }
+  }
+});
+
+test("every way of working renders through the stand-ins in its own colors, and moves", () => {
+  // Colors that mean something else: a hit, the fire, and the other statuses' cues.
+  const taken = new Set([...Object.values(HIT), ...Object.values(FIRE), theme().blocked, theme().done, theme().idle].map((c) => c.toLowerCase()));
+  for (const sprite of KINDS) {
+    for (const work of WORKS) {
+      const nodes = check(working(sprite, work));
+      for (const node of nodes.slice(1)) assert.equal(node.id, null, "no ids inside");
+      for (const node of nodes) {
+        for (const [color] of calls(node, "bg")) {
+          assert.match(color, HEX, `${work}: ${color}`);
+          assert.ok(!taken.has(color), `${work} uses ${color}, which means something else`);
+        }
+        for (const [opacity] of calls(node, "opacity")) assert.ok(opacity >= 0 && opacity <= 1);
+        for (const [property, { from, to, period }] of calls(node, "loop")) {
+          assert.ok(period >= 100);
+          if (property === "opacity") assert.ok(from >= 0 && from <= 1 && to >= 0 && to <= 1);
+          if (property === "width" || property === "height") assert.ok(from >= 0 && to >= 0);
+        }
+        // One loop per property on an element: a part that moves two ways nests a layer.
+        const looped = calls(node, "loop").map(([property]) => property);
+        assert.equal(new Set(looped).size, looped.length, `${work}: one element loops ${looped}`);
+      }
+      assert.ok(nodes.some((node) => calls(node, "loop").length), `${work} should move`);
+    }
+  }
+});
+
+test("each way of working has its own tree and its own still frame", () => {
+  for (const sprite of KINDS) {
+    const trees = WORKS.map((work) => tree(working(sprite, work)));
+    assert.equal(new Set(trees).size, WORKS.length, `${sprite.kind}: ways of working share a tree`);
+    const frames = WORKS.map((work) => JSON.stringify(raster(working(sprite, work, 1))));
+    assert.equal(new Set(frames).size, WORKS.length, `${sprite.kind}: ways of working share a still frame`);
+  }
+});
+
+test("a creature's own way of working comes from its seed, and every way is someone's", () => {
+  const seen = new Set();
+  for (const seed of SEEDS) {
+    const own = ownWork(makeSprite(seed));
+    assert.ok(WORKS.includes(own));
+    assert.equal(ownWork(makeSprite(seed)), own);
+    seen.add(own);
+  }
+  assert.equal(seen.size, WORKS.length, "every way of working is some seed's own");
+});
+
+test("without a known way from its hooks, a working creature works its own way", () => {
+  for (const seed of SEEDS.slice(0, 20)) {
+    const sprite = makeSprite(seed);
+    const own = tree(working(sprite, ownWork(sprite)));
+    for (const work of [null, undefined, "", "dancing", "__proto__", "constructor", "toString", 7]) {
+      assert.equal(tree(working(sprite, work)), own, `work ${String(work)}`);
+    }
+  }
+});
+
+test("only a working creature shows its way of working", () => {
+  const sprite = makeSprite("t1");
+  for (const status of STATUSES.filter((s) => s !== "working")) {
+    const plain = tree(spriteElement(sprite, { id: "s", status }));
+    for (const work of WORKS) assert.equal(tree(spriteElement(sprite, { id: "s", status, work })), plain, `${status} with ${work}`);
+  }
+});
+
+test("no way of working hides the creature's eyes: a prop over a low face draws them again, bobbing with it", () => {
+  const px = 3;
+  /** The still frame at `px`, a board of GRID * px square of colors. */
+  const board = (el) => {
+    const size = GRID * px;
+    const out = Array.from({ length: size }, () => Array(size).fill(null));
+    const paint = (child, ox, oy) => {
+      const node = nodeOf(child);
+      if (!node) return;
+      const x = ox + (last(node, "left") ?? 0);
+      const y = oy + (last(node, "top") ?? 0);
+      const bg = last(node, "bg");
+      if (bg) {
+        const w = last(node, "w") ?? last(node, "size");
+        const h = last(node, "h") ?? last(node, "size");
+        for (let j = Math.max(0, y); j < Math.min(size, y + h); j++) for (let i = Math.max(0, x); i < Math.min(size, x + w); i++) out[j][i] = bg;
+      }
+      for (const c of node.children) paint(c, x, y);
+    };
+    for (const c of nodeOf(el).children) paint(c, 0, 0);
+    return out;
+  };
+  let low = 0;
+  for (let i = 0; i < 300; i++) {
+    const sprite = makeSprite(`t${i}`);
+    for (const work of WORKS) {
+      const el = working(sprite, work, px);
+      // The eyes this way draws: the torso's eye layer, its last child.
+      const torso = nodeOf(nodeOf(el).children.find((c) => nodeOf(c).children.length === 3)).children[2];
+      const eyes = nodeOf(nodeOf(torso).children[1]).children.map((c) => nodeOf(c));
+      const b = board(el);
+      for (const e of eyes) {
+        const [x, y, w, h, color] = ["left", "top", "w", "h", "bg"].map((k) => last(e, k));
+        for (let j = y; j < y + h; j++) for (let k = x; k < x + w; k++) assert.equal(b[j][k], color, `${work} hides an eye of t${i} (${sprite.kind}) at ${k},${j}`);
+      }
+    }
+    if (sprite.parts.eyes.look.some((r) => r.y + r.h > 8)) {
+      low++;
+      for (const work of ["typing", "reading"]) {
+        const root = nodeOf(working(sprite, work, px));
+        const torso = nodeOf(nodeOf(root.children[0]).children[2]);
+        assert.deepEqual(calls(nodeOf(root.children.at(-1)), "loop"), calls(torso, "loop"), `${work}: the eyes over the prop bob with the body`);
+      }
+    }
+  }
+  assert.ok(low > 0, "some creatures have eyes low enough to test");
+});
+
+test("a thought bubble's tail leads to the head: a short one, beside the art, clear of it and of the cell's edges", () => {
+  for (const px of [3, 8]) {
+    for (let i = 0; i < 600; i++) {
+      const sprite = makeSprite(`t${i}`);
+      const art = new Set();
+      for (const r of [...sprite.parts.body, ...sprite.parts.eyes.open]) {
+        for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) art.add(y * GRID + x);
+      }
+      const on = (x, y) => art.has(y * GRID + x);
+      const front = nodeOf(working(sprite, "thinking", px)).children.map(nodeOf).filter((n) => calls(n, "rounded").length);
+      // The bubble is the round mark sized by width and height; the puffs, by size.
+      const bubble = front.find((n) => last(n, "w") !== undefined);
+      const puffs = front.filter((n) => last(n, "size") !== undefined).map((n) => ({ x: last(n, "left"), y: last(n, "top"), s: last(n, "size") }));
+      assert.ok(puffs.length === 1 || puffs.length === 2, `t${i}: one or two puffs`);
+      if (puffs.length === 2) assert.ok(puffs[0].s > puffs[1].s, `t${i}: the puffs shrink toward the head`);
+      for (const p of puffs) {
+        for (let y = p.y; y < p.y + p.s; y++) {
+          for (let x = p.x; x < p.x + p.s; x++) assert.ok(!on(Math.floor(x / px), Math.floor(y / px)), `t${i} (${sprite.kind}) at ${px} px: a puff covers the art at ${x},${y}`);
+        }
+      }
+      const near = puffs.at(-1);
+      const cx = Math.floor((near.x + near.s / 2) / px);
+      const cy = Math.floor((near.y + near.s / 2) / px);
+      assert.ok(cx >= 2 && cy >= 1, `t${i} (${sprite.kind}): the tail ends at cell ${cx},${cy}, on the cell's edge`);
+      assert.ok([-1, 0, 1].some((dy) => [-1, 0, 1].some((dx) => on(cx + dx, cy + dy))), `t${i} (${sprite.kind}): the tail ends beside the head, at cell ${cx},${cy}`);
+      const gap = Math.hypot(Math.max(0, cx + 0.5 - last(bubble, "w") / px), Math.max(0, cy + 0.5 - last(bubble, "h") / px));
+      assert.ok(gap <= 2.5, `t${i} (${sprite.kind}): the tail runs ${gap} cells from the bubble`);
+    }
   }
 });

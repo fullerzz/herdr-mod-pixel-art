@@ -6,7 +6,7 @@ import { beforeEach, test } from "node:test";
 import { mock, theme } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
 import { makeSprite } from "../mods/pixel-party/sprites.js";
-import { spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { WORKS, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, fire, nodeOf, text, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = ["working", "blocked", "done", "idle"];
@@ -180,6 +180,21 @@ test("the sprite follows the label: setAvatar's label is drawn on the next rende
   const { setAvatar } = await import("../mods/pixel-party/identity.js");
   await setAvatar("t1", "knight7");
   assert.deepEqual(spriteIn(render(), "t1"), spriteOf("knight7", "t1", "working"));
+});
+
+test("a working agent shows what its hooks say it is doing, else its creature's own way", () => {
+  mock.agent("t1", { status: "working" });
+  const own = (seed) => look(spriteElement(makeSprite(seed), { id: "pp-spr-t1", px: 3, status: "working", work: ownWork(makeSprite(seed)) }));
+  const doing = (work) => look(spriteElement(makeSprite("t1"), { id: "pp-spr-t1", px: 3, status: "working", work }));
+  assert.deepEqual(spriteIn(render(), "t1"), own("t1"));
+  for (const work of WORKS) {
+    mock.state.terminals[0].labels["pixel.work"] = work;
+    assert.deepEqual(spriteIn(render(), "t1"), doing(work), work);
+  }
+  mock.state.terminals[0].labels["pixel.work"] = "juggling";
+  assert.deepEqual(spriteIn(render(), "t1"), own("t1"), "a way it doesn't know is its own");
+  delete mock.state.terminals[0].labels["pixel.work"];
+  assert.deepEqual(spriteIn(render(), "t1"), own("t1"));
 });
 
 test("every status reaches the sprite, and shows as a cue in its theme color", () => {

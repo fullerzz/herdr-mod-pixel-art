@@ -62,7 +62,7 @@ test("the hooks are added after the ones already there, and nothing else changes
   const before = json(SETTINGS);
   const { text, changes } = merge(before, commands);
   const after = JSON.parse(text);
-  assert.equal(changes.length, 3);
+  assert.equal(changes.length, Object.keys(EVENTS).length);
   assert.deepEqual(without(after), SETTINGS);
   assert.deepEqual(Object.keys(after), Object.keys(SETTINGS), "top-level keys keep their order");
   for (const [event, action] of Object.entries(EVENTS)) {
@@ -98,7 +98,7 @@ test("a person's own hook is never changed, even one that runs a bee-hook.sh", (
       const after = JSON.parse(text);
       assert.deepEqual(after.hooks[event][0], { hooks: [{ type: "command", command }] }, `kept as it was: ${command}`);
       assert.equal(after.hooks[event][1].hooks[0].command, commands[event], `ours added after it: ${command}`);
-      assert.equal(changes.length, 3, command);
+      assert.equal(changes.length, Object.keys(EVENTS).length, command);
       assert.equal(notes.length, 1, `a note says a second bee hook is there: ${command}`);
       assert.ok(notes[0].startsWith(`${event}:`) && notes[0].includes(command), notes[0]);
       assert.deepEqual(merge(text, commands), { text, changes: [], notes }, `a second run changes nothing: ${command}`);
@@ -191,6 +191,23 @@ test("odd but harmless hook entries are left as they are", () => {
   assert.equal(after.hooks.SessionStart.length, 5);
 });
 
+test("our command under a matcher runs only for some tools, so ours is added after it, with a note", () => {
+  for (const matcher of ["Bash", "^Read$", null]) {
+    const before = json({ hooks: { PreToolUse: [{ matcher, hooks: [{ type: "command", command: commands.PreToolUse }] }] } });
+    const { text, changes, notes } = merge(before, commands);
+    const after = JSON.parse(text);
+    assert.deepEqual(after.hooks.PreToolUse[0], { matcher, hooks: [{ type: "command", command: commands.PreToolUse }] }, "kept as it was");
+    assert.deepEqual(after.hooks.PreToolUse[1], { hooks: [{ type: "command", command: commands.PreToolUse, timeout: 5 }] }, "ours, for every tool");
+    assert.ok(changes.includes(`PreToolUse: add ${commands.PreToolUse}`));
+    assert.deepEqual(notes, [`PreToolUse: left your hook as it is, though it also names bee-hook.sh: ${commands.PreToolUse} (only for matcher ${JSON.stringify(matcher)})`]);
+    assert.deepEqual(merge(text, commands).changes, [], "a second run changes nothing");
+  }
+  for (const matcher of ["", "*"]) {
+    const before = json({ hooks: { PreToolUse: [{ matcher, hooks: [{ type: "command", command: commands.PreToolUse }] }] } });
+    assert.ok(!merge(before, commands).changes.some((c) => c.startsWith("PreToolUse")), `matcher ${JSON.stringify(matcher)} runs for every tool`);
+  }
+});
+
 test("a command that only mentions bee-hook.sh is not taken for the hook", () => {
   const near = { hooks: { SubagentStart: [{ hooks: [{ type: "command", command: "echo bee-hook.sh start again" }, { type: "command", command: "/x/not-bee-hook.sh start" }] }] } };
   const after = JSON.parse(merge(json(near), commands).text);
@@ -235,7 +252,7 @@ test("a dry run says what it would do and writes nothing", () => {
   const d = dir();
   const file = join(d, "settings.json");
   writeFileSync(file, json(SETTINGS));
-  assert.equal(install(file, commands, { dryRun: true }).changes.length, 3);
+  assert.equal(install(file, commands, { dryRun: true }).changes.length, Object.keys(EVENTS).length);
   assert.equal(readFileSync(file, "utf8"), json(SETTINGS));
   assert.equal(install(join(d, "hooks.json"), commands, { dryRun: true }).created, true);
   assert.deepEqual(readdirSync(d), ["settings.json"]);
