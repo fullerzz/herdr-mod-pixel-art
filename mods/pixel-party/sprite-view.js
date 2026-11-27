@@ -49,6 +49,15 @@ const layer = (rects, u) => div().absolute().left(0).top(0).size(GRID * u).child
  */
 const mark = (cells, color, u) => layer(cells.map(([x, y, w = 1, h = 1]) => ({ x, y, w, h, color })), u);
 
+/**
+ * How long a status must hold for a sprite to reach each stage, in ms from its start,
+ * ascending, per status. Stage 0 is before the first; the drawer counts the stage from its
+ * clock of each agent's status and redraws when the next one is reached. No look uses a
+ * stage yet, so every list is empty: a look that changes with time adds its times here.
+ * @type {Record<Status, number[]>}
+ */
+export const STAGES = { working: [], blocked: [], done: [], idle: [] };
+
 /** The colors of hits: added lines heal, removed lines hurt. */
 export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" });
 
@@ -436,9 +445,11 @@ function accents(status, u) {
  * @param {string | null} [options.work] What a working agent is doing, as its hooks say:
  *   one of WORKS. Anything else, or null, is the creature's own way (`ownWork`).
  * @param {SpriteHit | null} [options.hit] A hit being shown, or null.
+ * @param {number} [options.stage] How long the status has held, as the number of its
+ *   STAGES reached (default 0, also when its start is unknown). No look uses it yet.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, stage: _stage = 0 } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;

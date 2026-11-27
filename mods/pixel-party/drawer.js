@@ -27,17 +27,17 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, run, theme, placement } from "herdr";
+import { agents, terminals, panes, spaces, focused, run, theme, placement } from "herdr";
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { makeSprite, randomSeed } from "./sprites.js";
-import { spriteElement, HIT } from "./sprite-view.js";
+import { spriteElement, HIT, STAGES } from "./sprite-view.js";
 import { EditWatcher } from "./edits.js";
 import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /** @import { AsyncContext, Color, Context, Element } from "gpui-kit" */
 /** @import { Bee } from "./bees.js" */
 /** @import { Lines, Move } from "./edits.js" */
-/** @import { AgentInfo, ExecResult, Status } from "herdr" */
+/** @import { AgentInfo, ExecResult, Status, TabInfo } from "herdr" */
 /** @import { Theme } from "./sprite-view.js" */
 
 /**
@@ -52,6 +52,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Puff | null} puff The puff a new bee of its flies out of, if any.
  * @property {Flier[]} bees Its helpers, as bees.
  * @property {string | null} work What it is doing, as its hooks say (`pixel.work`), if they do.
+ * @property {number} stage How many of its status's STAGES it has held for: 0 when its start is unknown.
  */
 
 /**
@@ -183,6 +184,12 @@ export default class Drawer {
   allDone = false;
   /** @type {Map<string, Move>} The last move of HEAD, other than a commit, that landed on each agent, by address. */
   moves = new Map();
+  /** @type {Map<string, number | null>} When each agent's status began, ms since the epoch, by address; null when unknown. */
+  since = new Map();
+  /** @type {Map<string, number>} Each agent's stage on the last draw, by address. */
+  stages = new Map();
+  /** @type {number | null} When the pending stage timer wakes the drawer, ms since the epoch; null for none. */
+  wake = null;
 
   /**
    * Plays a one-shot effect on an agent: `first` now, then each step at its time, and gone
@@ -296,18 +303,61 @@ export default class Drawer {
    * every agent is done: one of them just turned done and none is anything else. An agent
    * not drawn last time has no earlier status, so the first draw, a new agent and one that
    * comes back report no change. One-shots for a change play from here with `play`, before the items are built.
+   *
+   * It also keeps each agent's status clock: a change starts it at this draw. An agent not
+   * drawn last time takes its start from its tab when it has the tab to itself, since a
+   * tab's times are the tab's, and else has no known start. A status that flips and flips
+   * back between two draws is no change, so its clock keeps running.
    * @param {AgentInfo[]} list
+   * @param {number} now ms since the epoch.
    */
-  statusChanges(list) {
+  statusChanges(list, now) {
     /** @type {Change[]} */
     const changes = [];
+    /** @type {Map<string, number | null>} */
+    const since = new Map();
+    /** @type {Map<string, TabInfo> | null} Read only when an agent is new. */
+    let solo = null;
     for (const a of list) {
       const from = this.statuses.get(a.address);
       if (from && from !== a.status) changes.push({ address: a.address, from, to: a.status });
+      if (!from) since.set(a.address, startOf(a, (solo ??= soloTabs(list)).get(a.tab)));
+      else since.set(a.address, from === a.status ? this.since.get(a.address) ?? null : now);
     }
+    this.since = since;
     this.statuses = new Map(list.map((a) => [a.address, a.status]));
     this.changes = changes;
     this.allDone = changes.some((c) => c.to === "done") && list.every((a) => a.status === "done");
+  }
+
+  /**
+   * Each agent's stage: how many of its status's STAGES its status has held for, from its
+   * clock. Sprite motion has no timers, so the drawer wakes itself when the nearest next
+   * stage is due. One timer is pending at a time: a redraw before it is due adds none, and
+   * a stage due sooner replaces it.
+   * @param {AgentInfo[]} list
+   * @param {number} now ms since the epoch.
+   * @param {Context} cx
+   */
+  clock(list, now, cx) {
+    this.stages = new Map();
+    let next = Infinity;
+    for (const a of list) {
+      const start = this.since.get(a.address) ?? null;
+      const marks = STAGES[a.status] ?? [];
+      const age = start === null ? 0 : Math.max(0, now - start);
+      const stage = start === null ? 0 : marks.filter((ms) => age >= ms).length;
+      this.stages.set(a.address, stage);
+      if (start !== null && stage < marks.length) next = Math.min(next, now + marks[stage] - age);
+    }
+    if (next === Infinity || (this.wake !== null && this.wake <= next)) return;
+    const at = next;
+    this.wake = at;
+    cx.timer.after(Math.max(0, at - now), (cx) => {
+      if (this.wake !== at) return;
+      this.wake = null;
+      cx.notify();
+    });
   }
 
   /** @param {string} name A `pixel-party.<name>` key command: "pick", "reroll" or "reset". */
@@ -362,8 +412,10 @@ export default class Drawer {
   render(cx) {
     const list = agents();
     const first = this.seen === null;
+    const now = Date.now();
     this.arrivals(list, cx);
-    this.statusChanges(list);
+    this.statusChanges(list, now);
+    this.clock(list, now, cx);
     if (!list.length) return div();
     const bees = this.swarm(list, cx, first);
     const t = /** @type {Theme} */ (theme());
@@ -382,6 +434,7 @@ export default class Drawer {
         puff: this.puffs.get(a.address) ?? null,
         bees: bees.get(a.address) ?? [],
         work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
+        stage: this.stages.get(a.address) ?? 0,
       };
     });
 
@@ -421,6 +474,29 @@ function folders() {
   }
   return out;
 }
+
+/**
+ * The tab of each agent that has its tab to itself, by tab id: only there are a tab's times
+ * its agent's. `terminals()` has no times of its own.
+ * @param {AgentInfo[]} list
+ * @returns {Map<string, TabInfo>}
+ */
+function soloTabs(list) {
+  /** @type {Map<string, number>} */
+  const count = new Map();
+  for (const a of list) count.set(a.tab, (count.get(a.tab) ?? 0) + 1);
+  /** @type {Map<string, TabInfo>} */
+  const out = new Map();
+  for (const space of spaces()) for (const tab of space.tabs ?? []) if (count.get(tab.id) === 1) out.set(tab.id, tab);
+  return out;
+}
+
+/**
+ * When an agent's status began, from its own tab: since when it has been working, else when
+ * the tab last changed state. Null without a tab of its own or a time.
+ * @type {(a: AgentInfo, tab: TabInfo | undefined) => number | null}
+ */
+const startOf = (a, tab) => (tab ? (a.status === "working" ? tab.working_since : tab.changed_at) ?? null : null);
 
 /** @type {(n: number) => string} A line count as a hit shows it: 12, 1.2k, 34k. */
 const amount = (n) => (n < 1000 ? String(n) : n < 9950 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${Math.round(n / 1000)}k`);
@@ -682,7 +758,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, hit, stamp, trick, puff, bees, work }, side) {
+function cell(t, { a, hit, stamp, trick, puff, bees, work, stage }, side) {
   const hidden = Boolean(trick) && trick.step !== "reveal";
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
@@ -705,6 +781,7 @@ function cell(t, { a, hit, stamp, trick, puff, bees, work }, side) {
       status: a.status,
       work,
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live },
+      stage,
     }).when(Boolean(trick), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" })))
     .child(stripe)
     .when(Boolean(trick), (el) => el.child(trickElement(a.address, trick)))

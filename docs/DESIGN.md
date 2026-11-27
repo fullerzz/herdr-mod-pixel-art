@@ -122,11 +122,12 @@ nothing from it. Its shape is the sprites module's own business, with these guar
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, stage = 0 }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal
 export function ownWork(sprite): string;        // one of WORKS, the same for the same seed
+export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
 ```
 
 - Returns one element exactly `GRID * px` square that does not shrink in a flex row.
@@ -172,6 +173,11 @@ export function ownWork(sprite): string;        // one of WORKS, the same for th
   `HIT.removed` (`damage`) or `HIT.added`, and a knock of one cell: sideways for damage,
   up otherwise. `live` draws it at full strength; settled, both ease back with
   `.transition`. Its ids carry `n`.
+- `stage` is how long the status has held: the number of that status's `STAGES` times
+  reached, ascending ms from the status's start, 0 when the start is unknown. A look that
+  changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
+  adds its times to `STAGES` and reads `stage`. None does yet: every list is empty, and
+  `stage` changes nothing.
 
 ### Contract: `edits.js`
 
@@ -363,7 +369,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
   get none. Stamps, tricks and puffs share one timeline helper (`play`): each step is one
   render, and a new one on the same agent replaces the last, with new ids. A one-shot for a
-  status change plays through it too.
+  status change is to play through it too; none exists yet.
 - Each draw keeps every agent's status and finds the changes since the draw before, as
   `{ address, from, to }` (`changes`). Only agents drawn both times can change: the first
   draw, a new agent and an agent that left and came back have none, and an empty drawer
@@ -371,6 +377,19 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   of the changes is to done and every agent is done; an all-done first draw, a redraw, or
   the last agent not done leaving is not. The changes are found before the items are
   built, so a one-shot started from them shows on that draw.
+- The same draw keeps each agent's status clock (`since`): when its status began, in ms
+  since the epoch, or null when unknown. A change starts it at that draw; a status that
+  flips and flips back between two draws keeps it running. An agent not drawn the time
+  before (the first draw, a new agent, one that comes back, every agent after the drawer
+  reopens) takes its start from its tab when it is the only agent in it: the tab's
+  `working_since` while it works, else the tab's `changed_at`. Those are per tab, and
+  `terminals()` has no times, so an agent that shares its tab, or whose tab has no time,
+  has no known start until its next change. The tab fields' meaning is as
+  `types/herdr.d.ts` documents it, not measured. Each draw turns the clock into the
+  sprite's `stage` (`stages`). Sprite motion has no timers, so the drawer sets one for the
+  nearest next stage of any agent and redraws then. One is pending at a time: a redraw
+  before it is due adds none, a sooner one replaces it, and the replaced one does nothing.
+  An agent with no known start, or at its status's last stage, needs none.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 
