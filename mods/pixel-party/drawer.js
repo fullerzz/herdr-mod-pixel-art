@@ -65,6 +65,11 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @typedef {Show<"cloud" | "clear">} Puff Smoke where a new bee comes out. */
 
 /**
+ * An agent whose status is not the one it had when the drawer last drew it.
+ * @typedef {{ address: string, from: Status, to: Status }} Change
+ */
+
+/**
  * A bee being shown.
  * @typedef {Bee & { id: string, out: boolean }} Flier `out` once it has left the sprite for its place.
  */
@@ -170,6 +175,12 @@ export default class Drawer {
   puffed = new Set();
   /** @type {Map<string, Puff>} By agent address. */
   puffs = new Map();
+  /** @type {Map<string, Status>} Each agent's status when it was last drawn, by address. */
+  statuses = new Map();
+  /** @type {Change[]} The status changes the last draw found. */
+  changes = [];
+  /** Whether the last draw was the moment every agent was done. */
+  allDone = false;
 
   /**
    * Plays a one-shot effect on an agent: `first` now, then each step at its time, and gone
@@ -263,6 +274,25 @@ export default class Drawer {
     this.seen = now;
   }
 
+  /**
+   * Each agent's status change since it was last drawn, and whether this draw is the moment
+   * every agent is done: one of them just turned done and none is anything else. An agent
+   * not drawn last time has no earlier status, so the first draw, a new agent and one that
+   * comes back report no change. One-shots for a change play from here with `play`, before the items are built.
+   * @param {AgentInfo[]} list
+   */
+  statusChanges(list) {
+    /** @type {Change[]} */
+    const changes = [];
+    for (const a of list) {
+      const from = this.statuses.get(a.address);
+      if (from && from !== a.status) changes.push({ address: a.address, from, to: a.status });
+    }
+    this.statuses = new Map(list.map((a) => [a.address, a.status]));
+    this.changes = changes;
+    this.allDone = changes.some((c) => c.to === "done") && list.every((a) => a.status === "done");
+  }
+
   /** @param {string} name A `pixel-party.<name>` key command: "pick", "reroll" or "reset". */
   command(name) {
     const target = currentAgent(agents());
@@ -316,6 +346,7 @@ export default class Drawer {
     const list = agents();
     const first = this.seen === null;
     this.arrivals(list, cx);
+    this.statusChanges(list);
     if (!list.length) return div();
     const bees = this.swarm(list, cx, first);
     const t = /** @type {Theme} */ (theme());

@@ -352,7 +352,15 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - A new bee comes out of the same puff at 2 px cells over the middle of the sprite. It
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
   get none. Stamps, tricks and puffs share one timeline helper (`play`): each step is one
-  render, and a new one on the same agent replaces the last, with new ids.
+  render, and a new one on the same agent replaces the last, with new ids. A one-shot for a
+  status change plays through it too.
+- Each draw keeps every agent's status and finds the changes since the draw before, as
+  `{ address, from, to }` (`changes`). Only agents drawn both times can change: the first
+  draw, a new agent and an agent that left and came back have none, and an empty drawer
+  forgets them all. The same draw is the moment every agent is done (`allDone`) when one
+  of the changes is to done and every agent is done; an all-done first draw, a redraw, or
+  the last agent not done leaving is not. The changes are found before the items are
+  built, so a one-shot started from them shows on that draw.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 
