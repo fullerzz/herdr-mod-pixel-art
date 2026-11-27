@@ -1,5 +1,5 @@
-// Lines added and removed in the agents' repositories, and the commits made in them: the
-// hits and stamps the drawer shows.
+// Lines added and removed in the agents' repositories, the commits made in them, and HEAD's
+// other moves there: the hits and stamps the drawer shows, and the moves it lands.
 // Contract: docs/DESIGN.md, "Contract: edits.js".
 //
 // Herdr reports no edits, so they come from git. Each repository an agent works in is
@@ -13,8 +13,9 @@
 // move is missed however many land between looks, and two moves alike are still two lines.
 // A move is a commit made here when git's note of it is one `git commit` or `git merge`
 // writes for a new commit ("commit: ...", "commit (amend): ...", "merge x: Merge made by
-// ..."). A checkout, reset, rebase, pull or cherry-pick moves HEAD too, and is no commit. A
-// linked worktree keeps its HEAD outside its folder, so its git folder is watched as well.
+// ..."). A checkout, reset, rebase, pull or cherry-pick moves HEAD too, and is no commit: it
+// is reported as a move of its kind, read from the same note. A linked worktree keeps its HEAD
+// outside its folder, so its git folder is watched as well.
 
 import { exec, readTextFile, watchFolder } from "herdr";
 
@@ -102,6 +103,27 @@ export function parseReflog(lines) {
  */
 export const isCommit = (subject) =>
   /^commit(?: \((?:initial|amend|merge)\))?:/.test(subject) || /^merge [^:]*: Merge made by /.test(subject);
+
+/** @typedef {"checkout" | "reset" | "rebase" | "pull" | "cherry-pick" | "merge" | "revert"} MoveKind */
+/**
+ * A move of HEAD that is no commit: its kind, the commit HEAD moved to, and git's note.
+ * @typedef {{ kind: MoveKind, sha: string, subject: string }} Move
+ */
+
+/**
+ * The kind of a move that is no commit, from the git command its reflog note names; null for
+ * a commit and for a note of any other kind. `git switch` writes a checkout's note, `git stash`
+ * a reset's, a fast-forward `git merge` a merge's, and a cherry-pick concluded after a conflict
+ * `commit (cherry-pick): ...`. A pull's note carries its options (`pull --rebase (pick): ...`).
+ * @param {string} subject
+ * @returns {MoveKind | null}
+ */
+export function moveKind(subject) {
+  if (isCommit(subject)) return null;
+  if (subject.startsWith("commit (cherry-pick):")) return "cherry-pick";
+  const m = /^(checkout|reset|rebase|pull|cherry-pick|merge|revert)(?=[ :])/.exec(subject);
+  return m ? /** @type {MoveKind} */ (m[1]) : null;
+}
 
 /**
  * The path of HEAD's reflog file, or null when git can't tell. A linked worktree has its own.
@@ -218,15 +240,17 @@ export async function readDiff(root) {
   }
 }
 
-/** Watches the repositories of the folders it is given, and reports what grows in them and the commits made in them. */
+/** Watches the repositories of the folders it is given, and reports what grows in them, the commits made in them, and HEAD's other moves. */
 export class EditWatcher {
   /**
    * @param {(root: string, lines: Lines, cx: AsyncContext) => void} onGrowth
    * @param {(root: string, commit: string, cx: AsyncContext) => void} [onCommit] Gets the new commit's sha.
+   * @param {(root: string, move: Move, cx: AsyncContext) => void} [onMove] Gets a move of HEAD that is no commit.
    */
-  constructor(onGrowth, onCommit = () => {}) {
+  constructor(onGrowth, onCommit = () => {}, onMove = () => {}) {
     this.onGrowth = onGrowth;
     this.onCommit = onCommit;
+    this.onMove = onMove;
     /** @type {Map<string, string | null>} Folder to repository root; null: none, or still asking. */
     this.roots = new Map();
     /** @type {Map<string, number>} When each folder was last asked for its repository. */
@@ -309,8 +333,8 @@ export class EditWatcher {
       let log = null;
       /** @type {Cursor | null} How far the reflog is read; null: not yet. */
       let read = null;
-      // Commits count from the first good read of the reflog: what it holds already is no
-      // stamp, unless the repository was made since the folder was first asked (its first
+      // Commits and moves count from the first good read of the reflog: what it holds already
+      // is no stamp or move, unless the repository was made since the folder was first asked (its first
       // commit can come before the watch starts). Until a read succeeds, nothing counts.
       // A failed read keeps where the reading got to, so the next good read goes on from it.
       const readLog = async () => {
@@ -341,13 +365,17 @@ export class EditWatcher {
   }
 
   /**
-   * Reports the newest commit among these moves, if any: one stamp per look.
+   * Reports one thing per look: the newest commit among these moves, else the newest move of
+   * a known kind. A rebase writes many lines, often in one look, and is still one move; a
+   * commit outweighs the checkouts and resets around it.
    * @param {string} root
    * @param {HeadMove[]} moves Oldest first.
    * @param {AsyncContext} cx
    */
   report(root, moves, cx) {
     const commit = moves.filter((m) => isCommit(m.subject)).at(-1);
-    if (commit) this.onCommit(root, commit.sha, cx);
+    if (commit) return this.onCommit(root, commit.sha, cx);
+    const move = moves.map(({ sha, subject }) => ({ kind: moveKind(subject), sha, subject })).filter((m) => m.kind).at(-1);
+    if (move) this.onMove(root, /** @type {Move} */ (move), cx);
   }
 }

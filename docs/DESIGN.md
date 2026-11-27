@@ -93,7 +93,7 @@ main.js ──> drawer.js ──┬─> identity.js ──> herdr
 | `identity.js` | coordinator | The label: `seedFor`, `hasAvatar`, `setAvatar`, `clearAvatar`, `openPicker`. |
 | `sprites.js` | sprites | Seed to sprite. Pure: no imports, runs under plain node. |
 | `sprite-view.js` | sprites | Sprite to element, with motion per status and way of working, and a hit's flash and knock. |
-| `edits.js` | drawer | Lines added and removed in the agents' repositories, from git. |
+| `edits.js` | drawer | Lines added and removed in the agents' repositories, and HEAD's moves there, from git. |
 | `bees.js` | drawer | An agent's helpers, and the bee drawn for each. |
 | `drawer.js` | drawer | The party drawer. |
 | `picker.js` | picker | The picker popup. |
@@ -183,9 +183,10 @@ export async function readDiff(root): Diff | null;    // against HEAD, untracked
 export const START: Cursor;                          // { lines: 0, last: "" }: nothing read yet
 export function parseReflog(lines): HeadMove[];     // reflog file lines, oldest first
 export const isCommit = (subject) => boolean;       // git's note for a new commit made here
+export function moveKind(subject): MoveKind | null;  // a move that is no commit: the command its note names
 export async function readMoves(log, from: Cursor): { moves: HeadMove[], to: Cursor } | null; // the lines after `from`
 export class EditWatcher {
-  constructor(onGrowth: (root, lines, cx) => void, onCommit?: (root, sha, cx) => void);
+  constructor(onGrowth: (root, lines, cx) => void, onCommit?: (root, sha, cx) => void, onMove?: (root, move: Move, cx) => void);
   follow(dirs, cx): void;   // watch the repositories these folders are in, and no other; ask a folder in none again after 10 s
   rootOf(dir): string | null;
 }
@@ -210,11 +211,17 @@ export class EditWatcher {
   `merge <x>: Merge made by ...` (a clean `git merge` that made a merge commit). A
   checkout, reset, rebase, pull, fast-forward or cherry-pick (`commit (cherry-pick): ` too) is
   not.
-- Commits count from the first good read: starting Herdr is no commit, and so is anything
+- Any other move is a `Move`, `{ kind, sha, subject }`, when its note names a known command.
+  `MoveKind` is `checkout` (`git switch` too), `reset` (`git stash` too), `rebase`, `pull`
+  (its note carries its options: `pull --rebase (pick): `), `cherry-pick` (`commit
+  (cherry-pick): ` too), `merge` (a fast-forward) or `revert`. A note of any other kind
+  (`clone: `, `am: `) is no move.
+- Commits and moves count from the first good read: starting Herdr is no commit, and so is anything
   already in the reflog when that first read failed. A repository found where a folder had
   none (`git init`) counts from the start of its reflog, and is reported as soon as it is
-  watched. A folder found late in a repository already watched does not make it new. A failed read keeps where the reading got to. One look reports at most one
-  commit, the newest.
+  watched. A folder found late in a repository already watched does not make it new. A failed read keeps where the reading got to. One look reports one
+  thing at most: the newest commit, else the newest move. A rebase writes many lines, often
+  in one look, and is one move; a commit outweighs the checkouts and resets seen with it.
 - A linked worktree's git folder (`rev-parse --absolute-git-dir` outside the repository)
   is watched too. Each watched folder has one pending `watchFolder` at a time.
 
@@ -333,6 +340,9 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   bold check, 8 by 6 cells in `theme().done`, outlined dark so it reads on any creature. The
   mark holds, fades over 1 s from 2.7 s, and is gone at 3.8 s. Each step is slow enough to
   follow by eye. A new stamp on the same agent replaces the last, with new ids.
+- A move of HEAD that is no commit lands on the same agents a hit or a stamp would. The
+  drawer keeps the last one per agent (`moves`, by address) and draws nothing for it yet: a
+  one-shot for its kind plays from there.
 - Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees

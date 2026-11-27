@@ -258,7 +258,7 @@ The mod runs `hc label` to save a choice. The optional bee hook runs `hc label` 
 `hc get` on its own agent's terminal; `just hooks` edits Claude Code's and Codex's hook
 files and keeps a backup of each. Edit tracking watches local agent
 repositories (and the git folder of a linked worktree), runs Git to count changes and
-read HEAD's reflog for new commits (with `tail`), and reads up to 50 untracked files per
+read HEAD's reflog for new commits and its other moves (with `tail`), and reads up to 50 untracked files per
 scan to count their lines. The mod makes no direct network requests; Herdr and
 `hc` handle connections to any configured remote machines.
 

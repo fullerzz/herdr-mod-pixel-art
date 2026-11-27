@@ -36,7 +36,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /** @import { AsyncContext, Color, Context, Element } from "gpui-kit" */
 /** @import { Bee } from "./bees.js" */
-/** @import { Lines } from "./edits.js" */
+/** @import { Lines, Move } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status } from "herdr" */
 /** @import { Theme } from "./sprite-view.js" */
 
@@ -181,6 +181,8 @@ export default class Drawer {
   changes = [];
   /** Whether the last draw was the moment every agent was done. */
   allDone = false;
+  /** @type {Map<string, Move>} The last move of HEAD, other than a commit, that landed on each agent, by address. */
+  moves = new Map();
 
   /**
    * Plays a one-shot effect on an agent: `first` now, then each step at its time, and gone
@@ -211,7 +213,11 @@ export default class Drawer {
    * @param {AsyncContext} cx
    */
   init(_props, cx) {
-    this.edits = new EditWatcher((root, lines, cx) => this.strike(root, lines, cx), (root, _commit, cx) => this.stamp(root, cx));
+    this.edits = new EditWatcher(
+      (root, lines, cx) => this.strike(root, lines, cx),
+      (root, _commit, cx) => this.stamp(root, cx),
+      (root, move) => this.moved(root, move),
+    );
     /** @type {(cx: AsyncContext) => void} */
     const follow = (cx) => this.edits.follow(folders().values(), cx);
     follow(cx);
@@ -260,6 +266,17 @@ export default class Drawer {
   stamp(root, cx) {
     for (const address of this.agentsIn(root)) this.play(this.stamps, address, "drop", STAMP_STEPS, cx);
     cx.notify();
+  }
+
+  /**
+   * HEAD moved in a repository other than by a commit: a checkout, reset, rebase, pull,
+   * cherry-pick, merge or revert. It lands on the agents a hit or a stamp would. Nothing is
+   * drawn for it yet: a one-shot for its kind plays from here.
+   * @param {string} root
+   * @param {Move} move
+   */
+  moved(root, move) {
+    for (const address of this.agentsIn(root)) this.moves.set(address, move);
   }
 
   /**

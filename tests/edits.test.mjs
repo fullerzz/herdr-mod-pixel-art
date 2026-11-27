@@ -1,11 +1,13 @@
 // Hits: lines an agent adds or removes, read from git, shown over its sprite in the drawer.
-// Git is faked through the herdr stand-in's `exec`, and a change through `mock.touch`.
+// Moves: HEAD moved by a checkout, reset, rebase, pull or cherry-pick, read from its reflog,
+// landed on the drawer's agents. Git is faked through the herdr stand-in's `exec`, and a
+// change through `mock.touch`.
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { mock } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { countLines, growth, parseNumstat } from "../mods/pixel-party/edits.js";
+import { EditWatcher, countLines, growth, moveKind, parseNumstat } from "../mods/pixel-party/edits.js";
 import { makeSprite } from "../mods/pixel-party/sprites.js";
 import { HIT, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, text, walk } from "./mocks/gpui.mjs";
@@ -15,15 +17,32 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 const ok = (stdout = "") => ({ code: 0, stdout, stderr: "" });
 
-/** A repository at /repo: `repo.numstat` is its diff against HEAD, `repo.untracked` its new files. */
+/** A reflog line, all in one second, as git writes them. */
+const line = ([sha, subject], i, all) =>
+  `${(all[i - 1]?.[0] ?? "0").repeat(40)} ${sha.repeat(40)} Ada <ada@x> 1794700000 +0000\t${subject}`;
+const LOG = "/repo/.git/logs/HEAD";
+
+/**
+ * A repository at /repo: `repo.numstat` is its diff against HEAD, `repo.untracked` its new
+ * files, `repo.log` HEAD's reflog as [sha, subject] moves, oldest first.
+ */
 let repo;
 function fakeGit() {
-  repo = { numstat: "", untracked: [] };
-  mock.state.exec = (command, args, { cwd }) => {
+  repo = { numstat: "", untracked: [], log: [["a", "commit (initial): start"]] };
+  mock.state.exec = (command, args, { cwd } = {}) => {
+    if (command === "tail") {
+      assert.deepEqual([args[0], args[2]], ["-n", LOG]);
+      return ok(repo.log.map(line).map((l) => `${l}\n`).slice(Number(args[1].slice(1)) - 1).join(""));
+    }
+    if (command === "test") return { code: args[1] === LOG ? 0 : 1, stdout: "", stderr: "" };
     assert.equal(command, "git");
     assert.equal(args[0], "--no-optional-locks", "git must not write the index: that is a change too");
     const [verb, ...rest] = args.slice(1);
-    if (verb === "rev-parse") return cwd.startsWith("/repo") ? ok("/repo\n") : { code: 128, stdout: "", stderr: "not a git repository" };
+    if (verb === "rev-parse") {
+      if (!cwd.startsWith("/repo")) return { code: 128, stdout: "", stderr: "not a git repository" };
+      if (rest.includes("--git-path")) return ok(".git/logs/HEAD\n");
+      return ok(rest.includes("--absolute-git-dir") ? "/repo/.git\n" : "/repo\n");
+    }
     if (verb === "diff" && rest[0] === "HEAD") return ok(repo.numstat);
     if (verb === "ls-files") return ok(repo.untracked.map((p) => `${p}\0`).join(""));
     throw new Error(`unexpected git ${args.join(" ")}`);
@@ -213,4 +232,107 @@ test("an agent that leaves the repository stops its watch and takes no more hits
   await settle();
   await edit(() => (repo.numstat = "9\t9\ta.js\n"));
   assert.equal(hitOf(draw(drawer, cx), "t1"), null);
+});
+
+/** HEAD moves in /repo, once for each [sha, subject] in order, seen in one look. */
+async function moves(list) {
+  repo.log.push(...list);
+  mock.touch("/repo");
+  await settle();
+}
+const sha = (c) => c.repeat(40);
+
+/** A watcher on /repo alone, and what it reported, in order. */
+async function watcher() {
+  const got = [];
+  const w = new EditWatcher(() => {}, (_root, commit) => got.push(["commit", commit]), (root, move) => got.push([move.kind, move.subject, move.sha, root]));
+  w.follow(["/repo"], context());
+  await settle();
+  return got;
+}
+
+test("a move's kind is the git command its reflog note names; a commit or a note of any other kind has none", () => {
+  // The notes git 2.56 writes, recorded from a real repository.
+  const kinds = {
+    "checkout: moving from main to x": "checkout",
+    "checkout: moving from 98c219a6f1db5d03558069fa5b3c934a1e7f5083 to main": "checkout",
+    "reset: moving to HEAD~1": "reset",
+    "reset: moving to HEAD": "reset", // `git stash`
+    "rebase (start): checkout main": "rebase",
+    "rebase (pick): yy": "rebase",
+    "rebase (finish): returning to refs/heads/y": "rebase",
+    "rebase -i (finish): returning to refs/heads/y": "rebase", // older git
+    "pull: Fast-forward": "pull",
+    "pull -q --ff-only: Fast-forward": "pull",
+    "pull -q --no-rebase --no-edit: Merge made by the 'ort' strategy.": "pull",
+    "pull -q --rebase (pick): w": "pull",
+    "cherry-pick: three": "cherry-pick",
+    "commit (cherry-pick): conflictk": "cherry-pick",
+    "merge x: Fast-forward": "merge",
+    'revert: Revert "two"': "revert",
+    "commit: three": null,
+    "commit (initial): start": null,
+    "commit (amend): reword": null,
+    "commit (merge): Merge branch 'x'": null,
+    "merge x: Merge made by the 'ort' strategy.": null,
+    "clone: from /up": null,
+    "checkouts: no": null,
+    "": null,
+  };
+  for (const [subject, kind] of Object.entries(kinds)) assert.equal(moveKind(subject), kind, subject);
+});
+
+test("a checkout lands on the working agent, as a hit would, with its kind, commit and note", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer } = await start();
+  assert.equal(drawer.moves.size, 0, "the reflog's lines before the drawer are no move");
+  await moves([["b", "checkout: moving from main to x"]]);
+  assert.deepEqual(drawer.moves.get("t1"), { kind: "checkout", sha: sha("b"), subject: "checkout: moving from main to x" });
+  assert.equal(drawer.moves.has("t2"), false, "the idle one in the same repository takes none");
+  await moves([["c", "reset: moving to HEAD~1"]]);
+  assert.equal(drawer.moves.get("t1").kind, "reset", "a later move replaces it");
+});
+
+test("with no agent working, a move lands on every agent in the repository", async () => {
+  mock.agent("t1", { status: "idle" });
+  mock.agent("t2", { status: "done" });
+  mock.agent("t3", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo/lib" }, { pane: "p-t3", cwd: "/tmp" }];
+  const { drawer } = await start();
+  await moves([["b", "pull: Fast-forward"]]);
+  assert.deepEqual([...drawer.moves.keys()].sort(), ["t1", "t2"]);
+  assert.equal(drawer.moves.get("t2").kind, "pull");
+});
+
+test("one look reports one move, the newest: a rebase's many lines are one rebase", async () => {
+  const got = await watcher();
+  assert.deepEqual(got, [], "the reflog the watch starts with");
+  await moves([
+    ["a", "rebase (start): checkout main"],
+    ["b", "rebase (pick): one"],
+    ["c", "rebase (pick): two"],
+    ["c", "rebase (finish): returning to refs/heads/x"],
+  ]);
+  assert.deepEqual(got, [["rebase", "rebase (finish): returning to refs/heads/x", sha("c"), "/repo"]]);
+  await moves([["d", "checkout: moving from x to main"], ["e", "cherry-pick: fix"]]);
+  assert.deepEqual(got.at(-1), ["cherry-pick", "cherry-pick: fix", sha("e"), "/repo"]);
+  assert.equal(got.length, 2);
+});
+
+test("a look with a commit in it reports the commit alone, whatever moves come with it", async () => {
+  const got = await watcher();
+  await moves([["b", "checkout: moving from main to x"], ["c", "commit: work"], ["b", "reset: moving to HEAD~1"]]);
+  assert.deepEqual(got, [["commit", sha("c")]]);
+});
+
+test("a note of no known kind is no move, and never hides an older one in the same look", async () => {
+  const got = await watcher();
+  await moves([["b", "clone: from /up"]]);
+  assert.deepEqual(got, []);
+  await moves([["c", "checkout: moving from main to x"], ["d", "am: patch"]]);
+  assert.deepEqual(got, [["checkout", "checkout: moving from main to x", sha("c"), "/repo"]]);
+  await moves([]);
+  assert.equal(got.length, 1, "a file saved: HEAD did not move");
 });
