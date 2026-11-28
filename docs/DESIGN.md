@@ -23,6 +23,8 @@ picker lets the person choose another creature for an agent.
   web, thinks when a prompt comes in, and is squished in a press while it compacts its
   context. Otherwise it works its own way, picked by its seed: a walk, or one of the six
   ways from before the four for kinds of command.
+- **Time of day.** A creature at rest (done or idle) keeps a prop for the local time of day
+  at its lower right: a lantern at night, a cup of coffee in the morning.
 - **Identity.** An agent's seed is the `pixel.avatar` label on its terminal in herdr-core.
   Without the label the seed is the terminal's address, so every agent has a stable sprite
   from the start. A label survives an agent restart in the same terminal, is seen by every
@@ -145,7 +147,7 @@ these guarantees:
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
@@ -154,6 +156,7 @@ export const WORKS: readonly string[];          // walk typing reading hammering
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
 export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // the creature still from one side, in px
+export function daytimeOf(hour): "night" | "morning" | null;  // the part of the day of a local hour, 0 to 23
 ```
 
 - Returns one element exactly `GRID * px` square that does not shrink in a flex row.
@@ -243,6 +246,16 @@ export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // th
   is `"front"` (its open eyes), `"back"` (no eyes), or `"left"` or `"right"`, turned that
   way edge-on: a third as wide, centered, with only the eye on that side. The two turned
   faces mirror each other. Rectangles are in px, inside the `GRID * px` square.
+- `daytime` is the part of the day, as `daytimeOf` names it from a local hour: `night` from
+  20:00 to 5:59, `morning` from 6:00 to 10:59, null the rest of the day. A done or idle
+  creature keeps its prop at its lower right, in front of the art. `night` is a lantern: an
+  iron frame 2 by 3 cells round a lit window, a flame flickering in it. `morning` is a cup of
+  coffee on a saucer, its handle toward the creature, two thin wisps of steam rising in turn
+  up the right edge's column. Both keep to rows 9 to 11 and the right edge's column: a
+  happy eye reaches column 10, but no lower than row 8, so they hide no eye in any mood. They
+  follow the ways' rules for colors, the box and loops. Working, a way's own props fill that
+  corner, and blocked, the fire does, so neither shows the prop; nor does the still pose.
+  Any other value (a name it doesn't know, `"__proto__"`) adds none.
 
 ### Contract: `edits.js`
 
@@ -569,6 +582,10 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   has run out of its mouth into a puddle on the left. It fades over 600 ms from 1.7 s; gone
   at 2.3 s. Each frame of the fall is its own layer, shown in its step, as the signpost's
   turn is. Failed tests make no smoke.
+- Each draw reads the local clock and gives every sprite the part of the day (`daytimeOf`
+  of the hour). Sprite motion has no timers, so the drawer looks at the clock each minute,
+  from `init`, and redraws when the part of the day differs from the last draw's. The draw
+  reads the clock itself, so a late look still draws the right prop.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 

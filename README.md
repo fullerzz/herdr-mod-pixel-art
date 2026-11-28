@@ -17,6 +17,8 @@ move according to what their agents are doing.
   while it fetches from the web, thinks when a prompt comes in, and is squished in a
   press while it compacts its context. Without the hook, each creature works its own way,
   the same every time.
+- **Time of day.** A creature at rest keeps a prop for the local time of day beside it:
+  a lantern at night, a cup of coffee in the morning.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock. The bigger the change, the harder it hits: a
@@ -287,6 +289,14 @@ leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
 hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the eleven ways, or walk
 hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 ```
+
+## Time of day
+
+A creature that is done or idle keeps a prop at its lower right, from your computer's
+clock, with no setup. From 20:00 to 5:59 it is a lantern whose flame flickers; from 6:00 to
+10:59 it is a cup of coffee with steam rising from it. The rest of the day it has none. A
+working creature holds its work's props there instead, and a blocked one is on fire. The
+drawer looks at the clock once a minute, so the prop changes within a minute of the hour.
 
 ## Worker bees
 

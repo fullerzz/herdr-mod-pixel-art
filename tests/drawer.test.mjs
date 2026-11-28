@@ -2,7 +2,7 @@
 // asked to do when the person clicks, right clicks or presses a key.
 
 import assert from "node:assert/strict";
-import { beforeEach, test } from "node:test";
+import { afterEach, beforeEach, mock as clock, test } from "node:test";
 import { mock, theme } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
 import { makeSprite } from "../mods/pixel-party/sprites.js";
@@ -50,7 +50,12 @@ const setMsg = (address, msg) => {
   mock.state.terminals = mock.state.terminals.map((x) => (x.address === address ? { ...x, report: { ...x.report, msg } } : x));
 };
 
-beforeEach(() => mock.reset());
+// Noon on the local clock: no prop for the time of day, so a sprite here is the plain one.
+beforeEach(() => {
+  mock.reset();
+  clock.timers.enable({ apis: ["Date"], now: new Date(2026, 0, 5, 12).getTime() });
+});
+afterEach(() => clock.timers.reset());
 
 test("no agents renders an empty div, so the floating block hides", () => {
   const tree = render();

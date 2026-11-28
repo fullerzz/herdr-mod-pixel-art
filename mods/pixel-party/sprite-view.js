@@ -14,6 +14,9 @@
 //   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn
 //   idle     closed eyes, dimmed, breathes slowly, a fading "z"
 //
+// A creature at rest (done or idle) also keeps a prop for the time of day at its lower
+// right: a lantern at night, a cup of coffee in the morning. See DAYTIME below.
+//
 // A hit (lines its agent added or removed) adds, on top of any status, a flash of the
 // creature's silhouette and a knock: up for added lines, sideways for removed ones. Both
 // start at full strength and ease back with `.transition`, so the caller renders a hit
@@ -608,6 +611,55 @@ export const ownWork = (sprite) => OWN[hashSeed(`${sprite.seed}\u0000work`) % OW
 /** @type {Partial<Record<Status, Mood>>} */
 const EYES = { done: "happy", idle: "closed" };
 
+/** @typedef {"night" | "morning"} Daytime A part of the day that has a prop. */
+
+/**
+ * The part of the day an hour of the local clock is in: night from 20:00 to 5:59, morning
+ * from 6:00 to 10:59, and none the rest of the day.
+ * @param {number} hour 0 to 23, as `Date#getHours` gives it.
+ * @returns {Daytime | null}
+ */
+export const daytimeOf = (hour) => (hour >= 20 || hour < 6 ? "night" : hour < 11 ? "morning" : null);
+
+/** The colors of the time of day's props. Their own, like the sprite's art. */
+const DAY = /** @type {const} */ ({
+  iron: "#3b3f4c",
+  glass: "#ffe6a0",
+  flame: "#ff9e3d",
+  mug: "#f2efe8",
+  coffee: "#6b4226",
+  steam: "#e9eef5",
+});
+
+/**
+ * The props for the time of day, at a resting creature's lower right. They sit in rows 9 to
+ * 11 and the right edge's column, where no kind has an eye in any mood: a happy eye reaches
+ * column 10, but no lower than row 8.
+ * @type {Record<Daytime, (u: number, nudge: number) => { behind: Element[], front: Element[] }>}
+ */
+const DAYTIME = {
+  // A lantern standing on the floor, 2 by 3 cells: an iron frame round a lit window, a
+  // flame flickering in it.
+  night(u, nudge) {
+    const glass = rect(10 * u + nudge, 9 * u + nudge, 2 * u - 2 * nudge, 2 * u - nudge, DAY.glass);
+    const flame = rect(11 * u - Math.floor(nudge / 2), 10 * u - nudge, nudge, 2 * nudge, DAY.flame).loop("opacity", { from: 1, to: 0.35, period: 700 });
+    return { behind: [], front: [mark([[10, 9, 2, 3]], DAY.iron, u), glass, flame] };
+  },
+  // A cup of coffee on a saucer, its handle toward the creature, and two thin wisps of steam
+  // rising in turn along the right edge.
+  morning(u, nudge) {
+    const cup = [
+      mark([[9, 11, 3, 1], [10, 9, 2, 2]], DAY.mug, u),
+      rect(10 * u, 9 * u, 2 * u, nudge, DAY.coffee),
+      rect(9 * u + nudge, 9 * u + nudge, u - nudge, u - nudge, DAY.mug),
+    ];
+    /** @type {(dx: number, from: number, to: number) => Element} A wisp in the right edge's column, rising a cell and fading. */
+    const wisp = (dx, from, to) => full(GRID * u).child(rect(11 * u + dx, 7 * u, nudge, 2 * u - nudge, DAY.steam).loop("opacity", { from, to, period: 1800 }))
+      .loop("top", { from: 0, to: -u, period: 1800 });
+    return { behind: [], front: [...cup, wisp(0, 0.9, 0.1), wisp(u - nudge, 0.1, 0.8)] };
+  },
+};
+
 /**
  * The status's marks, drawn behind or in front of the creature.
  * @param {Status | null} status
@@ -659,9 +711,11 @@ function accents(status, u) {
  *   STAGES reached (default 0, also when its start is unknown). No look uses it yet.
  * @param {boolean} [options.tube] Whether a testing creature holds its test tube (default
  *   true). The drawer takes it away while it shows how the tests came out.
+ * @param {string | null} [options.daytime] The part of the day (`daytimeOf`): a done or idle
+ *   creature keeps its prop. Anything else, or null, adds none.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0, tube = true } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0, tube = true, daytime = null } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
@@ -692,6 +746,13 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   figure.child(left).child(right).child(torso);
 
   const { behind, front } = worked ?? accents(look, u);
+  // At rest, the time of day's prop. Working, a way's own props fill its corner; blocked, the fire does.
+  const resting = look === "done" || look === "idle";
+  const day = resting && typeof daytime === "string" && Object.hasOwn(DAYTIME, daytime) ? DAYTIME[/** @type {Daytime} */ (daytime)](u, nudge) : null;
+  if (day) {
+    behind.push(...day.behind);
+    front.push(...day.front);
+  }
   return div().id(id).relative().size(size).flex_none().children([...behind, hit ? struck(figure, sprite, id, u, hit) : figure, ...front]);
 }
 

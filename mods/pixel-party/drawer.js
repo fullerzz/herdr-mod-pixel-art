@@ -41,13 +41,17 @@
 // to a lane under it, out of a small puff of smoke, and stays there until the helper ends.
 // Herdr clips a floating mod to its frame, so the lane is inside the drawer: it is as wide
 // as the sprite cell, and a closed drawer shows it.
+//
+// A creature at rest keeps a prop for the local time of day: a lantern at night, a cup of
+// coffee in the morning. Sprite motion has no timers, so the drawer looks at the clock each
+// minute and redraws when the part of the day has changed.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, focused, run, theme, placement } from "herdr";
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { GRID, makeSprite, randomSeed } from "./sprites.js";
-import { faceRects, spriteElement, HIT, STAGES, TURNS } from "./sprite-view.js";
+import { faceRects, spriteElement, daytimeOf, HIT, STAGES, TURNS } from "./sprite-view.js";
 import { EditWatcher, hitSize } from "./edits.js";
 import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
@@ -55,7 +59,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @import { Bee } from "./bees.js" */
 /** @import { HitSize, Lines, Move, MoveKind } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status, TabInfo } from "herdr" */
-/** @import { Face, SpriteTurn, Theme } from "./sprite-view.js" */
+/** @import { Daytime, Face, SpriteTurn, Theme } from "./sprite-view.js" */
 
 /**
  * One agent as the drawer shows it.
@@ -76,6 +80,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {string | null} work What it is doing, as its hooks say (`pixel.work`), if they do.
  * @property {number} stage How many of its status's STAGES it has held for: 0 when its start is unknown.
  * @property {SpriteTurn | null} turn The turn its last status change plays, if any.
+ * @property {Daytime | null} daytime The part of the day it was drawn in, for its prop at rest.
  */
 
 /**
@@ -151,6 +156,7 @@ const BEE_LIFT = 2; // px over the first row: a flying bee lifts by one of its c
 /** @type {(n: number) => number} The height of the lanes under a sprite with n bees. */
 const lanes = (n) => (n ? BEE_LIFT + Math.ceil(Math.min(n, BEE_MAX) / BEE_ROW) * BEE_LANE : 0);
 const FOLLOW_MS = 2000; // ms between looks at which folders the agents are in
+const DAYTIME_MS = 60_000; // ms between looks at the clock for a new part of the day
 const STAMP_PX = 3; // a stamp's cells, the sprite's size
 const STAMP_W = 8 * STAMP_PX; // px: the mark and the tool are as wide
 const STAMP_X = 21; // px: the stamp lands on the sprite's lower right (the sprite is 6..42 by 4..40)
@@ -270,6 +276,8 @@ export default class Drawer {
   wake = null;
   /** @type {Record<string, Map<string, Show<string>>>} The turns being played, by name in TURNS, then by agent address. */
   turns = Object.fromEntries(Object.keys(TURNS).map((kind) => [kind, new Map()]));
+  /** @type {Daytime | null | undefined} The part of the day of the last draw; undefined before the first. */
+  daytime = undefined;
 
   /**
    * Plays a one-shot effect on an agent: `first` now, then each step at its time, and gone
@@ -309,6 +317,10 @@ export default class Drawer {
     const follow = (cx) => this.edits.follow(folders().values(), cx);
     follow(cx);
     cx.timer.every(FOLLOW_MS, follow);
+    // The local clock moves on without a render: redraw when the part of the day is new.
+    cx.timer.every(DAYTIME_MS, (cx) => {
+      if (daytimeOf(new Date().getHours()) !== this.daytime) cx.notify();
+    });
   }
 
   /**
@@ -568,6 +580,8 @@ export default class Drawer {
     const list = agents();
     const first = this.seen === null;
     const now = Date.now();
+    const daytime = daytimeOf(new Date(now).getHours());
+    this.daytime = daytime;
     const byAddress = new Map(terminals().map((x) => [x.address, x]));
     this.departures(list, cx);
     this.arrivals(list, cx);
@@ -608,6 +622,7 @@ export default class Drawer {
         work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
         stage: this.stages.get(a.address) ?? 0,
         turn: this.turnOf(a.address),
+        daytime,
       };
     });
     // A ghost keeps its place, so its exit plays where its creature stood. It shows only the
@@ -1175,7 +1190,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn }, side) {
+function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1202,6 +1217,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, verdict, 
       stage,
       turn,
       tube: !verdict,
+      daytime,
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
       .when(Boolean(shot?.hides), (el) => el.opacity(0))
