@@ -177,6 +177,9 @@ test("a tool about to run says what the agent is doing, in Claude Code's names a
     TaskUpdate: "planning",
     EnterPlanMode: "planning",
     ExitPlanMode: "planning",
+    mcp__probe__ping: "mcp",
+    mcp__linear__get_issue: "mcp",
+    mcp__claude_ai_Slack__slack_read_channel: "mcp",
   };
   for (const [tool, work] of Object.entries(cases)) {
     ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command: "\"tool_name\": \"Read\"" } }));
@@ -189,7 +192,7 @@ test("only the fields before the tool's own input count, and a huge input is rea
   ok(await hook("tool", { session_id: "s", hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { query: { agent_id: "zz", tool_name: "Bash" } } }));
   assert.deepEqual(labels(), ["pixel.work=reading"]);
   ok(await hook("tool", { session_id: "s", hook_event_name: "PreToolUse", tool_name: "mcp__x__y", tool_input: { tool_name: "Read" } }));
-  assert.deepEqual(labels(), []);
+  assert.deepEqual(labels(), ["pixel.work=mcp"]);
   const r = await hook("tool", { session_id: "s", hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "/a", content: "x".repeat(4_000_000) } });
   ok(r);
   assert.ok(r.ms < 1000, `took ${r.ms} ms`);
@@ -284,7 +287,8 @@ test("only a shell tool's command is read, from its input's first 512 bytes, and
 
 test("a tool that says nothing about the work takes the label away: the creature works its own way", async () => {
   seed(["pixel.avatar=knight7", "pixel.work=typing"]);
-  for (const tool of ["TaskList", "TaskGet", "TaskStop", "TaskOutput", "mcp__linear__get_issue", "Skill", ""]) {
+  // An MCP tool is named mcp__<server>__<tool>: a name that only looks like one is no clue.
+  for (const tool of ["TaskList", "TaskGet", "TaskStop", "TaskOutput", "Skill", "mcp", "mcp_x", "ListMcpResourcesTool", "ReadMcpResourceTool", ""]) {
     seed(["pixel.avatar=knight7", "pixel.work=typing"]);
     ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool }));
     assert.deepEqual(labels(), ["pixel.avatar=knight7"], tool);

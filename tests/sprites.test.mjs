@@ -363,8 +363,8 @@ const working = (sprite, work, px = 3) => spriteElement(sprite, { id: "s", px, s
 /** An element's whole tree as text: every node's kind and calls, children aside. */
 const tree = (el) => JSON.stringify(walk(el).map((node) => [node.kind, node.calls.filter(([name]) => name !== "child" && name !== "children")]));
 
-test("there are fourteen ways of working, walk among them, and the test covers every kind", () => {
-  assert.deepEqual([...WORKS].sort(), ["building", "compacting", "delegating", "git", "hammering", "installing", "planning", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
+test("there are fifteen ways of working, walk among them, and the test covers every kind", () => {
+  assert.deepEqual([...WORKS].sort(), ["building", "compacting", "delegating", "git", "hammering", "installing", "mcp", "planning", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
   assert.equal(KINDS.length, 10);
 });
 
@@ -662,6 +662,30 @@ test("planning, a clipboard under the face has its items ticked off in turn, in 
     const [[property, bob]] = calls(nodeOf(figure.children[2]), "loop");
     assert.equal(property, "top");
     assert.ok(bob.to < bob.from && ticks.every((c) => c.period === bob.period), "the body bobs with each tick");
+  }
+});
+
+test("mcp, a plug on a cable is pushed into a socket at the right edge, sparks crackling in turn, in step with the body", () => {
+  const t = theme();
+  for (const sprite of KINDS) {
+    // The plug, its cable, the socket and both sparks show in a single frame, at the right edge.
+    const board = raster(working(sprite, "mcp", 1));
+    assert.equal(board[7][10], t.foreground, `${sprite.kind}: the plug`);
+    assert.deepEqual([8, 9, 10, 11].map((y) => board[y][10]), Array(4).fill(t.dim), `${sprite.kind}: the cable, down to the floor`);
+    assert.deepEqual([6, 7, 8].map((y) => board[y][11]), Array(3).fill(t.dim), `${sprite.kind}: the socket, three cells tall`);
+    assert.deepEqual([board[5][11], board[9][11]], [t.working, t.working], `${sprite.kind}: a spark over the socket and one under it`);
+
+    // The plug and its cable are held: they ride in the body, which leans a sub-cell into the
+    // socket, and the sparks crackle in turn, the upper first, once a push.
+    const root = nodeOf(working(sprite, "mcp"));
+    const figure = nodeOf(root.children.find((c) => nodeOf(c).children.length === 3));
+    const torso = nodeOf(figure.children[2]);
+    assert.ok(walk(torso).some((node) => last(node, "bg") === t.foreground) && walk(torso).some((node) => last(node, "bg") === t.dim), "the plug and the cable are in the body");
+    const [[property, push]] = calls(torso, "loop");
+    assert.deepEqual([property, push.from, push.to], ["left", 0, 1], "the body leans right, toward the socket");
+    const sparks = walk(root).filter((node) => calls(node, "loop").some(([p]) => p === "opacity")).map((node) => ({ color: walk(node).map((c) => last(c, "bg")).find(Boolean), ...calls(node, "loop")[0][1] }));
+    assert.deepEqual(sparks.map((c) => [c.color, c.easing]), [[t.working, "ease-out"], [t.working, "ease-in"]]);
+    assert.ok(sparks.every((c) => c.period === push.period), "the sparks crackle with each push");
   }
 });
 

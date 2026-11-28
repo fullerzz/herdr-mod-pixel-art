@@ -910,6 +910,29 @@ const WORK = {
       return { behind: [], front: [board, sheet, clip, text, first, second, ...peek(gaze("open"), u, bob)] };
     },
   },
+  // Calling an MCP tool: a plug held at its right, its cable hanging to the floor, pushed
+  // into a socket at the right edge while sparks crackle at the socket.
+  mcp: {
+    eyes: "open",
+    cup: "top",
+    build({ u, nudge, size, t, torso }) {
+      // Ease-in: the creature leans in slowly, then shoves the plug home.
+      const push = { period: 900 };
+      // All in the two columns at the right edge, where no kind has an eye. The plug rides in
+      // the torso over a shadow, so it leans in with the body and slips behind the socket.
+      const mid = Math.floor((u - nudge) / 2);
+      torso
+        .loop("left", { from: 0, to: nudge, ...push, easing: "ease-in" })
+        .child(div().absolute().left(0).top(nudge).size(size).child(mark([[10, 7]], PROP.shadow, u)))
+        .child(rect(10 * u + mid, 8 * u, nudge, 4 * u, t.dim))
+        .child(mark([[10, 7]], t.foreground, u));
+      const socket = mark([[11, 6, 1, 3]], t.dim, u);
+      // Same period, two easings: the spark over the socket comes before the one under it.
+      const over = mark([[11, 5]], t.working, u).loop("opacity", { from: 0.1, to: 1, ...push, easing: "ease-out" });
+      const under = mark([[11, 9]], t.working, u).loop("opacity", { from: 0.1, to: 1, ...push, easing: "ease-in" });
+      return { behind: [], front: [socket, over, under] };
+    },
+  },
 };
 
 /** Every way of working, by name. `walk` was the only one before the agents' hooks told more. */
