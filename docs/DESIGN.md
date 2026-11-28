@@ -32,7 +32,8 @@ picker lets the person choose another creature for an agent.
   a fighting game: green `+12` and red `−3` pop over it, hold for a beat, then curve away
   and fade: added lines up and to the left, removed lines up and to the right.
   The sprite flashes the hit's color and is knocked: lifted by added lines, pushed sideways
-  by removed ones.
+  by removed ones. A hit's size follows its lines: a change of a line or a few is a small
+  tick, a big one a crit, with bigger numbers, a CRIT tag, a solid flash and a longer stop.
 - **Stamps.** A commit made in an agent's repository is a stamp of approval: a rubber stamp
   slams down on its sprite, the cell dips under the blow, and the stamp lifts away to leave a
   check that holds a moment, then fades. The check is in the "done" color and says
@@ -194,10 +195,13 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
   dim, canvas and accent, never `HIT`, `FIRE` or the blocked, done and idle cues. Every way
   stays inside the box through all its motion at any `px`, and loops each property of an
   element once: a part that moves two ways nests a layer.
-- `hit` is `{ n, damage, live } | null`. It adds a flash of the creature's silhouette in
-  `HIT.removed` (`damage`) or `HIT.added`, and a knock of one cell: sideways for damage,
-  up otherwise. `live` draws it at full strength; settled, both ease back with
-  `.transition`. Its ids carry `n`.
+- `hit` is `{ n, damage, live, size? } | null`. It adds a flash of the creature's silhouette
+  in `HIT.removed` (`damage`) or `HIT.added`, and a knock: sideways for damage, up
+  otherwise. `live` draws it at full strength; settled, both ease back with `.transition`.
+  Its ids carry `n`. `size` is a `HitSize`, `"hit"` when left out: a hit flashes at 0.9
+  and fades over 320 ms, and knocks one cell. A tick flashes at 0.5, fades over 200 ms and
+  knocks a third of a cell (at least a pixel). A crit flashes solid and fades over 700 ms;
+  its knock is one cell too, since the art leaves only the outer ring empty.
 - `turn` is `{ kind, n, step } | null`: a one-shot being played because the agent's status
   changed. A `Turn` in `TURNS` is `{ from, to, first, steps, eyes, build }`: the change it
   plays on (null for any status), its first step, when each next step starts in ms from the
@@ -226,6 +230,8 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
 export function parseNumstat(stdout): Diff;           // `git diff --numstat`, binary files left out
 export const countLines = (text) => number;
 export function growth(before, after): Lines;         // { added, removed }: only what grew
+export const HIT_LINES = 5, CRIT_LINES = 200;         // lines from which a change is a hit, and a crit
+export const hitSize = (lines) => HitSize;            // "tick" under HIT_LINES, "crit" from CRIT_LINES, else "hit"
 export async function readDiff(root): Diff | null;    // against HEAD, untracked files as added
 export const START: Cursor;                          // { lines: 0, last: "" }: nothing read yet
 export function parseReflog(lines): HeadMove[];     // reflog file lines, oldest first
@@ -243,6 +249,8 @@ export class EditWatcher {
   wakes its own watch.
 - Growth counts per file: a commit, stash or revert shrinks the diff and is no hit. The
   first read is a baseline, so starting Herdr is no hit either.
+- `hitSize` takes a count of lines, so any count can be sized: a hit's added and removed
+  lines together, or a running total.
 - At most 50 untracked files are read per look.
 - The reflog is HEAD's own file (`rev-parse --git-path logs/HEAD`, relative to the repository
   unless its git folder is elsewhere, as in a linked worktree; not `--path-format`, which git
@@ -402,6 +410,11 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   drawer shows them. It holds 90 ms, then each number curves 14 px up and 14 px aside
   (`top` eases out while `left` eases in) and fades; it is gone after 1.4 s. A new
   hit on the same agent replaces the last one.
+- A hit's size is `hitSize` of its added and removed lines together, so +3 −300 is a crit.
+  A tick's numbers are 10 px, a hit's 13 px, a crit's 16 px (five glyphs such as `+1.2k`
+  fit the cell), in rows of 12, 15 and 17 px. A 9 px CRIT tag goes over a crit's numbers,
+  at the box's top, in the color of its bigger number and outlined as the numbers are; it
+  rises 14 px straight up and fades with them. A crit holds 240 ms, not 90, before it moves.
 - A commit in a repository stamps the same agents a hit would, in the box over the sprite's
   lower right, so a closed drawer shows it. The tool, 8 by 9 cells of 3 px, is drawn 14 px
   above its spot and unseen, then 30 ms later falls onto the spot over 340 ms, easing in, as

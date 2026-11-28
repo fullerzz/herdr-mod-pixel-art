@@ -112,6 +112,6 @@ test("a douse keeps going through redraws, and under a hit on the same agent", (
   t1.status = "working";
   const n = douseOf(draw(drawer, cx), "t1");
   assert.equal(douseOf(draw(drawer, cx), "t1"), n, "a redraw with nothing new keeps it");
-  drawer.hits.set("t1", { added: 3, removed: 0, n: 99, live: true });
+  drawer.hits.set("t1", { added: 3, removed: 0, n: 99, live: true, size: "tick" });
   assert.equal(douseOf(draw(drawer, cx), "t1"), n, "a hit lands on the creature being doused");
 });

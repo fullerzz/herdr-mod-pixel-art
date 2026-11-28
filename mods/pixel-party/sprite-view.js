@@ -17,7 +17,9 @@
 // A hit (lines its agent added or removed) adds, on top of any status, a flash of the
 // creature's silhouette and a knock: up for added lines, sideways for removed ones. Both
 // start at full strength and ease back with `.transition`, so the caller renders a hit
-// twice: `live` first, then settled.
+// twice: `live` first, then settled. Its size sets the strength: a tick flashes faintly
+// and knocks by less than a cell; a crit flashes solid and fades slowly. No knock grows
+// past one cell, since the art leaves only the outer ring of the box empty.
 //
 // A turn (a one-shot the caller plays when its agent's status changes, see TURNS) takes the
 // status's place while it lasts: the turn moves the creature's parts, as a way of working
@@ -33,6 +35,7 @@ import { GRID, hashSeed } from "./sprites.js";
 /** @import { Color, Element } from "gpui-kit" */
 /** @import { Status } from "herdr" */
 /** @import { Mood, Rect, Sprite } from "./sprites.js" */
+/** @import { HitSize } from "./edits.js" */
 
 /**
  * `theme()`, its values typed as the hex colors they are so they can go to `.bg()`.
@@ -74,7 +77,11 @@ export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" 
  * @property {number} n The hit's number: a new number is a new hit, drawn from the start.
  * @property {boolean} damage Lines were removed: a red flash and a sideways knock.
  * @property {boolean} live Its first frame, at full strength. Settled, it eases back.
+ * @property {HitSize} [size] How hard it hits (default "hit"): sets the flash and the knock.
  */
+
+/** @type {Record<HitSize, { flash: number, fade: number }>} A flash's opacity when live, and ms it fades over. */
+const STRIKE = { tick: { flash: 0.5, fade: 200 }, hit: { flash: 0.9, fade: 320 }, crit: { flash: 1, fade: 700 } };
 
 /** The colors of a blocked creature's fire, from its edge in to its core. */
 export const FIRE = /** @type {const} */ ({ red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" });
@@ -674,15 +681,17 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
 function struck(figure, sprite, id, u, hit) {
   const { body, feet } = sprite.parts;
   const color = hit.damage ? HIT.removed : HIT.added;
+  const { flash: strength, fade } = STRIKE[hit.size ?? "hit"];
+  const knock = hit.size === "tick" ? Math.max(1, Math.round(u / 3)) : u; // a tick nudges by a sub-cell
   const flash = layer([...body, ...feet[0], ...feet[1]].map((r) => ({ ...r, color })), u)
     .id(`${id}-flash-${hit.n}`)
-    .opacity(hit.live ? 0.9 : 0)
-    .transition("opacity", { duration: 320, easing: "ease-out" });
+    .opacity(hit.live ? strength : 0)
+    .transition("opacity", { duration: fade, easing: "ease-out" });
   return div()
     .id(`${id}-knock-${hit.n}`)
     .absolute()
-    .left(hit.live && hit.damage ? -u : 0)
-    .top(hit.live && !hit.damage ? -u : 0)
+    .left(hit.live && hit.damage ? -knock : 0)
+    .top(hit.live && !hit.damage ? -knock : 0)
     .size(GRID * u)
     .transition("left", { duration: 220, easing: "ease-out" })
     .transition("top", { duration: 220, easing: "ease-out" })

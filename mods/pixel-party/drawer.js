@@ -9,7 +9,8 @@
 //
 // Lines an agent adds or removes are hits, as in a fighting game: the numbers ("+12" green,
 // "−3" red) pop over its sprite and curve away, up-left and up-right, while the sprite
-// flashes and is knocked.
+// flashes and is knocked. A change of a line or a few is a tick: small numbers, a faint
+// flash. A big one is a crit: big numbers under a CRIT tag, a solid flash, a longer stop.
 //
 // A commit made in an agent's repository is a stamp of approval: a rubber stamp slams down
 // on its sprite, the cell dips under the blow, and the stamp lifts away to leave a check
@@ -44,12 +45,12 @@ import { agents, terminals, panes, spaces, focused, run, theme, placement } from
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { makeSprite, randomSeed } from "./sprites.js";
 import { spriteElement, HIT, STAGES, TURNS } from "./sprite-view.js";
-import { EditWatcher } from "./edits.js";
+import { EditWatcher, hitSize } from "./edits.js";
 import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /** @import { AsyncContext, Color, Context, Element } from "gpui-kit" */
 /** @import { Bee } from "./bees.js" */
-/** @import { Lines, Move, MoveKind } from "./edits.js" */
+/** @import { HitSize, Lines, Move, MoveKind } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status, TabInfo } from "herdr" */
 /** @import { SpriteTurn, Theme } from "./sprite-view.js" */
 
@@ -109,7 +110,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /**
  * Lines one agent added or removed, being shown.
- * @typedef {Lines & { n: number, live: boolean }} Hit `live` for its first frames, until it moves.
+ * @typedef {Lines & { n: number, live: boolean, size: HitSize }} Hit `live` for its first frames, until it moves.
  */
 
 const PX = 3; // a 36 px sprite
@@ -118,9 +119,17 @@ const CELL_H = 44;
 const TEXT_W = 168; // text column beside the cell on a side edge
 const TILE_W = 76; // one agent on a top or bottom edge
 const HIT_HOLD = 90; // ms a hit stays still at full strength, a fighting game's hit stop
+const CRIT_HOLD = 240; // ms a crit stays still: a longer stop, so it lands harder
 const HIT_MS = 1400; // ms a hit shows in all
 const HIT_RISE = 14; // px a hit's numbers rise
 const HIT_SWING = 14; // px they swing aside: left for added lines, right for removed ones
+/**
+ * A hit's numbers by its size: text px, px from one row to the next, and the first row's
+ * top. A crit's rows start higher, so two fit under its tag in the 44 px box, and its text
+ * fits "+1.2k" in the 48 px cell.
+ * @type {Record<HitSize, { text: number, row: number, top: number }>}
+ */
+const HIT_TEXT = { tick: { text: 10, row: 12, top: 12 }, hit: { text: 13, row: 15, top: 12 }, crit: { text: 16, row: 17, top: 10 } };
 const BEE_PX = 2; // a 14 by 10 px bee
 const BEE_MAX = 6; // bees drawn per agent; past that the last place holds a count
 const BEE_HOLD = 40; // ms a new bee sits inside its sprite before it flies out
@@ -304,9 +313,9 @@ export default class Drawer {
    */
   strike(root, lines, cx) {
     for (const address of this.agentsIn(root)) {
-      const hit = { ...lines, n: ++this.serial, live: true };
+      const hit = { ...lines, n: ++this.serial, live: true, size: hitSize(lines.added + lines.removed) };
       this.hits.set(address, hit);
-      cx.timer.after(HIT_HOLD, (cx) => {
+      cx.timer.after(hit.size === "crit" ? CRIT_HOLD : HIT_HOLD, (cx) => {
         hit.live = false;
         cx.notify();
       });
@@ -657,6 +666,8 @@ const amount = (n) => (n < 1000 ? String(n) : n < 9950 ? `${(n / 1000).toFixed(1
 // to the left, removed lines up and to the right. The curve is two transitions: `top`
 // eases out while `left` eases in, so a number rises first and then swings aside.
 // Their ids carry the hit's number, so a new hit starts over instead of easing back.
+// The hit's size sets how big they are; a crit adds a CRIT tag over them that rises straight
+// up and fades with them, in the color of its bigger number.
 /**
  * @param {string} address
  * @param {Hit} hit
@@ -668,8 +679,16 @@ function numbers(address, hit) {
   const kinds = [];
   if (hit.added) kinds.push(["added", `+${amount(hit.added)}`, -1]);
   if (hit.removed) kinds.push(["removed", `\u2212${amount(hit.removed)}`, 1]);
-  /** @type {(s: string, color: Color, d: number) => Element} */
-  const digits = (s, color, d) => div().absolute().left(d).top(d).w(CELL).text_center().text_size(13).font_extrabold().text_color(color).child(s);
+  const { text, row, top } = HIT_TEXT[hit.size];
+  /** @type {(s: string, color: Color, d: number, size?: number) => Element} */
+  const digits = (s, color, d, size = text) => div().absolute().left(d).top(d).w(CELL).text_center().text_size(size).font_extrabold().text_color(color).child(s);
+  /** @type {(el: Element) => Element} */
+  const fly = (el) => el
+    .opacity(hit.live ? 1 : 0)
+    .transition("top", { duration: 900, easing: "ease-out" })
+    .transition("left", { duration: 900, easing: "ease-in" })
+    .transition("opacity", { duration: 450, delay: 600 });
+  const tag = HIT[hit.removed > hit.added ? "removed" : "added"];
   return div()
     .id(id)
     .absolute()
@@ -677,19 +696,19 @@ function numbers(address, hit) {
     .top(0)
     .w(CELL)
     .children(kinds.map(([kind, s, side], i) =>
-      div()
+      fly(div()
         .id(`${id}-${kind}`)
         .absolute()
         .w(CELL)
-        .h(15)
+        .h(row)
         .left(hit.live ? 0 : side * HIT_SWING)
-        .top((hit.live ? 12 : 12 - HIT_RISE) + i * 15)
-        .opacity(hit.live ? 1 : 0)
-        .transition("top", { duration: 900, easing: "ease-out" })
-        .transition("left", { duration: 900, easing: "ease-in" })
-        .transition("opacity", { duration: 450, delay: 600 })
+        .top((hit.live ? top : top - HIT_RISE) + i * row))
         .child(digits(s, "#000000c0", 1))
-        .child(digits(s, HIT[kind], 0))));
+        .child(digits(s, HIT[kind], 0))))
+    .when(hit.size === "crit", (el) => el.child(
+      fly(div().id(`${id}-crit`).absolute().left(0).w(CELL).h(10).top(hit.live ? 0 : -HIT_RISE))
+        .child(digits("CRIT", "#000000c0", 1, 9))
+        .child(digits("CRIT", tag, 0, 9))));
 }
 
 // A stamp's mark, 8 by 6 cells: a bold check. It says "approved" by its shape, so it reads
@@ -1006,7 +1025,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, wor
       px: PX,
       status: a.status,
       work,
-      hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live },
+      hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live, size: hit.size },
       stage,
       turn,
     })

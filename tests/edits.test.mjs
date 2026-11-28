@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { mock } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { EditWatcher, countLines, growth, moveKind, parseNumstat } from "../mods/pixel-party/edits.js";
+import { CRIT_LINES, EditWatcher, HIT_LINES, countLines, growth, hitSize, moveKind, parseNumstat } from "../mods/pixel-party/edits.js";
 import { makeSprite } from "../mods/pixel-party/sprites.js";
 import { HIT, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, text, walk } from "./mocks/gpui.mjs";
@@ -221,6 +221,99 @@ test("a hit on a damaged sprite flashes red and knocks it sideways; added lines 
   const settled = find(spriteElement(sprite, { id: "s", hit: { n: 8, damage: false, live: false } }), "s-knock-8");
   assert.equal(last(settled, "top"), 0);
   assert.equal(last(settled, "left"), 0);
+});
+
+test("a change's lines say how hard it hits: a tick for a few, a crit for a big change", () => {
+  assert.deepEqual([1, 4, HIT_LINES - 1].map(hitSize), ["tick", "tick", "tick"]);
+  assert.deepEqual([HIT_LINES, 14, CRIT_LINES - 1].map(hitSize), ["hit", "hit", "hit"]);
+  assert.deepEqual([CRIT_LINES, 500, 34_000].map(hitSize), ["crit", "crit", "crit"]);
+});
+
+/** The text sizes a hit's numbers are drawn at, without the CRIT tag. */
+const sizesOf = (hit) => [...new Set(walk(hit).filter((n) => !n.id?.endsWith("-crit")).flatMap((n) => walk(n)).flatMap((n) => calls(n, "text_size").map(([s]) => s)))];
+
+test("a one-line change is a small tick; a big change is a crit, with bigger numbers, a CRIT tag and a longer stop", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  const flashOf = (tree, hit) => last(find(tree, `pp-spr-t1-flash-${hit.id.split("-").at(-1)}`), "opacity");
+  const crit = (hit) => walk(hit).find((n) => n.id === `${hit.id}-crit`) ?? null;
+
+  await edit(() => (repo.numstat = "1\t0\ta.js\n"));
+  let tree = draw(drawer, cx);
+  let hit = hitOf(tree, "t1");
+  assert.equal(said(hit), "+1");
+  const [tick] = sizesOf(hit);
+  const tickFlash = flashOf(tree, hit);
+  assert.equal(crit(hit), null, "a tick is no crit");
+  cx.run(2000);
+
+  await edit(() => (repo.numstat = "13\t2\ta.js\n"));
+  tree = draw(drawer, cx);
+  hit = hitOf(tree, "t1");
+  const [plain] = sizesOf(hit);
+  const plainFlash = flashOf(tree, hit);
+  assert.equal(crit(hit), null, "+12 −2 is a plain hit");
+  cx.run(2000);
+
+  await edit(() => (repo.numstat = "513\t2\ta.js\n"));
+  tree = draw(drawer, cx);
+  hit = hitOf(tree, "t1");
+  assert.equal(said(hit), "+500 CRIT");
+  const [big] = sizesOf(hit);
+  assert.ok(tick < plain && plain < big, `numbers grow with the hit: ${tick}, ${plain}, ${big}`);
+  assert.ok(tickFlash < plainFlash && plainFlash < flashOf(tree, hit), "and so does the flash");
+  const tag = crit(hit);
+  assert.ok(tag, "a crit says so");
+  assert.ok(walk(tag).flatMap((n) => calls(n, "text_color").map(([c]) => c)).includes(HIT.added), "in its number's color");
+  assert.equal(last(tag, "opacity"), 1);
+
+  // A fighting game's crit holds its hit stop longer: still live when a plain hit moves.
+  cx.run(100);
+  tree = draw(drawer, cx);
+  assert.equal(last(find(tree, tag.id), "opacity"), 1, "still at full strength after a plain hit's stop");
+  cx.run(300);
+  tree = draw(drawer, cx);
+  assert.equal(last(find(tree, tag.id), "opacity"), 0, "then it flies off with the numbers");
+  assert.ok(last(find(tree, tag.id), "top") < last(tag, "top"));
+  cx.run(2000);
+  assert.equal(hitOf(draw(drawer, cx), "t1"), null, "and is gone");
+});
+
+test("a hit's size is all its lines together: +500 −1 is a crit, in the bigger number's color", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await edit(() => (repo.numstat = "3\t300\ta.js\n"));
+  const hit = hitOf(draw(drawer, cx), "t1");
+  assert.equal(said(hit), "+3 −300 CRIT");
+  const tag = walk(hit).find((n) => n.id === `${hit.id}-crit`);
+  const colors = walk(tag).flatMap((n) => calls(n, "text_color").map(([c]) => c));
+  assert.ok(colors.includes(HIT.removed) && !colors.includes(HIT.added));
+});
+
+test("a tick nudges the sprite by less than a cell and flashes faintly; a crit flashes solid and slowly, and knocks no further than a hit", () => {
+  const sprite = makeSprite("t1");
+  const u = 3;
+  const strike = (size, damage = false) => spriteElement(sprite, { id: "s", px: u, hit: { n: 1, damage, live: true, size } });
+  const knock = (el, damage = false) => -last(find(el, "s-knock-1"), damage ? "left" : "top");
+  const flash = (el) => find(el, "s-flash-1");
+  const fade = (el) => calls(flash(el), "transition").find(([p]) => p === "opacity")[1].duration;
+  const [tick, hit, crit] = ["tick", "hit", "crit"].map((size) => strike(size));
+  for (const el of [tick, hit, crit]) check(el);
+
+  assert.ok(knock(tick) > 0 && knock(tick) < u, "a tick still moves, by less than a cell");
+  assert.equal(knock(hit), u);
+  assert.equal(knock(crit), u, "the art leaves one empty ring: no knock goes past it");
+  assert.equal(knock(strike("crit", true), true), u);
+  assert.ok(last(flash(tick), "opacity") < last(flash(hit), "opacity"));
+  assert.equal(last(flash(crit), "opacity"), 1);
+  assert.ok(fade(crit) > fade(hit), "a crit's flash lingers");
+  assert.deepEqual(
+    [knock(strike(undefined)), last(flash(strike(undefined)), "opacity")],
+    [knock(hit), last(flash(hit), "opacity")],
+    "a hit with no size is a plain one",
+  );
 });
 
 test("an agent that leaves the repository stops its watch and takes no more hits", async () => {

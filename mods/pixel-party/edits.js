@@ -6,7 +6,8 @@
 // watched with `watchFolder`. After each batch of changes, the repository's diff against
 // HEAD (untracked files counted as added lines) is read again and compared with the last
 // read. Growth in a file's added lines is a green hit, growth in its removed lines a red
-// one. A commit, a stash or a revert shrinks the diff, and shows nothing.
+// one. A commit, a stash or a revert shrinks the diff, and shows nothing. `hitSize` says
+// how hard a change hits by its lines added and removed together: a tick, a hit or a crit.
 //
 // A commit is read from HEAD's reflog file on the same look, one line per move of HEAD. Each
 // look reads only the lines added since the last look, from where that one got to, so no
@@ -63,6 +64,18 @@ export function growth(before, after) {
   }
   return { added, removed };
 }
+
+/** @typedef {"tick" | "hit" | "crit"} HitSize How hard a change of some lines hits. */
+
+/** Lines changed from which a change is a plain hit, and from which it is a crit. Fewer is a tick. */
+export const HIT_LINES = 5;
+export const CRIT_LINES = 200;
+
+/**
+ * How big a change of `lines` lines is: a tick for a line or a few, a crit for a big change.
+ * @type {(lines: number) => HitSize}
+ */
+export const hitSize = (lines) => (lines >= CRIT_LINES ? "crit" : lines >= HIT_LINES ? "hit" : "tick");
 
 /** @type {(cwd: string, args: string[]) => ReturnType<typeof exec>} Git that never writes the index. */
 const git = (cwd, args) => exec("git", ["--no-optional-locks", ...args], { cwd });
