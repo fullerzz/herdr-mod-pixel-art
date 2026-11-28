@@ -42,6 +42,8 @@ move according to what their agents are doing.
   creature flips from pointing back to pointing the other way.
 - **Rewinds.** When an agent resets its branch, its creature spins backwards like a tape
   on rewind, jittering under a blinking `◀◀`.
+- **Shuffles.** When an agent rebases its branch, its creature shuffles a deck of cards in
+  front of itself, twice.
 - **Smoke.** With [the same hooks](#failed-commands), a command an agent runs that fails
   makes its creature cough, and a puff of black smoke goes up from its face.
 - **Test results.** With [the same hooks](#test-results), tests that pass get a thumbs up
@@ -191,6 +193,16 @@ worn VHS tape, a tracking bar rolls over it, and a `◀◀` blinks at the cell's
 Then it is itself again. A reset lands on the same agents as a commit. A reset that leaves
 the branch where it was, such as `git stash` or `git reset --hard` to drop changes, shows
 nothing.
+
+## Shuffles
+
+A `git rebase` in an agent's repository makes its creature shuffle a deck of cards, with no
+setup. The deck shows low in front of the creature, splits into two halves that lift apart,
+and riffles back together one card at a time, the halves taking turns. It does that twice,
+holds a moment and fades, about three seconds in all. A rebase writes a line to git's log
+for each commit it replays, but the drawer reads them together, so one rebase is one
+shuffle; a long rebase the drawer catches partway can shuffle again. A rebase lands on the
+same agents as a commit. A `git pull --rebase` counts as a pull, not a rebase.
 
 ## Failed commands
 

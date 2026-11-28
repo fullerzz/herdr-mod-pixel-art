@@ -23,8 +23,9 @@
 //
 // A checkout in an agent's repository flips a signpost by its sprite: it shows pointing the
 // way HEAD came from, turns edge-on, and points the other way before it fades. A reset rewinds
-// the creature: it spins backwards, jittering like a worn tape, under a "◀◀". Other kinds of
-// move plug into the same table (`ONE_SHOTS`), one entry each.
+// the creature: it spins backwards, jittering like a worn tape, under a "◀◀". A rebase is a
+// deck of cards the creature shuffles in front of itself, twice. Other kinds of move plug
+// into the same table (`ONE_SHOTS`), one entry each.
 //
 // A command an agent runs that fails is a puff of black smoke: the creature coughs, and the
 // smoke goes up from its face and clears. Tests show how they came out instead: passed, a
@@ -1221,10 +1222,76 @@ function rewindElement(_t, address, { n, step }) {
   return div().id(id).absolute().left(0).top(0).size_full().child(tape).child(glyph);
 }
 
+// A rebase's deck of cards, shuffled in front of the creature, low in the middle of its box.
+// Each card is 10 by 14 px: a dark edge, a white border and a blue back with a light mark.
+// Squared, the cards stack 2 px apart, so the deck's side shows a line per card. Split, the
+// even cards go to the left half and the odd ones to the right, each half lifted; riffled,
+// they drop back into the middle one at a time, bottom first, so the halves take turns and
+// the deck is whole again. It shuffles twice, holds, and fades.
+const DECK = 6;
+const CARD_W = 10;
+const CARD_H = 14;
+const CARD_DY = 2; // px between one card and the next in a stack
+const DECK_X = (CELL - CARD_W) / 2; // px: a squared deck's left
+const DECK_SPREAD = 8; // px each half goes aside
+const DECK_LIFT = 3; // px the halves lift as they split
+const RIFFLE_GAP = 45; // ms from one card's drop to the next
+/** @type {[x: number, y: number, w: number, h: number, color: Color][]} One card, back up: a dark edge, a white border, a blue back, a light mark. */
+const CARD = [
+  [0, 0, CARD_W, CARD_H, STAMP_DARK],
+  [1, 1, CARD_W - 2, CARD_H - 2, "#ffffff"],
+  [2, 2, CARD_W - 4, CARD_H - 4, "#3b6fd4"],
+  [4, 5, 2, 4, "#a9c3f5"],
+  [3, 6, 4, 2, "#a9c3f5"],
+];
+/** @typedef {"deal" | "show" | "split" | "riffle" | "fade"} DeckStep */
+/** @type {[ms: number, step: DeckStep | null][]} After "deal": it shows, splits and riffles twice, holds, and fades. */
+const DECK_STEPS = [[30, "show"], [350, "split"], [600, "riffle"], [1000, "split"], [1250, "riffle"], [2300, "fade"], [2800, null]];
+
+// Dealt unseen and squared, the deck shows; at each split its halves part and lift, and at
+// each riffle the cards fall back in turn. Each card keeps its id through the shuffle, so it
+// glides from place to place; the ids carry the shot's number, so a new rebase starts over.
+/**
+ * @param {Theme} _t
+ * @param {string} address
+ * @param {Shot} shot
+ * @returns {Element}
+ */
+function deckElement(_t, address, { n, step }) {
+  const id = `pp-deck-${address}-${n}`;
+  const split = step === "split";
+  const cards = Array.from({ length: DECK }, (_, i) => {
+    const half = i % 2 ? 1 : -1;
+    const height = (split ? i >> 1 : i) * CARD_DY;
+    /** @type {import("gpui-shell").TransitionPolicy} Riffled, each card falls after the one under it. */
+    const glide = step === "riffle" ? { duration: 90, delay: i * RIFFLE_GAP, easing: "ease-in" } : { duration: 160, easing: "ease-out" };
+    return div()
+      .id(`${id}-card-${i}`)
+      .absolute()
+      .left(DECK_X + (split ? half * DECK_SPREAD : 0))
+      .top(STAMP_FLOOR - CARD_H - height - (split ? DECK_LIFT : 0))
+      .w(CARD_W)
+      .h(CARD_H)
+      .transition("left", glide)
+      .transition("top", glide)
+      .children(CARD.map(([x, y, w, h, color]) => div().absolute().left(x).top(y).w(w).h(h).bg(color)));
+  });
+  return div()
+    .id(id)
+    .absolute()
+    .left(0)
+    .top(0)
+    .size_full()
+    .opacity(step === "deal" || step === "fade" ? 0 : 1)
+    .transition("opacity", step === "fade" ? { duration: 500, easing: "ease-in" } : { duration: 150, easing: "ease-out" })
+    .children(cards);
+}
+
 /** @type {Partial<Record<MoveKind, OneShot>>} The one-shot each kind of move plays; a kind not here shows nothing yet. */
 const ONE_SHOTS = {
   checkout: { first: "plant", steps: SIGN_STEPS, draw: signElement },
   reset: { first: "front", steps: REWIND_STEPS, draw: rewindElement, hides: true },
+  rebase: { first: "deal", steps: DECK_STEPS, draw: deckElement },
 };
 
 // A thumbs up, 7 by 7 cells: the thumb up, the fist under it with its fingers to the right.

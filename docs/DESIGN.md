@@ -54,8 +54,9 @@ picker lets the person choose another creature for an agent.
 - **Signposts.** A checkout or switch in an agent's repository flips a signpost by its
   sprite: it shows pointing back the way HEAD came from, turns edge-on, and points the
   other way, then fades. A reset rewinds the sprite: it spins backwards three times, its rows
-  jittering like a worn tape, under a blinking `◀◀`. Other moves of HEAD get one-shots of
-  their own the same way.
+  jittering like a worn tape, under a blinking `◀◀`. A rebase shuffles a deck of cards in
+  front of the sprite: it splits and riffles twice, then fades. Other moves of HEAD get
+  one-shots of their own the same way.
 - **Smoke.** A shell command an agent runs that fails makes its sprite cough: it lurches,
   and a puff of black smoke goes up from its face and clears. Only Claude Code's hooks say
   so (`PostToolUseFailure`).
@@ -580,6 +581,17 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   turn so the slip runs on. A tracking bar, 2 px of translucent white, rolls up and down
   over it, and a `◀◀`, 6 by 5 cells of 2 px in white over a dark shadow, blinks at the
   box's upper left. The sprite's fire and work props go with it for that second.
+- A rebase's one-shot is a deck of six cards shuffled in front of the sprite, which stays.
+  Each card is 10 by 14 px, a dark edge, a white border and a blue back with a light mark.
+  Squared, the deck stands low in the middle of the box, its bottom on the stamp's floor,
+  each card 2 px over the one under it; there it overlaps the left of a stamp, which draws
+  over it. Dealt unseen, it fades in at 30 ms over 150 ms. At 350 ms it splits: the even
+  cards glide 8 px left and the odd ones 8 px right, each half stacked and lifted 3 px,
+  over 160 ms. At 600 ms it riffles: each card falls back into the deck over 90 ms, 45 ms
+  after the one under it, so the halves take turns. It splits again at 1,000 ms and riffles
+  at 1,250 ms, holds, fades over 500 ms from 2.3 s, and is gone at 2.8 s. Each card keeps
+  its id through the shuffle, so it glides; a rebase's many reflog lines in one look are
+  one move, so one shuffle.
 - Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees

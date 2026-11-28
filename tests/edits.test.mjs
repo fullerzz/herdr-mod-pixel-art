@@ -1,8 +1,8 @@
 // Hits: lines an agent adds or removes, read from git, shown over its sprite in the drawer.
 // Moves: HEAD moved by a checkout, reset, rebase, pull or cherry-pick, read from its reflog,
-// landed on the drawer's agents; a checkout flips a signpost by the sprite, and a reset
-// rewinds the creature. Git is faked through the herdr stand-in's `exec`, and a change
-// through `mock.touch`.
+// landed on the drawer's agents; a checkout flips a signpost by the sprite, a reset rewinds
+// the creature, and a rebase shuffles a deck of cards in front of it. Git is faked through
+// the herdr stand-in's `exec`, and a change through `mock.touch`.
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
@@ -617,7 +617,7 @@ test("a checkout of the branch already checked out, a reset that stays, and a mo
   const before = cx.notified;
   await moves([["a", "checkout: moving from main to main"]]);
   await moves([["a", "reset: moving to HEAD"]]);
-  for (const subject of ["rebase (finish): returning to refs/heads/x", "pull: Fast-forward", "cherry-pick: fix"]) {
+  for (const subject of ["pull: Fast-forward", "cherry-pick: fix"]) {
     await moves([["b", subject]]);
   }
   assert.equal(cx.notified, before, "nothing to draw");
@@ -752,6 +752,127 @@ test("every edge renders a rewind beside a stamp with unique ids", async () => {
       mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
       const tree = draw(drawer, cx);
       assert.ok(rewindOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
+    }
+  }
+});
+
+/** The deck of cards in an agent's box, or null. */
+const deckOf = (tree, address) => walk(tree).find((n) => /^pp-deck-[^-]+-\d+$/.test(n.id ?? "") && n.id.startsWith(`pp-deck-${address}-`)) ?? null;
+/** The deck's cards, bottom first. */
+const cardsOf = (deck) => walk(deck).filter((n) => /-card-\d+$/.test(n.id ?? ""));
+/** Where each card is: [left, top] in px. */
+const spots = (deck) => cardsOf(deck).map((card) => [last(card, "left"), last(card, "top")]);
+/** Each card's glide to where it is: its "left" transition. */
+const glides = (deck) => cardsOf(deck).map((card) => calls(card, "transition").find(([p]) => p === "left")?.[1]);
+/** Whether every card is in one squared stack: one left, each a little over the one under it. */
+const squared = (deck) => {
+  const at = spots(deck);
+  return new Set(at.map(([x]) => x)).size === 1 && at.every(([, y], i) => i === 0 || y < at[i - 1][1]);
+};
+
+test("a rebase shuffles a deck of cards in front of the creature: it splits and riffles twice, then fades", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  let tree = draw(drawer, cx);
+  assert.equal(deckOf(tree, "t1"), null, "no move, no deck");
+  const before = cx.notified;
+  await moves([["b", "rebase (start): checkout main"], ["c", "rebase (pick): one"], ["c", "rebase (finish): returning to refs/heads/x"]]);
+  assert.ok(cx.notified > before, "the drawer draws again");
+  assert.equal(drawer.moves.get("t1").move.kind, "rebase");
+  tree = draw(drawer, cx);
+  const deck = () => deckOf(tree, "t1");
+  const sprite = () => find(tree, "pp-spr-t1");
+  assert.ok(deck() && walk(find(tree, "pp-box-t1")).includes(deck()), "in the sprite's box, so a closed drawer shows it");
+  assert.equal(deckOf(tree, "t2"), null, "the idle one in the same repository takes none");
+  assert.notEqual(last(sprite(), "opacity"), 0, "the creature stays: it is the one shuffling");
+  assert.equal(last(deck(), "opacity"), 0, "dealt unseen");
+  assert.ok(cardsOf(deck()).length >= 4, "a deck of cards");
+  assert.ok(squared(deck()), "squared");
+  const ids = cardsOf(deck()).map((card) => card.id).join(" ");
+  const [middle, floor] = spots(deck())[0];
+
+  cx.run(30);
+  tree = draw(drawer, cx);
+  assert.equal(last(deck(), "opacity"), 1, "it shows");
+  assert.ok(squared(deck()));
+  for (const [split, riffle] of [[350, 600], [1000, 1250]]) {
+    cx.run(split);
+    tree = draw(drawer, cx);
+    const at = spots(deck());
+    assert.ok(at.every(([x], i) => (i % 2 ? x > middle : x < middle)), `at ${split} ms it splits: every other card to the left half, the rest to the right`);
+    assert.ok(at[0][1] < floor && at[1][1] === at[0][1], "the halves lift, side by side");
+    assert.equal(cardsOf(deck()).map((card) => card.id).join(" "), ids, "each card keeps its id, so it glides there");
+    cx.run(riffle);
+    tree = draw(drawer, cx);
+    assert.ok(squared(deck()), `at ${riffle} ms it riffles back into one deck`);
+    const delays = glides(deck()).map((policy) => policy?.delay ?? 0);
+    assert.ok(delays.every((d, i) => i === 0 || d > delays[i - 1]), "one card at a time, bottom first, so the halves take turns");
+    assert.equal(cardsOf(deck()).map((card) => card.id).join(" "), ids);
+  }
+  cx.run(2200);
+  tree = draw(drawer, cx);
+  assert.equal(last(deck(), "opacity"), 1, "it holds");
+  cx.run(2300);
+  tree = draw(drawer, cx);
+  assert.equal(last(deck(), "opacity"), 0, "then fades");
+  cx.run(2800);
+  tree = draw(drawer, cx);
+  assert.equal(deck(), null, "and is gone");
+  assert.equal(drawer.moves.size, 0, "forgotten too");
+});
+
+test("a rebase's many lines in one look shuffle once; a rebase in a later look starts over", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  const timed = () => cx.timers.filter((t) => !t.every).length;
+  await moves([["a", "rebase (finish): returning to refs/heads/x"]]);
+  const one = timed();
+  assert.ok(one > 0);
+  cx.run(5000);
+  assert.equal(drawer.moves.size, 0);
+  const n = drawer.serial;
+  await moves([
+    ["a", "rebase (start): checkout main"],
+    ["b", "rebase (pick): one"],
+    ["c", "rebase (pick): two"],
+    ["d", "rebase (pick): three"],
+    ["d", "rebase (finish): returning to refs/heads/x"],
+  ]);
+  assert.equal(drawer.serial, n + 1, "one shuffle for the whole rebase");
+  assert.equal(timed(), one, "with the steps of one shuffle to time");
+  cx.run(5000);
+  await moves([["e", "rebase (start): checkout main"]]);
+  const first = deckOf(draw(drawer, cx), "t1").id;
+  cx.run(400);
+  // The first deck's steps still to come, held back to run after the second starts.
+  const pending = cx.timers.filter((t) => !t.every);
+  cx.timers = cx.timers.filter((t) => t.every);
+  await moves([["f", "rebase (finish): returning to refs/heads/x"]]);
+  const second = deckOf(draw(drawer, cx), "t1").id;
+  assert.notEqual(second, first, "a new id: the next look's rebase deals a new deck");
+  for (const t of pending) t.handler(cx);
+  const tree = draw(drawer, cx);
+  assert.equal(deckOf(tree, "t1")?.id, second, "the first one's end does not clear the second");
+  assert.equal(last(deckOf(tree, "t1"), "opacity"), 0, "still dealt unseen, as the second's own steps have it");
+  cx.run(5000);
+  assert.equal(deckOf(draw(drawer, cx), "t1"), null, "the second's own end clears it");
+});
+
+test("every edge renders a deck beside a stamp with unique ids", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "commit: x"]]);
+  await moves([["c", "rebase (finish): returning to refs/heads/x"]]);
+  for (const step of [0, 30, 350, 600, 2300]) {
+    cx.run(step);
+    for (const edge of ["top", "right", "bottom", "left", null]) {
+      mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
+      const tree = draw(drawer, cx);
+      assert.ok(deckOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
     }
   }
 });
