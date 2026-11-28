@@ -164,11 +164,17 @@ feet and tongues lick up its sides until the agent goes on. The `!` badge shows 
 fire has caught. It and the tinted cell, there from the jump on, stay in the theme's
 "Needs you" color. An agent already blocked when the drawer opens just burns.
 
+![A dozing working creature becomes blocked: it jumps up a cell over two dashes and drops back, then the fire catches and its ! badge shows; next an idle one does the same, while one at the bottom, blocked from the start, just burns](docs/jolt.gif)
+
+Recorded with the Herdr window inactive, so the working and finished creatures doze.
+
 The longer the agent waits, the hotter it burns. The flames start small, at its feet. After
 a minute they burn bigger and lick up its sides. After five minutes smoke billows over its
 head and embers fly. The drawer counts the wait from when it saw the agent become blocked.
 An agent alone in its tab takes the time from the tab instead. Any other agent that is
 already blocked when the drawer opens keeps small flames until its status next changes.
+
+![Three blocked creatures side by side, blocked about 25 seconds, 95 seconds and 5 minutes: small flames at the feet, then tall tongues up both sides, then smoke puffs over the head and flying embers](docs/fire.gif)
 
 When the agent goes back to work, the fire is put out: water drops onto the flames, they
 die with a splash, and steam rises off the creature and fades. The creature holds still
@@ -185,6 +191,10 @@ When an agent adds or removes lines in its git repository, the numbers pop over 
 creature, with no setup. The recording shows four edits: one added line is a small tick,
 +12 −2 a plain hit, and a new 500-line file and 300 removed lines are crits, with big
 numbers, a CRIT tag, a solid flash and a longer pause.
+
+![Five one-line edits land on a working creature about a second and a half apart: from the third, an amber 3 HIT COMBO counter shows at its feet and counts up to 5, then fades, and one more edit later shows no counter](docs/combo.gif)
+
+Five quick edits make a combo; one more after the counter has faded starts over.
 
 ## Stamps
 
@@ -203,6 +213,10 @@ than a fire's yellow, so it still reads on a creature that is on fire. The count
 agent and per local day, and the drawer keeps it only while it is open: it starts over at
 midnight and when Herdr reloads the mod. It counts stamps, not commits: commits made between
 two looks at the repository stamp once, and count once.
+
+![Three commits stamp a working creature a few seconds apart: a green check, then its tenth stamp of the day in deep gold, then green again, while the idle creature below claps each time](docs/gold-stamp.gif)
+
+Recorded with the Herdr window inactive, so the working and finished creatures doze.
 
 Any `git commit` counts, whoever runs it: `--amend`, a merge commit (also one `git merge`
 makes) and the first commit of a new repository included, even one made with `git init`
@@ -224,6 +238,10 @@ down to whatever the commit left uncommitted. When the commit took a full bar's 
 A smaller commit just drains the bar. The bar shows on every agent in the repository, and
 the cash-in on the agents the stamp lands on.
 
+![Edits of 30, 30 and 70 lines fill a bar under the three creatures in one repository to a third, two thirds and full, but not under a fourth outside it; a commit stamps the working creature, drains its bar and pops LEVEL UP while the other two clap; then a 20-line edit and its commit drain with no LEVEL UP](docs/xp.gif)
+
+Recorded with the Herdr window inactive, so the working and finished creatures doze.
+
 ## Claps
 
 When a commit stamps an agent, the other agents in that repository clap, with no setup. A
@@ -231,6 +249,10 @@ pair of white gloves claps three times in front of each of their creatures, with
 gold sparks each time the hands meet, then fades: about a second in all. The clap goes to
 the agents in the repository the stamp does not land on, so with no agent working there,
 every agent is stamped and none claps. Only a commit gets a clap.
+
+![A commit stamps the working creature, while an idle and a finished creature in the same repository clap white gloves with gold sparks; a fourth creature outside the repository does nothing](docs/claps.gif)
+
+Recorded with the Herdr window inactive, so the working and finished creatures doze.
 
 ## Signposts
 
@@ -243,6 +265,8 @@ a moment and fades, about three seconds in all. A checkout lands on the same age
 commit. A checkout of the branch already checked out goes nowhere and shows nothing.
 
 ## Rewinds
+
+![A working creature spins backwards under a blinking ◀◀ while a tracking bar rolls over it, then is itself again](docs/rewind.gif)
 
 A `git reset` in an agent's repository rewinds its creature, with no setup, and so does a
 `git checkout -B` of the branch it is on. A `git checkout -B` from another branch flips the
@@ -263,6 +287,10 @@ for each commit it replays, but the drawer reads them together, so one rebase is
 shuffle; a long rebase the drawer catches partway can shuffle again. A rebase lands on the
 same agents as a commit. A `git pull --rebase` counts as a pull, not a rebase: it drops a
 [package](#packages).
+
+![A rebase makes a working creature shuffle a deck of cards in front of itself, twice, then the deck fades; the idle creature in the same repository gets none](docs/cards.gif)
+
+Recorded with the Herdr window inactive, so the working and finished creatures doze.
 
 ## Packages
 
@@ -321,6 +349,8 @@ hc label "$HC_TERMINAL_ID" pixel.result=failed.$$   # a new value each time
 ```
 
 ## Test results
+
+![A creature bubbling its test tube gets a gold thumbs up when tests pass; next its tube tips over and spills when they fail; last a plain failed command makes it cough black smoke](docs/test-results.gif)
 
 When a Claude Code agent's tests pass, its creature puts its test tube down and a thumbs
 up pops up in front of its right side, holds a moment and fades. When they fail, the
@@ -393,7 +423,15 @@ Herdr's `playSound`; `just sounds` makes them again with ffmpeg.
 ![Another creature working the four ways for kinds of command, side by side: a bubbling test tube, a crane lifting a brick, a box it unpacks, and a branching twig](docs/command-ways.gif)
 
 The second recording shows the four ways for kinds of command: testing, building,
-installing and git. Both recordings are older than compacting, delegating, planning, mcp and skill. A creature whose agent was
+installing and git. Both recordings are older than compacting, delegating, planning, mcp and skill.
+
+![Two creatures working, a short one and a tall one, each squished by a press that comes down on its head until the compaction ends](docs/compacting.gif)
+
+This recording shows compacting on two creatures, the press reaching each one's head.
+
+![A sleeping creature wakes up: it yawns, stretches up, pops its eyes open and starts typing; then a finished creature below it does the same](docs/wake-up.gif)
+
+A creature whose agent was
 idle or done wakes up before it works: for a second and a half it yawns with its eyes shut,
 stretches up, and drops back with its eyes popped open. Then it shows what its agent is
 doing, when the agent's hooks say:
@@ -470,6 +508,10 @@ the agent go idle. An agent alone in its tab takes the time from the tab instead
 other agent that is already idle when the drawer opens keeps its `z` until its status next
 changes.
 
+![Three idle creatures sleep with their eyes shut, each fidgeting at its own rhythm: one blinks, one glances aside, one scratches its side; halfway, edits land on the working creature above them](docs/fidgets.gif)
+
+Recorded after 20:00, so each holds its lantern.
+
 ## Dozing
 
 While the Herdr window is not the active one, every creature dozes: a working or finished
@@ -481,6 +523,10 @@ once: its eyes open and its head lifts a cell, and it drops back and goes on wit
 look within a second.
 
 ## Calm finish
+
+![A working creature's agent finishes: confetti pops out around it and drifts down while it hops with happy eyes, beside another creature still typing](docs/confetti.gif)
+
+When a working agent finishes, a burst of confetti goes up once before the done hop.
 
 A finished creature celebrates for a few seconds: it hops with happy eyes while two
 sparkles twinkle by it. Five seconds after its agent finished, it calms down: it stands
@@ -502,6 +548,10 @@ drawer looks at the clock once a minute, so the prop changes within a minute of 
 ## Worker bees
 
 ![Bees fly out under an agent's creature as its helpers start, and leave as they end](docs/worker-bees.gif)
+
+![A honey bee flies back into its creature and fades, then a sheep hops off, and the rest glide up; last a whole agent leaves, its bee and sheep going first, then the wand and the smoke](docs/bees-home.gif)
+
+The second recording shows helpers ending, one at a time, then a whole agent with its own.
 
 A figure is one running helper of the agent it stays beside: a sheep for a helper Herdr
 runs, a honey bee for a sub-agent. It moves while the helper works (a bee flies, a sheep
