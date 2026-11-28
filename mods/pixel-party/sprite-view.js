@@ -30,6 +30,8 @@
 // back to its status's look when the turn is over.
 //
 //   douse    blocked to working: water pours on the fire and puts it out, steam rises
+//   cheer    working to done: one burst of confetti pops out from behind the creature,
+//            which hops with happy eyes, and drifts down as it fades
 //
 // `faceRects` is the creature still from one side, front, back or turned edge-on, for a
 // caller that turns it.
@@ -166,6 +168,46 @@ function douse({ id, step, u }) {
   return { behind: [dying("embers", flames.behind)], front: [dying("fire", flames.front), spray, water, steam] };
 }
 
+/** The colors of the confetti a finished creature throws. Their own: never HIT's, FIRE's or a status cue's. */
+export const CONFETTI = /** @type {const} */ ({ pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" });
+
+/**
+ * Where each bit of confetti lands, in cells, and its color: the top rows and the edge
+ * columns, where the art leaves room. Behind the creature, so it never covers a face.
+ * @type {[x: number, y: number, color: keyof typeof CONFETTI][]}
+ */
+const BITS = [[0, 4, "sky"], [1, 1, "pink"], [3, 0, "violet"], [5, 1, "sky"], [7, 0, "pink"], [9, 1, "violet"], [11, 2, "sky"], [11, 5, "pink"]];
+
+/** The cell the confetti bursts out of, behind the body. */
+const POP = /** @type {const} */ ({ x: 5, y: 5 });
+
+/**
+ * A creature that just finished, at one step of the turn. Popped, the confetti waits
+ * unseen behind the body; burst, it flies out to the top rows and the edges, slowing as it
+ * goes; fallen, it drifts three cells down, faster as it falls, and fades. Each bit keeps
+ * its id across the steps, so `.transition` eases between them. The creature hops as it
+ * does when done, with happy eyes, so the done pose takes over without a jump.
+ * @param {TurnParts} parts Its step is "pop", "burst" or "fall".
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
+function cheer({ id, step, u, left, right, torso }) {
+  const hop = { from: 0, to: -u, period: 700, easing: /** @type {const} */ ("ease-out") };
+  for (const part of [left, right, torso]) part.loop("top", hop);
+  const popped = step === "pop";
+  const fallen = step === "fall";
+  const bits = BITS.map(([x, y, color], i) =>
+    full(GRID * u)
+      .id(`${id}-bit-${i}`)
+      .child(cell({ x, y, w: 1, h: 1, color: CONFETTI[color] }, u))
+      .left(popped ? (POP.x - x) * u : 0)
+      .top(popped ? (POP.y - y) * u : fallen ? 3 * u : 0)
+      .opacity(popped || fallen ? 0 : 1)
+      .transition("left", { duration: 420, easing: "ease-out" })
+      .transition("top", fallen ? { duration: 900, easing: "ease-in" } : { duration: 420, easing: "ease-out" })
+      .transition("opacity", fallen ? { duration: 900, easing: "ease-in" } : { duration: 80 }));
+  return { behind: bits, front: [] };
+}
+
 /**
  * A one-shot a sprite plays when its agent's status changes: a turn.
  * @typedef {object} Turn
@@ -193,6 +235,8 @@ function douse({ id, step, u }) {
  */
 export const TURNS = {
   douse: { from: "blocked", to: "working", first: "pour", steps: [[40, "splash"], [700, "steam"], [1800, null]], eyes: "open", build: douse },
+  // Over well before a done look that calms down after a few seconds would start (STAGES).
+  cheer: { from: "working", to: "done", first: "pop", steps: [[40, "burst"], [600, "fall"], [1600, null]], eyes: "happy", build: cheer },
 };
 
 /**

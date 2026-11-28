@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { theme } from "herdr";
 import { div } from "gpui-kit";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { DOUSE, FIRE, HIT, TURNS, WORKS, faceRects, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { CONFETTI, DOUSE, FIRE, HIT, TURNS, WORKS, faceRects, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -615,4 +615,73 @@ test("a creature seen from each side: its front in open eyes, its back without, 
     }
   }
   assert.ok(faceRects(makeSprite("t1"), "left", 6).every((r) => Number.isInteger(r.x) && r.w >= 2), "px follows the size");
+});
+
+/** A creature that just finished, at one step of its cheer. */
+const cheered = (sprite, step, { px = 3, n = 1 } = {}) => spriteElement(sprite, { id: "s", px, status: "done", turn: { kind: "cheer", n, step } });
+const CHEER_STEPS = ["pop", "burst", "fall"];
+/** The bits of confetti in a cheer, by id. */
+const bitsOf = (el) => walk(el).filter((n) => /^s-cheer-\d+-bit-\d+$/.test(n.id ?? ""));
+
+test("an agent that finishes plays a cheer: from working to done, in steps that end before a calm-down would", () => {
+  const { from, to, first, steps, eyes } = TURNS.cheer;
+  assert.deepEqual([from, to, first, eyes], ["working", "done", "pop", "happy"]);
+  assert.deepEqual(steps.map(([, step]) => step), ["burst", "fall", null]);
+  assert.ok(steps.every(([ms], i) => i === 0 || ms > steps[i - 1][0]), "each step after the last");
+  assert.ok(steps.at(-1)[0] >= 1000 && steps.at(-1)[0] <= 2000, "slow enough to see, over in under two seconds");
+});
+
+test("a cheer: confetti bursts out from behind the creature, flies to the top and the edges, then falls and fades", () => {
+  for (const sprite of KINDS) {
+    const [pop, burst, fall] = CHEER_STEPS.map((step) => cheered(sprite, step));
+    for (const el of [pop, burst, fall]) check(el);
+    const ids = (el) => bitsOf(el).map((n) => n.id);
+    assert.ok(ids(pop).length >= 6, "a burst of bits");
+    assert.deepEqual(ids(burst), ids(pop), "each bit keeps its id, so it eases from step to step");
+    assert.deepEqual(ids(fall), ids(pop));
+
+    // Each bit is drawn behind the creature, so it never covers a face.
+    assert.deepEqual(nodeOf(pop).children.slice(0, bitsOf(pop).length).map(nodeOf), bitsOf(pop), "behind");
+
+    for (const [i, bit] of bitsOf(pop).entries()) {
+      const b = bitsOf(burst)[i];
+      const f = bitsOf(fall)[i];
+      assert.equal(last(bit, "opacity"), 0, "popped: unseen");
+      assert.ok(last(bit, "left") !== 0 || last(bit, "top") !== 0, "popped: gathered where it bursts from");
+      assert.deepEqual([last(b, "left"), last(b, "top"), last(b, "opacity")], [0, 0, 1], "burst: out where it lands");
+      assert.equal(Object.fromEntries(calls(b, "transition")).top.easing, "ease-out", "slowing as it flies");
+      assert.ok(last(f, "top") > 0, "fallen: it drifts down");
+      assert.equal(last(f, "opacity"), 0, "and fades");
+      assert.equal(Object.fromEntries(calls(f, "transition")).top.easing, "ease-in", "faster as it falls");
+    }
+
+    // Landed, the confetti shows at the top and the edges, where the art leaves room.
+    const board = raster(cheered(sprite, "burst", { px: 1 }));
+    const confetti = new Set(Object.values(CONFETTI));
+    assert.ok(board.flat().filter((c) => confetti.has(c)).length >= 6, `${sprite.kind}: the confetti shows`);
+    // Every step stays in the box: `raster` fails on anything outside it.
+    for (const step of CHEER_STEPS) raster(cheered(sprite, step, { px: 1 }));
+  }
+});
+
+test("a cheer hops the creature with happy eyes, in confetti of its own colors, with no done sparkles yet", () => {
+  const taken = new Set([...Object.values(HIT), ...Object.values(FIRE), ...Object.values(DOUSE), theme().blocked, theme().done, theme().idle, theme().working].map((c) => c.toLowerCase()));
+  for (const c of Object.values(CONFETTI)) assert.ok(!taken.has(c.toLowerCase()), `${c} means something else`);
+  /** A layer's rectangles at 1 px a cell. */
+  const rects = (node) => node.children.map((c) => nodeOf(c)).map((n) => [last(n, "left"), last(n, "top"), last(n, "w"), last(n, "h"), last(n, "bg")]);
+  for (const sprite of KINDS) {
+    for (const step of CHEER_STEPS) {
+      const el = cheered(sprite, step, { px: 1 });
+      const nodes = walk(el);
+      const happy = sprite.parts.eyes.happy.map((r) => [r.x, r.y, r.w, r.h, r.color]);
+      assert.ok(nodes.some((n) => n.children.length === happy.length && JSON.stringify(rects(n)) === JSON.stringify(happy)), `${step}: happy eyes`);
+      const hops = nodes.flatMap((n) => calls(n, "loop")).filter(([p]) => p === "top");
+      assert.ok(hops.length >= 3 && hops.every(([, { from, to, period }]) => from === 0 && to === -1 && period === 700), `${step}: it hops as done does`);
+      assert.ok(!nodes.some((n) => calls(n, "bg").some(([c]) => c === theme().done)), `${step}: the done sparkles wait until it is over`);
+      const colors = bitsOf(el).flatMap((n) => walk(n)).flatMap((n) => calls(n, "bg").map(([c]) => c));
+      assert.ok(colors.length && colors.every((c) => Object.values(CONFETTI).includes(c)), "confetti in CONFETTI's colors");
+      for (const node of nodes) if (node.id !== null && node !== nodes[0]) assert.ok(node.id.startsWith("s-"), node.id);
+    }
+  }
+  assert.ok(walk(cheered(makeSprite("t1"), "pop", { n: 7 })).some((n) => n.id === "s-cheer-7-bit-0"), "a new cheer has new ids");
 });

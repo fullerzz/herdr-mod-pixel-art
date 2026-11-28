@@ -8,7 +8,9 @@ move according to what their agents are doing.
   each agent's name and what it is doing. Click a row to go to that agent.
 - **Motion.** A sprite works while its agent works, catches fire and asks for attention
   when the agent is blocked, celebrates when it finished, and rests when it is idle. When
-  a blocked agent goes on, water puts its fire out before it goes back to work.
+  a blocked agent goes on, water puts its fire out before it goes back to work. When a
+  working agent finishes, one burst of confetti goes up before the creature settles into
+  its happy done hop.
 - **Ways of working.** With [one more hook](#ways-of-working), a working creature does
   what its agent does: it types while the agent edits files, reads a book while it reads,
   bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,

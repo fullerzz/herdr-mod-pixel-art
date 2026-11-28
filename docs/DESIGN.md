@@ -15,6 +15,8 @@ picker lets the person choose another creature for an agent.
   is idle.
 - **Fire out.** When a blocked agent goes on, water pours on its creature's fire and puts it
   out, steam rises off the ashes, and the creature goes back to work.
+- **Cheer.** When a working agent finishes, its creature cheers once: a burst of confetti
+  pops out from behind it and drifts down as it fades, then the done pose goes on as usual.
 - **Ways of working.** A working sprite shows what its agent is doing, when the agent's
   hooks say: it types while the agent edits files, reads a book while it reads, bubbles a
   test tube while it runs tests, lifts bricks with a crane while it builds, unpacks a box
@@ -153,7 +155,8 @@ export function spriteElement(sprite, { id, px = 3, status = null, work = null, 
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
-export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse
+export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
+export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse cheer
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
@@ -239,6 +242,14 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
     spray shows at both ends of the bed and steam gathers on it; `steam` clears the water
     and spray, and the steam rises six cells off the bed as it fades over 1 s. Water and
     steam are in `DOUSE`'s colors, never `FIRE`'s, `HIT`'s or a status cue's.
+  - `cheer`, working to done, with happy eyes and the done pose's hop (one cell up, 700 ms,
+    on the feet and torso, so the done pose takes over without a jump), and no done
+    sparkles until it is over: eight bits of confetti, one cell each, behind the creature so
+    they never cover a face. `pop` gathers them, unseen, on the cell they burst from behind
+    the body; `burst` throws them out to the top rows and the edge columns over 420 ms,
+    easing out; `fall` drops them three cells over 900 ms, easing in, as they fade. They are
+    in `CONFETTI`'s colors, never `HIT`'s, `FIRE`'s, `DOUSE`'s or a status cue's. It is over
+    within 2 s, before any later done look that waits a few seconds (`STAGES`) would start.
 - `stage` is how long the status has held: the number of that status's `STAGES` times
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
@@ -550,7 +561,10 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   shows the fire at once, and the ended turn's steps wake nothing. A blocked agent that
   goes on is doused: `pour` at once, `splash` at 40 ms, `steam` at 700 ms, and back to work
   at 1.8 s. A blocked agent that turns done or idle, the first draw and a new agent get no
-  douse.
+  douse. A working agent that turns done cheers: `pop` at once, `burst` at 40 ms, `fall` at
+  600 ms, and the done pose at 1.6 s. It cheers once per finish: a redraw keeps the same
+  cheer, and going back to work ends it. A blocked or idle agent that turns done, an agent
+  done on the first draw and a new agent that is done get no cheer.
 - Each draw keeps every agent's status and finds the changes since the draw before, as
   `{ address, from, to }` (`changes`). Only agents drawn both times can change: the first
   draw, a new agent and an agent that left and came back have none, and an empty drawer
