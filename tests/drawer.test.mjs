@@ -234,6 +234,81 @@ test("the focused agent's row is marked, and only that one", () => {
   assert.ok(!calls(itemOf(tree, "t1"), "bg").some(([c]) => c === t.selected));
 });
 
+// The crown over a current agent's creature, if it has one.
+const crownOf = (tree, address) => find(tree, `pp-crown-${address}`);
+const crowned = (tree) => walk(tree).filter((n) => /^pp-crown-/.test(n.id ?? "")).map((n) => n.id.replace(/^pp-crown-/, ""));
+const at = (node, name) => calls(node, name).at(-1)?.[0] ?? 0;
+
+test("the current agent's creature wears a crown, and only that one: it follows the keyboard, else Herdr's current agent", () => {
+  mock.agent("t1");
+  mock.agent("t2");
+  assert.deepEqual(crowned(render()), [], "no current agent, no crown");
+  focusOn("t2");
+  assert.deepEqual(crowned(render()), ["t2"]);
+  focusOn("t1");
+  assert.deepEqual(crowned(render()), ["t1"], "it moves with the keyboard");
+  focusOn("t9", { agent: "t2" });
+  assert.deepEqual(crowned(render()), ["t2"], "with the keyboard in a shell pane, Herdr's current agent wears it");
+  focusOn("t9", { agent: null });
+  assert.deepEqual(crowned(render()), []);
+});
+
+test("the crown stands in the box over the creature on every edge, behind the sprite and clear of its eyes", () => {
+  mock.agent("t1", { status: "blocked" });
+  focusOn("t1");
+  for (const edge of [...EDGES, null]) {
+    for (const hovered of [false, true]) {
+      mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered, dragging: false };
+      const tree = render();
+      const box = find(tree, "pp-box-t1");
+      const crown = crownOf(tree, "t1");
+      assert.ok(crown, `${edge}: a crown`);
+      const kids = box.children.map((c) => nodeOf(c));
+      assert.ok(kids.indexOf(crown) >= 0, `${edge}: it is in the box`);
+      assert.ok(kids.indexOf(crown) < kids.findIndex((n) => n.id === "pp-spr-t1"), `${edge}: it is drawn before the sprite, so behind it`);
+      // Every pixel, outline included, from the box's corner.
+      const rects = [];
+      for (const layer of crown.children.map(nodeOf)) {
+        for (const px of layer.children.map(nodeOf)) {
+          const x = at(crown, "left") + at(layer, "left") + at(px, "left");
+          const y = at(crown, "top") + at(layer, "top") + at(px, "top");
+          rects.push([x, y, x + at(px, "w"), y + at(px, "h")]);
+        }
+      }
+      assert.ok(rects.length > 0);
+      for (const [x0, y0, x1, y1] of rects) {
+        assert.ok(x0 >= 0 && y0 >= 0 && x1 <= 48 && y1 <= 44, `${edge}: inside the 48 by 44 box`);
+        // The sprite is 36 px at 4 px down; its eyes start in its fourth row at the highest.
+        assert.ok(y1 <= 4 + 3 * 3, `${edge}: above the highest eyes`);
+      }
+      assert.ok(Math.abs((Math.min(...rects.map((r) => r[0])) + Math.max(...rects.map((r) => r[2]))) / 2 - 24) <= 1, `${edge}: centered over the creature`);
+      const colors = below(crown).flatMap((n) => calls(n, "bg").map(([c]) => c));
+      assert.ok(colors.every((c) => /^#[0-9a-f]{6}$/i.test(c) && !c.startsWith(t.blocked)), "its own hex colors, no status cue");
+    }
+  }
+});
+
+test("a new current agent's crown waits for its creature to appear, and a leaving agent wears none", () => {
+  mock.agent("t1");
+  const drawer = new Drawer();
+  const cx = context();
+  drawer.render(cx);
+  mock.agent("t2");
+  focusOn("t2");
+  let tree = drawer.render(cx);
+  check(tree);
+  assert.equal(crownOf(tree, "t2"), null, "the trick hides the creature, and its crown with it");
+  focusOn("t1");
+  tree = drawer.render(cx);
+  assert.deepEqual(crowned(tree), ["t1"]);
+  mock.state.agents = mock.state.agents.filter((a) => a.address !== "t1");
+  mock.state.terminals = mock.state.terminals.filter((x) => x.address !== "t1");
+  tree = drawer.render(cx);
+  check(tree);
+  assert.ok(itemOf(tree, "t1"), "its row stays while it leaves");
+  assert.deepEqual(crowned(tree), [], "the ghost wears no crown");
+});
+
 test("every edge, and docked with no placement, renders with unique ids; hover moves only the creatures, and drag changes nothing", () => {
   STATUSES.forEach((status, i) => mock.agent(i % 2 ? `vps/t${i}` : `t${i}`, { status }));
   for (const edge of EDGES) {

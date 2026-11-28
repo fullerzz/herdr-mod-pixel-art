@@ -6,7 +6,8 @@ move according to what their agents are doing.
 
 - **Drawer.** One sprite per agent. On a side edge only the sprites show; hover slides out
   each agent's name and what it is doing, and the creatures turn to look that way. Click a
-  row to go to that agent.
+  row to go to that agent. The current agent's creature wears a small gold crown, so even
+  a closed drawer shows which agent the keys act on.
 - **Motion.** A sprite works while its agent works, catches fire and asks for attention
   when the agent is blocked, celebrates when it finished, and rests when it is idle. When
   an agent becomes blocked, its creature jumps as if startled before the fire catches. When
@@ -115,7 +116,7 @@ link is remade.
   ```
 
 - With keys. Three commands act on the agent whose pane has the keyboard, else on
-  Herdr's current agent: the row the drawer marks. Bind them in
+  Herdr's current agent: the row the drawer marks, whose creature wears the crown. Bind them in
   `~/.config/herdr-app/keys.json`, or run them with `herdr-app do`:
 
   | Command | What it does |

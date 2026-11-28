@@ -9,7 +9,8 @@ picker lets the person choose another creature for an agent.
 - **Drawer.** One row per agent. Docked on a side edge it is a drawer: a strip of sprites
   shows, and hovering slides out each agent's name and what it is doing, while the
   creatures turn toward the side it opens to. Clicking a row goes to that agent.
-  Right-clicking a row opens the picker.
+  Right-clicking a row opens the picker. The current agent, the one the keys act on, wears
+  a small gold crown over its creature, so a closed drawer shows it too.
 - **Sprites.** Each sprite is generated from a seed, so the same seed always draws the same
   creature. A sprite moves natively: it works while its agent works, catches fire and asks
   for attention when the agent is blocked, celebrates when it finished, and rests when it
@@ -544,6 +545,12 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   thing in the drawer: its cell and row are tinted as well. The sprite draws the only `!`.
 - The current agent's row is marked: the pane with the keyboard when it is an agent, else
   Herdr's current agent (`focused().agent`). It is the agent the commands act on.
+- Its creature wears a crown, so a closed drawer shows it too: 6 by 2 cells of 3 px, three
+  points over a band in the thumbs up's gold, outlined as the stamp is. It stands at the
+  box's top, centered, from 0 to 8 px down with its outline, behind the sprite: a creature's
+  eyes start 13 px down at the highest (its fourth row), and the sprite draws over it, so it
+  covers no part of the creature. It holds still, whatever the creature does or faces. It
+  goes while an arrival or an exit hides the sprite, and a leaving agent wears none.
 - Click: `run("pane.focus", { pane })`. Right click: `openPicker(address)`.
 - A hit in a repository lands on the agents working in it, else on every agent in it. Only
   agents on this computer are watched. Its numbers sit in the sprite cell, so a closed

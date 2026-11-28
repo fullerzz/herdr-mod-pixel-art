@@ -3,7 +3,8 @@
 // Docked on a side edge as a `peek` drawer, only the 48 px sprite cell next to the edge
 // shows until hover, so everything needed to read an agent's state lives in that cell:
 // the sprite's motion and status mark, a status stripe on the edge side, and a tint when it
-// is blocked.
+// is blocked. The current agent, the one the key commands act on, wears a small gold crown
+// at the top of that cell.
 // The layout depends only on placement().edge, never on hover or drag: Herdr slides the
 // block, the content stays. Herdr draws the frame, so this draws content only. On hover,
 // only the creatures move: they turn toward the side the drawer opens to.
@@ -1426,6 +1427,33 @@ const THUMB_X = CELL - 6 - THUMB_W; // px: over the creature's right side, its r
 const THUMB_TOP = 16; // px, up
 const THUMB_RISE = 6; // px it pops up by
 
+// The current agent's crown, 6 by 2 cells: three points over a band. h the points, f the band.
+const CROWN = [
+  "h.hh.h",
+  "ffffff",
+];
+const CROWN_RUNS = runsOf(CROWN);
+const CROWN_W = CROWN[0].length * STAMP_PX;
+const CROWN_H = CROWN.length * STAMP_PX;
+const CROWN_X = (CELL - CROWN_W) / 2; // px: over the sprite's middle columns
+const CROWN_TOP = 1; // px: its outline starts at the box's top
+
+// The crown over the current agent's creature: the agent the key commands act on, so a closed
+// drawer shows it. It stands at the top of the box, behind the sprite, in the thumb's gold
+// with the stamp's outline. It reaches 8 px down the box; a creature's eyes start no higher
+// than 13 px, its fourth row, and the sprite is drawn over it, so it never covers the
+// creature. It holds still: it neither moves nor turns.
+/** @type {(address: string) => Element} */
+const crownElement = (address) =>
+  div()
+    .id(`pp-crown-${address}`)
+    .absolute()
+    .left(CROWN_X)
+    .top(CROWN_TOP)
+    .w(CROWN_W)
+    .h(CROWN_H)
+    .children(pixels(CROWN_RUNS, (c) => THUMB_PAINT[c], OUTLINE));
+
 // The test tube from the sprite's testing, falling. Its 10 by 8 cells have the upright tube in
 // the two columns at the right, just where the sprite holds it (36..42 by 19..40 in the cell),
 // and room to the left for it to fall into. g glass, a the liquid, the theme's accent as in
@@ -1552,7 +1580,8 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // smoke, a one-shot that draws the creature itself hides it while it plays, and a new bee's
 // puff goes over its middle. A failed command's black smoke goes over its face and up, while
 // the sprite lurches with the cough; the box's own top is the stamp's. How tests came out
-// goes beside it, while it holds no tube of its own.
+// goes beside it, while it holds no tube of its own. The current agent's crown stands behind
+// the sprite at the box's top, and goes while a trick or an exit hides the sprite.
 /**
  * @param {Theme} t
  * @param {Item} it
@@ -1560,7 +1589,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {Facing | null} face The way the creature faces: toward the open side while hovered.
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
+function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1578,6 +1607,7 @@ function cell(t, { a, seed, hit, combo, xp, stamp, clap, move, trick, exit, puff
     .justify_center()
     .rounded(6)
     .when(blocked, (el) => el.bg(`${t.blocked}40`))
+    .when(on && !hidden, (el) => el.child(crownElement(a.address)))
     .child(spriteElement(makeSprite(seed), {
       id: `pp-spr-${a.address}`,
       px: PX,
