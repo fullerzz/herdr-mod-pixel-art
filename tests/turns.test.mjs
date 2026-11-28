@@ -1,5 +1,6 @@
-// Turns: the one-shots the drawer plays when an agent's status changes. A blocked agent that
-// goes on has its fire put out: water pours on it, it dies, and steam rises, then the
+// Turns: the one-shots the drawer plays when an agent's status changes. An agent that becomes
+// blocked jolts: its creature jumps as if startled, drops back, and the fire catches, then
+// it burns under its badge. A blocked agent that goes on has its fire put out: water pours on it, it dies, and steam rises, then the
 // creature goes back to work. An agent that finishes cheers once: confetti bursts out and
 // falls, then the creature settles into the done pose. An idle or finished agent that
 // starts work wakes up first: it yawns, stretches and pops its eyes open, then works.
@@ -25,6 +26,8 @@ const douseOf = (tree, address) => {
 const part = (tree, address, n, name) => find(tree, `pp-spr-${address}-douse-${n}-${name}`);
 /** The ms each step of the douse starts at, by step. */
 const at = Object.fromEntries(TURNS.douse.steps.map(([ms, step]) => [step ?? "over", ms]));
+/** The ms each step of the jolt starts at, by step. */
+const joltAt = Object.fromEntries(TURNS.jolt.steps.map(([ms, step]) => [step ?? "over", ms]));
 
 beforeEach(() => mock.reset());
 
@@ -62,8 +65,8 @@ test("a blocked agent that goes on has its fire put out on that draw, step by st
   assert.ok(nodes.some((node) => calls(node, "loop").length), "and the creature is back at work");
 });
 
-test("blocked to done or idle, working to blocked and a new agent play no turn", () => {
-  const pairs = [["blocked", "done"], ["blocked", "idle"], ["working", "blocked"]];
+test("blocked to done or idle and a new agent play no turn", () => {
+  const pairs = [["blocked", "done"], ["blocked", "idle"]];
   for (const [from, to] of pairs) {
     mock.reset();
     const t1 = mock.agent("t1", { status: from });
@@ -94,10 +97,12 @@ test("a block again ends the douse at once, its steps do nothing, and the next d
   t1.status = "blocked";
   let tree = draw(drawer, cx);
   assert.equal(douseOf(tree, "t1"), null, "the fire is lit again, not still being put out");
-  assert.ok(walk(find(tree, "pp-spr-t1")).some((node) => calls(node, "bg").some(([c]) => c === theme().blocked)), "and the badge is back");
+  assert.equal(drawer.turnOf("t1").kind, "jolt", "it jolts into the block again");
   const notified = cx.notified;
-  cx.run(at.over);
-  assert.equal(cx.notified, notified, "the ended douse's steps wake nothing");
+  cx.run(Math.max(at.over, joltAt.over));
+  assert.equal(cx.notified, notified + TURNS.jolt.steps.length, "only the jolt's steps wake it: the ended douse's wake nothing");
+  tree = draw(drawer, cx);
+  assert.ok(walk(find(tree, "pp-spr-t1")).some((node) => calls(node, "bg").some(([c]) => c === theme().blocked)), "and the badge is back");
 
   t1.status = "working";
   tree = draw(drawer, cx);
@@ -295,4 +300,86 @@ test("a change mid-stretch ends it at once, its steps do nothing, and the next s
   const second = stretchOf(draw(drawer, cx), "t1");
   assert.ok(second && second !== first, "a new stretch, with new ids, from its first step");
   assert.equal(drawer.turnOf("t1").step, "yawn");
+});
+
+/** The jolt on an agent's sprite: its number, or null for none. */
+const joltOf = (tree, address) => {
+  const body = walk(tree).find((n) => new RegExp(`^pp-spr-${address}-jolt-\\d+-body$`).test(n.id ?? ""));
+  return body ? Number(body.id.split("-").at(-2)) : null;
+};
+/** The nodes of an agent's sprite drawn in the theme's blocked color: its badge. */
+const badgesOf = (tree, address) => walk(find(tree, `pp-spr-${address}`)).filter((n) => calls(n, "bg").some(([c]) => c === theme().blocked));
+
+test("an agent that becomes blocked jolts on that draw: it jumps, lands, the fire catches, then it burns under its badge", () => {
+  for (const from of ["working", "idle", "done"]) {
+    mock.reset();
+    const t1 = mock.agent("t1", { status: from });
+    mock.agent("t2", { status: from });
+    const drawer = new Drawer();
+    const cx = context();
+    draw(drawer, cx);
+
+    t1.status = "blocked";
+    let tree = draw(drawer, cx);
+    const n = joltOf(tree, "t1");
+    assert.ok(n, `${from}: the jolt starts on the draw that sees the change`);
+    assert.equal(drawer.turnOf("t1").step, "jump");
+    assert.equal(joltOf(tree, "t2"), null, `${from}: the agent not blocked does not jolt`);
+    const body = (tree) => find(tree, `pp-spr-t1-jolt-${n}-body`);
+    const fire = (tree) => find(tree, `pp-spr-t1-jolt-${n}-fire`);
+    assert.ok(last(body(tree), "top") < 0, "jump: it is up");
+    assert.equal(last(fire(tree), "opacity"), 0, "jump: no fire yet");
+    assert.equal(badgesOf(tree, "t1").length, 0, "no badge in the jolt");
+    assert.ok(walk(tree).some((node) => calls(node, "bg").some(([c]) => c === `${theme().blocked}40`)), "but the cell is tinted from the first draw");
+    assert.equal(joltOf(draw(drawer, cx), "t1"), n, "a redraw keeps the same jolt");
+
+    cx.run(joltAt.land);
+    tree = draw(drawer, cx);
+    assert.equal(last(body(tree), "top"), 0, "land: back in place");
+    cx.run(joltAt.catch);
+    tree = draw(drawer, cx);
+    assert.equal(last(fire(tree), "opacity"), 1, "catch: the fire catches");
+
+    cx.run(joltAt.over);
+    tree = draw(drawer, cx);
+    assert.equal(joltOf(tree, "t1"), null, `${from}: the jolt is over`);
+    assert.equal(drawer.turnOf("t1"), null);
+    assert.equal(badgesOf(tree, "t1").length, 1, "the one badge shows");
+    assert.ok(walk(find(tree, "pp-spr-t1")).some((node) => calls(node, "bg").some(([c]) => Object.values(FIRE).includes(c))), "over the fire");
+  }
+});
+
+test("a first draw or a new agent that is blocked does not jolt", () => {
+  mock.agent("t1", { status: "blocked" });
+  const drawer = new Drawer();
+  const cx = context();
+  let tree = draw(drawer, cx);
+  assert.equal(joltOf(tree, "t1"), null, "blocked when the drawer opens is no jolt");
+  assert.equal(badgesOf(tree, "t1").length, 1, "it burns under its badge at once");
+  mock.agent("t2", { status: "blocked" });
+  tree = draw(drawer, cx);
+  assert.equal(joltOf(tree, "t2"), null, "a new agent that is blocked was not just startled");
+  assert.equal(drawer.turnOf("t2"), null);
+});
+
+test("going on mid-jolt ends it at once, its steps do nothing, and the next block jolts again", () => {
+  const t1 = mock.agent("t1", { status: "working" });
+  const drawer = new Drawer();
+  const cx = context();
+  draw(drawer, cx);
+  t1.status = "blocked";
+  const first = joltOf(draw(drawer, cx), "t1");
+
+  t1.status = "working";
+  const tree = draw(drawer, cx);
+  assert.equal(joltOf(tree, "t1"), null, "back at work, not still jumping");
+  assert.equal(drawer.turnOf("t1").kind, "douse", "the fire is put out instead");
+  const notified = cx.notified;
+  cx.run(Math.max(joltAt.over, at.over));
+  assert.equal(cx.notified, notified + TURNS.douse.steps.length, "only the douse's steps wake it: the ended jolt's wake nothing");
+
+  t1.status = "blocked";
+  const second = joltOf(draw(drawer, cx), "t1");
+  assert.ok(second && second !== first, "a new jolt, with new ids, from its first step");
+  assert.equal(drawer.turnOf("t1").step, "jump");
 });

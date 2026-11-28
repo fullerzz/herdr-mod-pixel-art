@@ -6,11 +6,13 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { mock } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { STAGES } from "../mods/pixel-party/sprite-view.js";
+import { STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
 import { check, context } from "./mocks/gpui.mjs";
 
 const draw = (drawer, cx) => check(drawer.render(cx));
 const MIN = 60_000;
+/** A change to blocked jolts first: runs the jolt's steps out, so only the clock's timers are left. */
+const settle = (cx) => cx.run(TURNS.jolt.steps.at(-1)[0]);
 const saved = Object.fromEntries(Object.entries(STAGES).map(([status, marks]) => [status, [...marks]]));
 /** A tab of its own in spaces(), with its times. */
 const tab = (id, times = {}) => ({ id, index: 1, name: id, named: false, active: true, status: null, panes: 1, zoomed: false, settled: false, settled_at: null, changed_at: null, working_since: null, ...times });
@@ -54,6 +56,7 @@ test("a change starts the clock, the drawer wakes when each stage is due, and th
 
   t1.status = "blocked";
   draw(drawer, cx);
+  settle(cx);
   assert.equal(drawer.since.get("t1"), 1_000_000);
   assert.equal(drawer.stages.get("t1"), 0);
   assert.deepEqual(cx.timers.map((timer) => timer.ms), [1 * MIN]);
@@ -87,6 +90,7 @@ test("a new change restarts the clock, and a stale timer does nothing", (t) => {
   draw(drawer, cx);
   t1.status = "blocked";
   draw(drawer, cx);
+  settle(cx);
 
   t.mock.timers.tick(30_000);
   t1.status = "idle";
@@ -105,6 +109,7 @@ test("a new change restarts the clock, and a stale timer does nothing", (t) => {
   // A timer replaced by a sooner one does nothing when it fires.
   t1.status = "blocked";
   draw(drawer, cx);
+  settle(cx);
   assert.deepEqual(cx.timers.map((timer) => timer.ms), [9.5 * MIN, 1 * MIN]);
   const notified = cx.notified;
   cx.run(9.5 * MIN);

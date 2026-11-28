@@ -30,6 +30,8 @@
 // does, and draws its own marks, once a step as the caller renders it. The creature goes
 // back to its status's look when the turn is over.
 //
+//   jolt     any change to blocked: the creature jumps up a cell as if startled, drops
+//            back, and the fire catches at its feet; the badge comes with the blocked look
 //   douse    blocked to working: water pours on the fire and puts it out, steam rises
 //   cheer    working to done: one burst of confetti pops out from behind the creature,
 //            which hops with happy eyes, and drifts down as it fades
@@ -250,6 +252,30 @@ function stretch({ id, step, u, nudge, size, t, sprite, torso }) {
 }
 
 /**
+ * A creature startled into a block, at one step of the turn. Jumped, the whole creature,
+ * feet and all, snaps up a cell at once, over two dashes on the floor it left; landed, it drops back into place, faster as it falls; caught, the blocked fire fades
+ * in at its feet and up its sides. The fire is there from the first step, unseen, and each
+ * part keeps its id across the steps, so `.transition` eases between them. The startle
+ * draws no "!": the badge is the blocked look's, and shows when the turn is over.
+ * @param {TurnParts} parts Its step is "jump", "land" or "catch".
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
+function jolt({ id, step, u, size, t, left, right, torso }) {
+  const jumped = step === "jump";
+  /** @type {[string, Element][]} */
+  const moving = [["left", left], ["right", right], ["body", torso]];
+  for (const [name, part] of moving) part.id(`${id}-${name}`).top(jumped ? -u : 0).transition("top", { duration: 140, easing: "ease-in" });
+  const flames = fire(u);
+  /** @type {(name: string, children: Element[]) => Element} Unseen until the fire catches. */
+  const catching = (name, children) => full(size).id(`${id}-${name}`).children(children)
+    .opacity(step === "catch" ? 1 : 0)
+    .transition("opacity", { duration: 300, easing: "ease-in" });
+  // On the floor it left, in the bottom rows a creature a cell up leaves empty, behind it.
+  const lift = full(size).id(`${id}-lift`).child(mark([[2, GRID - 1, 2, 1], [GRID - 4, GRID - 1, 2, 1]], t.foreground, u));
+  return { behind: [catching("embers", flames.behind), ...(jumped ? [lift] : [])], front: [catching("fire", flames.front)] };
+}
+
+/**
  * A one-shot a sprite plays when its agent's status changes: a turn.
  * @typedef {object} Turn
  * @property {Status | null} from The status it plays from; null for any.
@@ -276,6 +302,8 @@ function stretch({ id, step, u, nudge, size, t, sprite, torso }) {
  * @type {Record<string, Turn>}
  */
 export const TURNS = {
+  // The only turn to blocked, from any status. Short: the agent is waiting on its person.
+  jolt: { from: null, to: "blocked", first: "jump", steps: [[200, "land"], [400, "catch"], [900, null]], eyes: "open", build: jolt },
   douse: { from: "blocked", to: "working", first: "pour", steps: [[40, "splash"], [700, "steam"], [1800, null]], eyes: "open", build: douse },
   // Over well before a done look that calms down after a few seconds would start (STAGES).
   cheer: { from: "working", to: "done", first: "pop", steps: [[40, "burst"], [600, "fall"], [1600, null]], eyes: "happy", build: cheer },

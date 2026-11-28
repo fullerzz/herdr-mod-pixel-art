@@ -790,6 +790,69 @@ test("a stretch is one move, not a loop: nothing of the creature's work or rest 
   }
 });
 
+/** A creature startled into a block, at one step of the jolt. */
+const jolted = (sprite, step, { px = 3, n = 1 } = {}) => spriteElement(sprite, { id: "s", px, status: "blocked", turn: { kind: "jolt", n, step } });
+const JOLT_STEPS = ["jump", "land", "catch"];
+
+test("an agent becoming blocked plays a jolt: to blocked from any status, the only turn that does, in steps that end soon", () => {
+  const { from, to, first, steps, eyes } = TURNS.jolt;
+  assert.deepEqual([from, to, first, eyes], [null, "blocked", "jump", "open"]);
+  assert.deepEqual(Object.keys(TURNS).filter((k) => TURNS[k].to === "blocked" || TURNS[k].to === null), ["jolt"]);
+  assert.deepEqual(steps.map(([, step]) => step), ["land", "catch", null]);
+  assert.ok(steps.every(([ms], i) => i === 0 || ms > steps[i - 1][0]), "each step after the last");
+  assert.ok(steps.at(-1)[0] >= 600 && steps.at(-1)[0] <= 1200, "long enough to see, short enough to show the block soon");
+});
+
+test("a jolt: the creature jumps up a cell at once, drops back, and the fire catches at its feet", () => {
+  for (const sprite of KINDS) {
+    const [jump, land, catching] = JOLT_STEPS.map((step) => jolted(sprite, step));
+    for (const el of [jump, land, catching]) check(el);
+    const part = (el, name) => walk(el).find((n) => n.id === `s-jolt-1-${name}`);
+    const moving = ["left", "right", "body"];
+
+    // Jumped: feet and body a cell up, over dashes on the floor it left; the fire not there yet.
+    for (const name of moving) assert.equal(last(part(jump, name), "top"), -3, `${sprite.kind}: the ${name} jumps a cell`);
+    assert.ok(part(jump, "lift"), "dashes where it jumped from");
+    for (const name of ["fire", "embers"]) assert.equal(last(part(jump, name), "opacity"), 0, `no ${name} yet`);
+
+    // Landed: back in place, faster as it falls, and still no fire.
+    for (const name of moving) {
+      assert.equal(last(part(land, name), "top"), 0, `${sprite.kind}: the ${name} lands`);
+      assert.equal(Object.fromEntries(calls(part(land, name), "transition")).top.easing, "ease-in");
+    }
+    assert.ok(!part(land, "lift"));
+    for (const name of ["fire", "embers"]) assert.equal(last(part(land, name), "opacity"), 0);
+
+    // Caught: the fire fades in, its bed at the creature's feet, the creature in place.
+    for (const name of ["fire", "embers"]) {
+      assert.equal(last(part(catching, name), "opacity"), 1, `the ${name} catches`);
+      assert.ok(Object.fromEntries(calls(part(catching, name), "transition")).opacity.duration > 0, "fading in, not at once");
+    }
+    const flames = new Set(Object.values(FIRE));
+    const board = raster(jolted(sprite, "catch", { px: 1 }));
+    assert.ok(board[GRID - 1].slice(1, GRID - 1).every((c) => flames.has(c)), `${sprite.kind}: the bed at its feet`);
+    for (const name of moving) assert.equal(last(part(catching, name), "top"), 0);
+
+    // Every step stays in the box, a cell up too: `raster` fails on anything outside it.
+    for (const step of JOLT_STEPS) raster(jolted(sprite, step, { px: 1 }));
+  }
+});
+
+test("a jolt draws no badge and no \"!\": the blocked look brings its one badge when it is over", () => {
+  const badges = (el) => walk(el).filter((n) => calls(n, "bg").some(([c]) => c === theme().blocked)).length;
+  for (const sprite of KINDS) {
+    for (const step of JOLT_STEPS) {
+      const nodes = walk(jolted(sprite, step));
+      assert.equal(badges(jolted(sprite, step)), 0, `${sprite.kind} ${step}: no badge yet`);
+      // Only the fire moves: the creature's own parts hold still but for the jump.
+      const fire = new Set(nodes.filter((n) => n.id === "s-jolt-1-fire" || n.id === "s-jolt-1-embers").flatMap((n) => walk(n)));
+      assert.ok(nodes.filter((n) => !fire.has(n)).every((n) => calls(n, "loop").length === 0), `${step}: nothing else loops`);
+      for (const node of nodes) if (node.id !== null && node !== nodes[0]) assert.ok(node.id.startsWith("s-jolt-1-"), node.id);
+    }
+    assert.equal(badges(spriteElement(sprite, { id: "s", status: "blocked" })), 1, "the blocked look has the badge");
+  }
+});
+
 test("a turn is given the creature's parts and moves them as a way of working does", () => {
   const sprite = makeSprite("t1");
   TURNS.jig = { from: null, to: null, first: "up", steps: [[100, null]], eyes: "closed",

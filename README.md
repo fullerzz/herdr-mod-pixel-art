@@ -9,6 +9,7 @@ move according to what their agents are doing.
   row to go to that agent.
 - **Motion.** A sprite works while its agent works, catches fire and asks for attention
   when the agent is blocked, celebrates when it finished, and rests when it is idle. When
+  an agent becomes blocked, its creature jumps as if startled before the fire catches. When
   a blocked agent goes on, water puts its fire out before it goes back to work. When a
   working agent finishes, one burst of confetti goes up before the creature settles into
   its happy done hop. When an idle or finished agent starts work, its creature wakes up
@@ -132,8 +133,11 @@ link is remade.
 ![A blocked agent's creature stands in a bed of flames that flicker and lick up its sides, under its "!" badge](docs/blocked-fire.gif)
 
 An agent that is blocked, waiting on a permission prompt or a question, sets its creature
-on fire. A bed of flames burns at its feet and tongues lick up its sides until the agent
-goes on. The `!` badge and the tinted cell stay, in the theme's "Needs you" color.
+on fire. First it jumps as if startled: up a cell at once, over two dashes on the floor,
+and back down. Then the fire catches, all in under a second. A bed of flames burns at its
+feet and tongues lick up its sides until the agent goes on. The `!` badge shows once the
+fire has caught. It and the tinted cell, there from the jump on, stay in the theme's
+"Needs you" color. An agent already blocked when the drawer opens just burns.
 
 When the agent goes back to work, the fire is put out: water drops onto the flames, they
 die with a splash, and steam rises off the creature and fades. The creature holds still

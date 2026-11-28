@@ -17,6 +17,8 @@ picker lets the person choose another creature for an agent.
 - **Fidgets.** An idle creature fidgets in its own way, at its own rhythm, both picked by
   its seed: a blink, a glance aside, or a scratch at its side. A fidget shows only for a
   moment of its rhythm, so almost every frame of an idle creature has its eyes shut.
+- **Jolt.** When an agent becomes blocked, its creature jumps as if startled and drops
+  back, then the fire catches and the badge shows.
 - **Fire out.** When a blocked agent goes on, water pours on its creature's fire and puts it
   out, steam rises off the ashes, and the creature goes back to work.
 - **Cheer.** When a working agent finishes, its creature cheers once: a burst of confetti
@@ -168,7 +170,7 @@ export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
 export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
-export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse cheer stretch
+export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
@@ -265,6 +267,12 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   alone holds still. Any other `kind` (`"__proto__"` too) is no turn. Its ids start with
   `id-<kind>-<n>-`, and a part keeps its id from step to step, so `.transition` eases
   between them. A new turn adds an entry to `TURNS`.
+  - `jolt`, from any status to blocked, the only turn to blocked, with open eyes: `jump`
+    snaps the feet and torso up a cell at once, over two 2-cell dashes in the theme's
+    foreground on the bottom row; `land` drops them back over 140 ms, easing in, and the
+    dashes go; `catch` fades the blocked fire in over 300 ms, easing in. The fire is drawn
+    from `jump`, at opacity 0, so it fades rather than pops. It draws no badge and no other
+    `!`: the badge is the blocked look's, the only `!`, and shows when the jolt is over.
   - `douse`, blocked to working, with the creature still: `pour` draws the blocked fire,
     without its badge, under water hanging in the top rows; `splash` drops the water onto
     the bed over 300 ms, easing in, and the fire and its tongues die out as it lands, while
@@ -669,8 +677,12 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   exit, keyed by the bee's id rather than its agent's, since several can leave at once.
 - Each status change plays the first of `TURNS` whose `from` and `to` match it, on the draw
   that finds it, and the sprite draws the turn until its last step. A change ends the turn
-  an earlier change started on that agent, even when it plays none itself: a block again
-  shows the fire at once, and the ended turn's steps wake nothing. A blocked agent that
+  an earlier change started on that agent, even when it plays none itself: going to rest
+  mid-stretch rests at once, and the ended turn's steps wake nothing. An agent that turns
+  blocked jolts: `jump` at once, `land` at 200 ms, `catch` at 400 ms, and the blocked look,
+  fire and badge, at 900 ms. Its cell is tinted from the jump on. A block again mid-douse
+  ends the douse and jolts. The first draw and a new agent that is blocked get no jolt:
+  they burn under the badge at once. A blocked agent that
   goes on is doused: `pour` at once, `splash` at 40 ms, `steam` at 700 ms, and back to work
   at 1.8 s. A blocked agent that turns done or idle, the first draw and a new agent get no
   douse. A working agent that turns done cheers: `pop` at once, `burst` at 40 ms, `fall` at

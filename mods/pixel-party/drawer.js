@@ -42,6 +42,8 @@
 // An agent that ends leaves by the same trick in reverse: its row stays, as it was last
 // drawn, while the wand taps the creature and the smoke goes up, and is gone when it clears.
 //
+// An agent that becomes blocked jolts into it: its creature jumps as if startled, drops
+// back, and the fire catches at its feet before the badge shows.
 // A blocked agent that goes on has its fire put out: water pours on the flames, they die,
 // and steam rises before the creature goes back to work. A working agent that finishes
 // cheers once: a burst of confetti goes up and falls before the creature settles into its
