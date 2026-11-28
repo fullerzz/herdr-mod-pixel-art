@@ -117,6 +117,13 @@ const PROP = /** @type {const} */ ({
   cover: "#7a4a2c",
   wood: "#a8703f",
   shadow: "#101016", // under a light shape, so it reads on pale creatures too
+  glass: "#cfe3ea",
+  bubble: "#ffffff",
+  brick: "#a4553a",
+  mortar: "#6e3a28",
+  box: "#c8955a",
+  flap: "#dcb27a",
+  hold: "#5a3d22", // the inside of an open box
 });
 
 /**
@@ -209,8 +216,8 @@ function tail(sprite) {
 
 /**
  * The ways a creature works, by what its agent is doing. The props sit over the lower body,
- * in the top left corner or in empty cells, where no kind has an eye; one that crosses the
- * face draws a second copy of the eyes over itself.
+ * in the top left corner, in the two columns at each edge or in empty cells, where no kind
+ * has an eye; one that crosses the face draws a second copy of the eyes over itself.
  * @type {Record<string, Work>}
  */
 const WORK = {
@@ -284,7 +291,7 @@ const WORK = {
       return { behind: [], front: [cover, pages, highlight, text, leafR, leafL, spine, ...peek(sprite.parts.eyes.look, u, bob)] };
     },
   },
-  // Running commands, builds and tests: a hammer held up at the top left slams down on an
+  // Running commands: a hammer held up at the top left slams down on an
   // anvil, sparks flick at each blow, and the body dips with it.
   hammering: {
     eyes: "open",
@@ -384,18 +391,102 @@ const WORK = {
       };
     },
   },
+  // Running tests: a test tube at its right, bubbles lighting from the bottom of its liquid
+  // up and out of it, which the creature watches.
+  testing: {
+    eyes: "look",
+    build({ u, nudge, t, torso }) {
+      torso.loop("top", { from: 0, to: -nudge, period: 900 });
+      // Two columns at the right edge, where no kind has an eye: glass over liquid.
+      const tube = [mark([[10, 5, 2, 3]], PROP.glass, u), mark([[10, 8, 2, 4]], t.accent, u)];
+      const side = Math.floor((u - nudge) / 2);
+      /** @type {(x: number, y: number, easing: import("gpui-shell").MotionEasing) => Element} */
+      const bubble = (x, y, easing) => rect(x * u + side, y * u + side, nudge, nudge, PROP.bubble).loop("opacity", { from: 0.1, to: 1, period: 900, easing });
+      // Same period, three easings: they light from the bottom up.
+      return { behind: [], front: [...tube, bubble(10, 10, "ease-out"), bubble(11, 8, "linear"), bubble(10, 6, "ease-in")] };
+    },
+  },
+  // Building: a crane over its head lifts a brick from a pile at its left foot, the cable
+  // reeling in as it goes up.
+  building: {
+    eyes: "open",
+    build({ u, nudge, size, t, torso }) {
+      torso.loop("top", { from: 0, to: -nudge, period: 800 });
+      const p = Math.round((2 * u) / 3);
+      // A mast at the right edge, behind the creature, and a jib along the empty top row.
+      const mast = rect(size - p, 0, p, size, t.dim);
+      const jib = rect(0, 0, size, p, t.dim);
+      const pile = [mark([[0, 11, 3, 1]], PROP.mortar, u), mark([[0, 10, 2, 1]], PROP.brick, u)];
+      // The brick rides the two columns at the left edge, where no kind has an eye: it rests
+      // on the pile and rises to row 3 and back. The cable runs from the jib to its top.
+      const lift = { period: 1800, easing: /** @type {const} */ ("ease-in-out") };
+      const low = 9 * u;
+      const high = 3 * u;
+      const cable = rect(u, p, nudge, low - p, t.foreground).loop("height", { from: low - p, to: high - p, ...lift });
+      const brick = full(size).child(mark([[0, 9, 2, 1]], PROP.brick, u)).loop("top", { from: 0, to: high - low, ...lift });
+      return { behind: [mast], front: [...pile, cable, brick, jib] };
+    },
+  },
+  // Installing: an open box at its feet, the flaps out to the sides, and the package in it
+  // popping up out of it and back.
+  installing: {
+    eyes: "open",
+    build({ u, nudge, size, t, sprite, torso }) {
+      const bob = { from: 0, to: -nudge, period: 1200 };
+      torso.loop("top", bob);
+      const hold = mark([[3, 9, 6, 1]], PROP.hold, u);
+      // Up, it stands in row 8, over the face of a low-eyed creature: those eyes go again on top.
+      const item = full(size).child(mark([[5, 8, 2, 2]], t.accent, u)).loop("top", { from: 0, to: 2 * u, period: 1200, easing: "ease-in" });
+      const box = mark([[2, 9, 1, 1], [9, 9, 1, 1], [2, 10, 8, 2]], PROP.box, u);
+      /** @type {(cells: Cells, from: number, to: number) => Element} A flap, waving out of the box's corner. */
+      const flap = (cells, from, to) => full(size).child(mark(cells, PROP.flap, u)).loop("top", { from, to, period: 600 });
+      return {
+        behind: [],
+        front: [hold, item, box, flap([[1, 8], [0, 7]], 0, -nudge), flap([[10, 8], [11, 7]], -nudge, 0), ...peek(sprite.parts.eyes.open, u, bob)],
+      };
+    },
+  },
+  // Working with git: a twig grows up its left side and branches out over its head, the
+  // new branch leafing out a cell at a time.
+  git: {
+    eyes: "open",
+    build({ u, nudge, t, torso }) {
+      torso.loop("top", { from: 0, to: -nudge, period: 1600 });
+      // The stem in the two columns at the left edge, the branch in the rows over any eye.
+      const stem = mark([[1, 2, 1, 10], [0, 7]], PROP.wood, u);
+      /** @type {(cells: Cells, color: Color, easing: import("gpui-shell").MotionEasing) => Element} */
+      const grow = (cells, color, easing) => mark(cells, color, u).loop("opacity", { from: 0.1, to: 1, period: 1600, easing });
+      return {
+        behind: [],
+        front: [
+          stem,
+          mark([[1, 1], [0, 6]], t.working, u),
+          // Same period, three easings: the branch grows out from the stem, its leaf last.
+          grow([[2, 2]], PROP.wood, "ease-out"),
+          grow([[3, 1]], PROP.wood, "linear"),
+          grow([[4, 0]], t.working, "ease-in"),
+        ],
+      };
+    },
+  },
 };
 
 /** Every way of working, by name. `walk` was the only one before the agents' hooks told more. */
 export const WORKS = Object.freeze(Object.keys(WORK));
 
 /**
+ * The ways a creature can work on its own: the first seven. The ways for kinds of command
+ * came later and show only when the hooks say, so every seed keeps the way it had.
+ */
+const OWN = WORKS.slice(0, 7);
+
+/**
  * The creature's own way of working, for when its agent's hooks say nothing: the same for
  * the same seed. Hashed apart from the art, so the creature looks as it always did.
  * @param {Sprite} sprite
- * @returns {string} One of WORKS.
+ * @returns {string} One of WORKS' first seven.
  */
-export const ownWork = (sprite) => WORKS[hashSeed(`${sprite.seed}\u0000work`) % WORKS.length];
+export const ownWork = (sprite) => OWN[hashSeed(`${sprite.seed}\u0000work`) % OWN.length];
 
 /** @type {Partial<Record<Status, Mood>>} */
 const EYES = { done: "happy", idle: "closed" };

@@ -10,7 +10,9 @@ move according to what their agents are doing.
   when the agent is blocked, celebrates when it finished, and rests when it is idle.
 - **Ways of working.** With [one more hook](#ways-of-working), a working creature does
   what its agent does: it types while the agent edits files, reads a book while it reads,
-  hammers while it runs commands, sweeps a lens while it searches, holds up an antenna
+  bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,
+  unpacks a box while it installs, grows a branching twig while it uses git, hammers
+  while it runs other commands, sweeps a lens while it searches, holds up an antenna
   while it fetches from the web, and thinks when a prompt comes in. Without the hook,
   each creature works its own way, the same every time.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
@@ -129,33 +131,47 @@ own. The agents and helpers already running when the drawer opens get no trick.
 
 ## Ways of working
 
-![One creature recorded in the drawer working each of the seven ways, side by side: walking, typing, reading, hammering, searching, thinking and signalling](docs/ways-of-working.gif)
+![One creature recorded in the drawer working each of the first seven ways, side by side: walking, typing, reading, hammering, searching, thinking and signalling](docs/ways-of-working.gif)
 
-A working creature shows what its agent is doing, when the agent's hooks say:
+The recording is older than the four ways for kinds of command: testing, building,
+installing and git. A working creature shows what its agent is doing, when the agent's
+hooks say:
 
 | Way | The agent | Claude Code's tools |
 |---|---|---|
 | typing | edits files | Edit, MultiEdit, Write, NotebookEdit |
 | reading | reads files | Read |
-| hammering | runs commands, builds and tests | Bash |
+| testing | runs tests: `npm test`, `cargo test`, `pytest`, `node --test` | Bash |
+| building | builds: `npm run build`, `cargo build`, `tsc`, `make` | Bash |
+| installing | installs packages: `pnpm install`, `npm ci`, `pip install` | Bash |
+| git | runs git | Bash |
+| hammering | runs any other command | Bash |
 | searching | searches code | Grep, Glob |
 | signal | fetches from the web | WebFetch, WebSearch |
 | thinking | has a new prompt to think about | none: a prompt came in |
 
+The hook tells a command by the first program in it that it knows: `cd app && npm test`
+is testing, and `git commit -m "fix build"` is git. For a tool that does many things, such
+as `npm`, `cargo`, `go` or `make`, the subcommand decides, and for `npm run` the script's
+name. It reads only the first 512 bytes of the tool's input, so a long script says what
+its start says.
+
 The way holds until the next tool or prompt, not only while the tool runs: a read is over
 in a moment, and the creature would never be seen reading. Any other tool takes the way
-away, and the creature works its own way again: one of the six or a walk, picked by its
-seed. A creature without the hooks always works its own way.
+away, and the creature works its own way again: one of the six before the kinds of
+command, or a walk, picked by its seed. A creature without the hooks always works its own
+way.
 
 Codex reads and searches through its shell, which its hooks name `Bash`, so a Codex agent
-mostly hammers. The hook also takes `apply_patch`, `shell` and `web_search` for Codex's
+mostly hammers; its tests, builds, installs and git show as they do for Claude Code, if
+its hooks give the command as Claude Code's do, which is not yet checked. The hook also takes `apply_patch`, `shell` and `web_search` for Codex's
 patches, shell and searches, names not yet checked against a running Codex. The same `just hooks` that installs the bee hooks below installs these two:
 `tools/bee-hook.sh tool` before each tool and `tools/bee-hook.sh think` on each prompt.
 They keep a `pixel.work` label on the agent's terminal. The hooks of a sub-agent's tools
 leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
 
 ```sh
-hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the six ways, or walk
+hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the ten ways, or walk
 hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 ```
 
@@ -255,7 +271,9 @@ declarations in `types/`.
 ## Local access
 
 The mod runs `hc label` to save a choice. The optional bee hook runs `hc label` and
-`hc get` on its own agent's terminal; `just hooks` edits Claude Code's and Codex's hook
+`hc get` on its own agent's terminal. Before a shell command it reads the command's
+first 512 bytes and keeps only its kind (testing, building, installing, git or other) in
+the `pixel.work` label; `just hooks` edits Claude Code's and Codex's hook
 files and keeps a backup of each. Edit tracking watches local agent
 repositories (and the git folder of a linked worktree), runs Git to count changes and
 read HEAD's reflog for new commits and its other moves (with `tail`), and reads up to 50 untracked files per

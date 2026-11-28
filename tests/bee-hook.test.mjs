@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -154,6 +154,92 @@ test("only the fields before the tool's own input count, and a huge input is rea
   ok(r);
   assert.ok(r.ms < 1000, `took ${r.ms} ms`);
   assert.deepEqual(labels(), ["pixel.work=typing"]);
+});
+
+test("a shell command says whether the agent is testing, building, installing or using git; any other hammers", async () => {
+  const cases = {
+    "npm test": "testing",
+    "cd app && pnpm test": "testing",
+    "pnpm run test:unit -- --watch=false": "testing",
+    "cargo test --workspace": "testing",
+    "go test ./...": "testing",
+    "just test": "testing",
+    "uv run pytest -q": "testing",
+    "python3 -m pytest": "testing",
+    "npx vitest run": "testing",
+    "node --import ./tests/mocks/register.mjs --test 'tests/*.test.mjs'": "testing",
+    "make test 2>&1 | tail -5": "testing",
+    "FOO=1 npm run build": "building",
+    "cargo build --release": "building",
+    "./node_modules/.bin/tsc -p tsconfig.json": "building",
+    "make": "building",
+    "docker build -t app .": "building",
+    "pnpm install --frozen-lockfile": "installing",
+    "npm ci": "installing",
+    "uv pip install -r requirements.txt": "installing",
+    "sudo apt-get install -y jq": "installing",
+    "go get example.com/x": "installing",
+    "git status": "git",
+    'git commit -m "fix build"': "git",
+    "/usr/bin/git log --oneline -3": "git",
+    "cd /tmp && git push -u origin main": "git",
+    "ls -la": "hammering",
+    "echo npm test": "hammering",
+    "grep -rn test src": "hammering",
+    "rm -rf 'dist/*'": "hammering",
+    "": "hammering",
+  };
+  for (const [command, work] of Object.entries(cases)) {
+    ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command, description: "x" } }));
+    assert.deepEqual(labels(), [`pixel.work=${work}`], command);
+  }
+  // Codex's shell tools are read the same way, on the same unverified guess at their input.
+  ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: "shell", tool_input: { command: "cargo test" } }));
+  assert.deepEqual(labels(), ["pixel.work=testing"]);
+});
+
+test("a shell command's first command that says decides, a line at a time, and a glob in it stays unexpanded", async () => {
+  // The JSON writes the command's newlines as `\n`.
+  for (const [command, work] of [
+    ["cd app\nnpm install\nnpm test", "installing"],
+    ["echo start; git add -A && git commit -m wip", "git"],
+    ["(cd web && yarn build) && pnpm test", "building"],
+    ["VAR=1 env time nice * && cargo test", "testing"],
+  ]) {
+    ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }));
+    assert.deepEqual(labels(), [`pixel.work=${work}`], command);
+  }
+  // Expanded in the agent's folder, `*` would read as the name of the file there: git.
+  const cwd = join(dir, "repo");
+  mkdirSync(cwd);
+  writeFileSync(join(cwd, "git"), "");
+  const r = await new Promise((resolve) => {
+    const child = spawn("/bin/sh", [HOOK, "tool"], { cwd, env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, HC_TERMINAL_ID: "t9", FAKE_DIR: dir } });
+    child.on("close", resolve);
+    child.stdin.end(JSON.stringify({ tool_name: "Bash", tool_input: { command: "* status" } }));
+  });
+  assert.equal(r, 0);
+  assert.deepEqual(labels(), ["pixel.work=hammering"]);
+});
+
+test("only a shell tool's command is read, from its input's first 512 bytes, and a huge command is read quickly", async () => {
+  // Another tool's input can hold a command.
+  for (const tool of ["Read", "Write", "BashOutput"]) {
+    ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command: "git status", file_path: "/a" } }));
+    assert.deepEqual(labels(), [`pixel.work=${tool === "BashOutput" ? "hammering" : tool === "Read" ? "reading" : "typing"}`], tool);
+  }
+  // Within the budget, after other keys of the input, and past it.
+  ok(await hook("tool", { tool_name: "Bash", tool_input: { description: "d".repeat(400), command: "npm test" } }));
+  assert.deepEqual(labels(), ["pixel.work=testing"]);
+  ok(await hook("tool", { tool_name: "Bash", tool_input: { description: "d".repeat(600), command: "npm test" } }));
+  assert.deepEqual(labels(), ["pixel.work=hammering"]);
+  // A command cut by the budget still says what its start says.
+  ok(await hook("tool", { tool_name: "Bash", tool_input: { command: `git apply <<'EOF'\n${"+x\n".repeat(2_000_000)}EOF` } }));
+  assert.deepEqual(labels(), ["pixel.work=git"]);
+  const r = await hook("tool", { tool_name: "Bash", tool_input: { command: `echo ${"x ".repeat(2_000_000)}; npm test` } });
+  ok(r);
+  assert.ok(r.ms < 1000, `took ${r.ms} ms`);
+  assert.deepEqual(labels(), ["pixel.work=hammering"]);
 });
 
 test("a tool that says nothing about the work takes the label away: the creature works its own way", async () => {

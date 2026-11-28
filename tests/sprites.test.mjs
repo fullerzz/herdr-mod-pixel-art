@@ -265,8 +265,8 @@ const working = (sprite, work, px = 3) => spriteElement(sprite, { id: "s", px, s
 /** An element's whole tree as text: every node's kind and calls, children aside. */
 const tree = (el) => JSON.stringify(walk(el).map((node) => [node.kind, node.calls.filter(([name]) => name !== "child" && name !== "children")]));
 
-test("there are seven ways of working, walk among them, and the test covers every kind", () => {
-  assert.deepEqual([...WORKS].sort(), ["hammering", "reading", "searching", "signal", "thinking", "typing", "walk"]);
+test("there are eleven ways of working, walk among them, and the test covers every kind", () => {
+  assert.deepEqual([...WORKS].sort(), ["building", "git", "hammering", "installing", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
   assert.equal(KINDS.length, 10);
 });
 
@@ -319,15 +319,44 @@ test("each way of working has its own tree and its own still frame", () => {
   }
 });
 
-test("a creature's own way of working comes from its seed, and every way is someone's", () => {
+test("a creature's own way of working comes from its seed, and every way it had is someone's", () => {
+  // The seven ways from before the kinds of command, in their order then.
+  const OWN = ["walk", "typing", "reading", "hammering", "searching", "thinking", "signal"];
   const seen = new Set();
   for (const seed of SEEDS) {
     const own = ownWork(makeSprite(seed));
-    assert.ok(WORKS.includes(own));
+    assert.equal(own, OWN[hashSeed(`${seed}\u0000work`) % OWN.length], `seed ${seed} keeps the way it had`);
     assert.equal(ownWork(makeSprite(seed)), own);
     seen.add(own);
   }
-  assert.equal(seen.size, WORKS.length, "every way of working is some seed's own");
+  assert.deepEqual([...seen].sort(), [...OWN].sort(), "every one of the seven is some seed's own, and only they are");
+});
+
+test("the ways for kinds of command move their props: bubbles light in turn, the brick rises on its cable, the package pops, the branch grows", () => {
+  const t = theme();
+  /** Every loop in a way's tree, with the color it moves: the node's own or its first drawn child's. */
+  const loops = (el) =>
+    walk(el).flatMap((node) => calls(node, "loop").map(([property, policy]) => ({ property, ...policy, color: last(node, "bg") ?? walk(node).map((c) => last(c, "bg")).find(Boolean) })));
+  for (const sprite of KINDS) {
+    const testing = loops(working(sprite, "testing")).filter((l) => l.property === "opacity" && l.color === "#ffffff");
+    assert.deepEqual(testing.map((l) => l.easing), ["ease-out", "linear", "ease-in"], "three bubbles light from the bottom up");
+    const tube = raster(working(sprite, "testing", 1)).slice(5).map((row) => row.slice(10));
+    assert.ok(tube.slice(3).flat().every((c) => c === t.accent || c === "#ffffff"), "liquid with bubbles in it fills the tube's foot, at the right edge");
+    assert.ok(tube.slice(0, 3).flat().every((c) => c !== null && c !== t.accent), "glass over it");
+
+    const building = loops(working(sprite, "building"));
+    const rise = building.find((l) => l.property === "top" && l.color === "#a4553a");
+    const reel = building.find((l) => l.property === "height");
+    assert.ok(rise && rise.to < rise.from, "the brick rises");
+    assert.ok(reel && reel.from - reel.to === rise.from - rise.to && reel.period === rise.period && reel.easing === rise.easing, "the cable reels in with it");
+
+    const pop = loops(working(sprite, "installing")).find((l) => l.property === "top" && l.color === t.accent);
+    assert.ok(pop && pop.from === 0 && pop.to > 0, "the package stands up out of the box, and sinks back in");
+
+    const grow = loops(working(sprite, "git")).filter((l) => l.property === "opacity");
+    assert.deepEqual(grow.map((l) => l.easing), ["ease-out", "linear", "ease-in"], "the branch grows a cell at a time");
+    assert.equal(grow.at(-1).color, t.working, "its leaf comes last");
+  }
 });
 
 test("without a known way from its hooks, a working creature works its own way", () => {

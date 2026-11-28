@@ -14,10 +14,12 @@ picker lets the person choose another creature for an agent.
   for attention when the agent is blocked, celebrates when it finished, and rests when it
   is idle.
 - **Ways of working.** A working sprite shows what its agent is doing, when the agent's
-  hooks say: it types while the agent edits files, reads a book while it reads, hammers
-  while it runs commands, sweeps a lens while it searches, holds up an antenna while it
-  fetches from the web, and thinks when a prompt comes in. Otherwise it works its own way,
-  one of those six or a walk, picked by its seed.
+  hooks say: it types while the agent edits files, reads a book while it reads, bubbles a
+  test tube while it runs tests, lifts bricks with a crane while it builds, unpacks a box
+  while it installs, grows a branching twig while it uses git, hammers while it runs other
+  commands, sweeps a lens while it searches, holds up an antenna while it fetches from the
+  web, and thinks when a prompt comes in. Otherwise it works its own way, picked by its
+  seed: a walk, or one of the six ways from before the four for kinds of command.
 - **Identity.** An agent's seed is the `pixel.avatar` label on its terminal in herdr-core.
   Without the label the seed is the terminal's address, so every agent has a stable sprite
   from the start. A label survives an agent restart in the same terminal, is seen by every
@@ -63,7 +65,7 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | `terminals()` gives each terminal's `parent`: the terminal that started it with `hc run`. A helper without a pane is not in `agents()`. | `hc` helpers are bees with no setup. |
 | Herdr sees nothing of a sub-agent inside an agent's program (Claude Code's Agent tool). Its hooks run with `HC_TERMINAL_ID` set, and `hc label` takes a key such as `pixel.bee.a1B2-c_3`. | A hook keeps one label per running sub-agent; the label change re-renders the drawer. |
 | A Claude Code `PreToolUse` hook's JSON names the tool (`tool_name`: `Read`, `Grep`, `Agent`, ...). A sub-agent's own tool calls carry `agent_id` and `agent_type`; the main agent's carry neither. `UserPromptSubmit` fires for each prompt, a background sub-agent's report included. (Claude Code 2, measured with `claude -p`.) | The hook says what the agent is doing from `tool_name`, and leaves a sub-agent's tools to its bee. |
-| `hc label` on the caller's own terminal takes about 10 ms; the whole tool hook about 30 ms. A `PreToolUse` JSON holds the tool's whole input (a Write's content: megabytes), after `tool_name` and `agent_id`. | Before a tool or a prompt, the hook parses only up to `"tool_input"`, at most 8 KiB, and reads the rest to throw it away unparsed. A 2 MB Write costs it about 20 ms, not the 530 ms of parsing it all. |
+| `hc label` on the caller's own terminal takes about 10 ms; the whole tool hook about 30 ms. A `PreToolUse` JSON holds the tool's whole input (a Write's content: megabytes), after `tool_name` and `agent_id`. | Before a tool or a prompt, the hook parses only up to `"tool_input"`, at most 8 KiB, and reads the rest to throw it away unparsed. A 2 MB Write costs it about 20 ms, not the 530 ms of parsing it all. A shell tool's command is the one exception, with a budget of its own: the first 512 bytes after `"tool_input"`, within those 8 KiB. |
 | `.loop` plays its return leg as the forward leg backwards, easing included: an 8 s ease-in `top` loop is symmetric about its far end, slow to leave home and slow to come back. `.loop("width")` runs too. | Two loops of one period with ease-out and ease-in light in one order and go out in the reverse, as the previews in Chrome (CSS `alternate`) showed. |
 | A Claude Code hook's parent process is `claude` itself (measured for SessionStart, SubagentStart and SubagentStop). A `claude -p` run from an agent's tool inherits `HC_TERMINAL_ID` and starts a session of its own. | `clear` tells the owner's own new session from a nested program's session by pid. |
 | Herdr clips a floating mod to its frame: a child placed outside it is not drawn. | Bees get room inside the drawer, in lanes under the sprite. |
@@ -125,8 +127,8 @@ nothing from it. Its shape is the sprites module's own business, with these guar
 export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, stage = 0 }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
-export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal
-export function ownWork(sprite): string;        // one of WORKS, the same for the same seed
+export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git
+export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
 ```
 
@@ -143,8 +145,9 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
   the fire and keeps the theme's blocked color.
 - Working, the creature works the way `work` names, one of `WORKS`. Any other value (null,
   a name it doesn't know, `"__proto__"`) is the creature's own way, `ownWork(sprite)`: a
-  hash of its seed, apart from the art's, so a seed's creature looks as it always did.
-  `work` changes nothing in any other status.
+  hash of its seed, apart from the art's, so a seed's creature looks as it always did. It
+  picks from the first seven only: the four ways for kinds of command came later, and a
+  seed keeps the own way it had. `work` changes nothing in any other status.
   - `walk`: eyes glance right, feet step in turn, body bobs, speed lines behind.
   - `typing`: open eyes, a keyboard under the face, keys lighting in the theme's working
     color in an uneven rhythm, the body bobbing once a keystroke.
@@ -160,9 +163,18 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
     bubble, never in the top row or the two left columns. The creature leans slowly.
   - `signal`: eyes glance right, an antenna held up at its left, two radio arcs pulsing out
     of its tip in turn.
-- A way of working draws its props over the lower body, in the top left corner or in empty
-  cells, where no kind has an eye. A prop that crosses the face (the hammer, the lens) draws a second copy
-  of the eyes over itself. A prop under the face (the keyboard, the book) covers row 8 down,
+  - `testing`: eyes glance right, at a test tube in the two columns at the right edge:
+    glass over liquid in the theme's accent, three bubbles lighting from the bottom up.
+  - `building`: open eyes, a crane: a mast behind the right edge and a jib along the top
+    row, both dim, and a brick on a cable rising from a pile at the left foot to row 3 and
+    back, the cable reeling in with it.
+  - `installing`: open eyes, an open box over the feet, its flaps waving out of its top
+    corners, and a package in the theme's accent popping up out of it to row 8 and back.
+  - `git`: open eyes, a twig up the left edge with a leaf on its tip, branching over the
+    head, where its branch grows out a cell at a time to a leaf in the theme's working color.
+- A way of working draws its props over the lower body, in the top left corner, in the two
+  columns at each edge or in empty cells, where no kind has an eye. A prop that crosses the face (the hammer, the lens) draws a second copy
+  of the eyes over itself. A prop under the face (the keyboard, the book, the package) covers row 8 down,
   where some creatures (8% of seeds) have their eyes: it draws those eyes again over
   itself, with the torso's own loop, so they bob with the body. No way hides an eye in the
   still frame. Props use their own colors or the theme's working, foreground,
@@ -255,18 +267,30 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
   left. Blocked, a bee's wings or a sheep's fleece take the theme's blocked color.
 - `tools/bee-hook.sh tool|think` keeps `pixel.work` from the same hooks: `tool` on
   `PreToolUse` sets the way the tool names (Read is reading; Edit, MultiEdit, Write,
-  NotebookEdit and apply_patch are typing; Bash and shell are hammering; Grep and Glob are
+  NotebookEdit and apply_patch are typing; Bash and shell run a command; Grep and Glob are
   searching; WebFetch, WebSearch and web_search are signal) and removes the label for any
   other tool. Claude Code's names are measured; Codex's `Bash` is seen in its hook
   matchers; `apply_patch`, `shell` and `web_search` are unverified guesses at Codex's.
-  `tool` and `think` parse only the JSON before the tool's own input, at most 8 KiB, so
-  keys inside the input are never taken for the hook's; Claude Code puts `agent_id` and
+  `tool` and `think` look for the hook's own fields only in the JSON before the tool's own
+  input, at most 8 KiB, so keys inside the input are never taken for the hook's; Claude Code puts `agent_id` and
   `tool_name` there, after short fields only. `start`, `stop` and `clear` are rare and
   parse all of it, since no order of their fields is promised. `think` on `UserPromptSubmit` sets
   thinking. Both leave the label alone for a sub-agent's event (`agent_id`). The way holds
   until the next tool or prompt: a read or an edit is over in a moment, so a label held
   only while the tool runs would never be seen. A killed agent's label stays until the
   terminal's next hooked session start, but shows only while the agent works.
+- A command's way is its first command's, split at `;`, `&`, `|`, `(`, `)`, a backtick and
+  a newline, that runs a program the hook knows. Its program is the first word after
+  settings (`FOO=1`) and wrappers (`sudo`, `env`, `npx`, ...), without its path; a program
+  run by another (`uv run pytest`, `python -m pip`) counts as itself. `git` is git; a test
+  runner (`pytest`, `jest`, `vitest`, ...) or `node --test` is testing; a build tool that
+  does one thing (`tsc`, `make`, `gcc`, ...) is building. For a tool that does many things
+  (`npm`, `cargo`, `go`, `just`, `make`, `pip`, ...) the next word decides, `npm run`'s
+  script included: `test` or `test:<x>` is testing, `build` or `build:<x>` building,
+  `install`, `add`, `ci` and the like installing. Any other command is hammering, and so
+  are BashOutput and KillShell. The command is the input's first `"command"` string, read from its first
+  512 bytes, never expanded (no globbing); a string cut there is read as far as it goes.
+  Codex's shell input is guessed to take the same shape.
 - `tools/bee-hook.sh start|stop|clear` writes the labels from an agent's hooks. It never
   fails or stalls its agent: each `hc` call is killed after 2 seconds. It does nothing
   outside an `hc` terminal. `clear` leaves the labels alone on a compaction, in a
