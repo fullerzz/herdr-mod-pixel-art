@@ -81,8 +81,10 @@ picker lets the person choose another creature for an agent.
   drops a package in front of the sprite: it falls from the top of the box, bounces with a
   puff of dust, rests, then fades. A cherry-pick has the sprite pluck a pair of cherries
   from a twig at the box's upper right: it tugs, the cherries swing down in front of it as
-  the branch springs back, and it holds them, then they fade. Other moves of HEAD get
-  one-shots of their own the same way.
+  the branch springs back, and it holds them, then they fade. A push launches a small
+  rocket off the sprite: it stands in front of it, lights its engine, and lifts off in a
+  puff of smoke, fading as it climbs. Other moves of HEAD get one-shots of their own the
+  same way.
 - **Smoke.** A shell command an agent runs that fails makes its sprite cough: it lurches,
   and a puff of black smoke goes up from its face and clears. Only Claude Code's hooks say
   so (`PostToolUseFailure`).
@@ -138,6 +140,8 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | One look can follow several git commands: a commit and a reset can land in one batch, in the same second, and two reflog entries can read alike. | Each look reads every reflog line added since the last look, from where that one got to, by position in the file, not by time or commit. |
 | `readTextFile` reads at most 1 MiB, and a busy repository's reflog grows past it. | The reflog is read with `tail -n +<line>`: only the new lines, from the last one read. |
 | A folder an agent is in can become a repository later (`git init`). | A folder in no repository is asked again every 10 s. |
+| A push leaves HEAD's reflog alone. With default settings it moves the remote-tracking ref (`refs/remotes/<remote>/<branch>`, nested folders for a name like `issue/36-x`) and adds `update by push` to its reflog, `logs/refs/remotes/<remote>/<branch>`: a force push too, and a branch's first push makes the file. A push that sends nothing writes no line; `git push --delete` removes the file; a fetch or a pull writes `fetch ...: fast-forward` or `pull ...: fast-forward` there. (git 2.56.1, a scratch repository with a local bare remote.) | Pushes come from those reflogs, filtered by their note. |
+| Every worktree of a repository shares its refs and their reflogs, in the shared git folder (`rev-parse --git-common-dir`: `.git` from the main worktree, absolute from a linked one). A push from a linked worktree writes nothing under it or its own git folder. | A push counts only when it moved `<remote>/<branch>` for the branch checked out (`symbolic-ref -q HEAD`; none when detached), to the commit HEAD is at. Two worktrees can't check out one branch, so a push from a sibling worktree at the same commit is none. A linked worktree's shared `refs` folder is watched as well; that this wakes `watchFolder` for a push is not measured, nor is the main worktree's `.git` waking for one, beyond a commit's doing so. |
 
 ## Modules
 
@@ -158,7 +162,7 @@ main.js ──> drawer.js ──┬─> identity.js ──> herdr
 | `identity.js` | coordinator | The label: `seedFor`, `hasAvatar`, `setAvatar`, `clearAvatar`, `openPicker`. |
 | `sprites.js` | sprites | Seed to sprite. Pure: no imports, runs under plain node. |
 | `sprite-view.js` | sprites | Sprite to element, with motion per status and way of working, a turn for a status change, and a hit's flash and knock. |
-| `edits.js` | drawer | Lines added and removed in the agents' repositories, the lines left uncommitted there, and HEAD's moves there, from git. |
+| `edits.js` | drawer | Lines added and removed in the agents' repositories, the lines left uncommitted there, HEAD's moves there, and their pushes, from git. |
 | `bees.js` | drawer | An agent's helpers, and the bee drawn for each. |
 | `drawer.js` | drawer | The party drawer. |
 | `picker.js` | picker | The picker popup. |
@@ -456,8 +460,11 @@ export function parseReflog(lines): HeadMove[];     // reflog file lines, oldest
 export const isCommit = (subject) => boolean;       // git's note for a new commit made here
 export function moveKind(subject): MoveKind | null;  // a move that is no commit: the command its note names
 export async function readMoves(log, from: Cursor): { moves: HeadMove[], to: Cursor } | null; // the lines after `from`
+export const isPush = (subject) => boolean;         // git's note for a push in a remote-tracking ref's reflog
+export async function readPushes(dir, from: Map<file, Cursor>): { pushes: (HeadMove & { ref })[], to: Map<file, Cursor> } | null; // the pushes in the reflogs under `dir`; `ref` is the file's path under it
+export const tracks = (ref, branch) => boolean;     // whether `<remote>/<branch>` names this branch
 export class EditWatcher {
-  constructor(onGrowth: (root, lines, cx) => void, onCommit?: (root, sha, cx) => void, onMove?: (root, move: Move, cx) => void, onDiff?: (root, lines: number, cx) => void);
+  constructor(onGrowth: (root, lines, cx) => void, onCommit?: (root, sha, cx) => void, onMove?: (root, move: Move, cx) => void, onDiff?: (root, lines: number, cx) => void);  // onMove gets pushes too
   follow(dirs, cx): void;   // watch the repositories these folders are in, and no other; ask a folder in none again after 10 s
   rootOf(dir): string | null;
   uncommitted(root): number | null;  // `changed` of the last diff read; null before the first read and once unwatched
@@ -499,7 +506,29 @@ export class EditWatcher {
   (`clone: `, `am: `) is no move, and nor is a checkout of the branch already checked out
   (`checkout: moving from main to main`): HEAD goes nowhere. The watcher drops a reset that
   leaves HEAD at the commit it was at (`git stash`, `git reset --hard`), so it never hides
-  an older move in the same look.
+  an older move in the same look. `MoveKind` is also `push`, which no note of HEAD's names.
+- A push is reported through `onMove` as a `Move` of kind `push`, `{ kind: "push", sha,
+  subject }`: the commit it pushed and git's note, `update by push` (`isPush`, exactly; a
+  fetch's or a pull's note on the same ref is none). It moves no HEAD: the pushes are in the
+  remote-tracking refs' reflogs, every file under `<shared git folder>/logs/refs/remotes`.
+  Each look counts their lines in one call (`find <dir> -type f -exec wc -l {} +`; no such
+  folder is no file) and reads with `readMoves`, from its own `Cursor`, only a file whose
+  count changed. A file first seen after the first good read is read from `START`: a
+  branch's first push makes it. A file gone is forgotten; one that fails to read keeps its
+  cursor. Pushes count from the first good read, as commits do, and a repository found
+  where a folder had none counts from the start. The refs are shared by every worktree of
+  the repository, so a push counts only when it moved the remote-tracking ref of the branch
+  checked out (`tracks`: the ref's name past its first part, the remote's, is the branch's)
+  to the commit HEAD is at (`symbolic-ref -q HEAD` and `rev-parse HEAD`, asked only when a
+  look finds a push). Another worktree has another branch checked out, so its push is none
+  here even at the same commit; a detached HEAD has no branch, and no push counts. The ref
+  is matched by name, not `@{push}`: that fails with no upstream, and for a branch whose
+  upstream has another name (`worktree add -b x <path> origin/main`) under the default
+  `push.default=simple`; under `upstream` it names `origin/main`, and would match main's
+  pushes (git 2.56.1). So a push to another name (`HEAD:other`),
+  or to a remote whose name has a `/`, counts as none. One look reports one push at
+  most, after its commit or move of HEAD, so both a commit and its push in one look are
+  reported, and a push replaces a move of HEAD seen with it.
 - Commits and moves count from the first good read: starting Herdr is no commit, and so is anything
   already in the reflog when that first read failed. A repository found where a folder had
   none (`git init`) counts from the start of its reflog, and is reported as soon as it is
@@ -507,7 +536,9 @@ export class EditWatcher {
   thing at most: the newest commit, else the newest move. A rebase writes many lines, often
   in one look, and is one move; a commit outweighs the checkouts and resets seen with it.
 - A linked worktree's git folder (`rev-parse --absolute-git-dir` outside the repository)
-  is watched too. Each watched folder has one pending `watchFolder` at a time.
+  is watched too, and so is the `refs` folder of its shared git folder (`rev-parse
+  --git-common-dir`) when that is outside both: a push writes only there. Each watched
+  folder has one pending `watchFolder` at a time.
 
 ### Contract: `bees.js`
 
@@ -735,8 +766,8 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   timer runs per clap. After three claps, at 720 ms, the gloves fade over 250 ms, and they
   are gone at 1,020 ms. A clap plays with `play` into `claps`, so a new one replaces the
   last, with new ids.
-- A move of HEAD that is no commit lands on the same agents a hit or a stamp would, as the
-  one-shot for its kind: one entry per kind in `ONE_SHOTS` (its first step, its steps'
+- A move of HEAD that is no commit, and a push, lands on the same agents a hit or a stamp
+  would, as the one-shot for its kind: one entry per kind in `ONE_SHOTS` (its first step, its steps'
   times, how a step draws in the box over the sprite, and `hides` when it draws the
   creature itself, which keeps the sprite unseen while it plays). It plays with `play` into
   `moves`, by address, so a new move on the same agent replaces the last, with new ids, and
@@ -790,6 +821,18 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   with the twig over 500 ms from 2.3 s, and are gone at 2.8 s. `commit (cherry-pick): `, a
   cherry-pick concluded after a conflict, plucks too, and a range of picks in one look is
   one move, so one pluck.
+- A push's one-shot is a small rocket the sprite launches, while it stays: 5 by 8 cells of
+  2 px (a bee's), a red nose, a white body with a blue window, and red fins that reach down
+  as its legs, outlined dark, with a flame of its own yellow and orange between the legs.
+  It stands in front of the sprite's middle, its legs on the stamp's floor; there it
+  overlaps the left of a stamp, which draws over it. Set unseen, it fades in at 30 ms over
+  150 ms. At 450 ms its engine lights: the flame shows and flickers (`.loop("opacity")`,
+  120 ms), and the rocket shakes a pixel either way (`.loop("left")` on a layer of its own,
+  100 ms). At 850 ms it lifts off: it climbs to the box's top, never above it, over 500 ms,
+  ease-in, and fades out over the same time, on its flame and with no shake, while a puff of
+  exhaust (the trick's light smoke at 2 px cells, no sparkles) billows over the pad, low in
+  the box. At 1.1 s the puff spreads and clears over 520 ms, inside the box; the one-shot is
+  gone at 1.7 s. One look reports one push, so a push of many branches launches one rocket.
 - Bees sit under the sprite's box, and under its XP bar when it shows, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees

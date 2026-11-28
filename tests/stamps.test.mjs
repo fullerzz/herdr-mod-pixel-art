@@ -37,6 +37,7 @@ function fakeGit() {
       return ok(text.slice(Number(args[1].slice(1)) - 1).join(""));
     }
     if (command === "test") return { code: args[1] === logFile() && repo.log ? 0 : 1, stdout: "", stderr: "" };
+    if (command === "find") return { code: 1, stdout: "", stderr: "find: No such file or directory" };
     assert.equal(command, "git");
     assert.equal(args[0], "--no-optional-locks", "git must not write the index: that is a change too");
     const [verb, ...rest] = args.slice(1);
@@ -48,6 +49,11 @@ function fakeGit() {
         // Relative to the folder git ran in when the git folder is inside it, as git prints it.
         const path = logFile().startsWith(`${cwd}/`) ? logFile().slice(cwd.length + 1) : logFile();
         return ok(`${echoed}${path}\n`);
+      }
+      if (rest.includes("--git-common-dir")) {
+        // A linked worktree's shared git folder holds its `worktrees/` folder; git prints it relative when it is inside the folder git ran in.
+        const common = repo.gitDir.replace(/\/worktrees\/[^/]+$/, "");
+        return ok(common.startsWith(`${cwd}/`) ? `${common.slice(cwd.length + 1)}\n` : `${common}\n`);
       }
       return ok(rest.includes("--absolute-git-dir") ? `${repo.gitDir}\n` : "/repo\n");
     }
@@ -354,7 +360,8 @@ test("a linked worktree's git folder is watched too, and a commit seen there sta
   mock.agent("t1", { status: "working" });
   mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
   const { drawer, cx } = await start();
-  assert.deepEqual(mock.of("watchFolder"), [["/repo"], ["/main/.git/worktrees/repo"]]);
+  // Its refs are in the shared git folder, for pushes (tests/pushes.test.mjs).
+  assert.deepEqual(mock.of("watchFolder"), [["/repo"], ["/main/.git/worktrees/repo"], ["/main/.git/refs"]]);
   await move("b", "commit: in a worktree", "/main/.git/worktrees/repo");
   assert.ok(stampOf(draw(drawer, cx), "t1"));
   // Each folder keeps one wait: the one that did not fire is not asked again.

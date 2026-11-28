@@ -1,5 +1,6 @@
-// Lines added and removed in the agents' repositories, the commits made in them, and HEAD's
-// other moves there: the hits and stamps the drawer shows, and the moves it lands.
+// Lines added and removed in the agents' repositories, the commits made in them, HEAD's
+// other moves there, and their pushes: the hits and stamps the drawer shows, and the moves it
+// lands.
 // Contract: docs/DESIGN.md, "Contract: edits.js".
 //
 // Herdr reports no edits, so they come from git. Each repository an agent works in is
@@ -20,6 +21,14 @@
 // is reported as a move of its kind, read from the same note. A reset that leaves HEAD where
 // it was (`git stash`, `git reset --hard`) is none. A linked worktree keeps its HEAD outside
 // its folder, so its git folder is watched as well.
+//
+// A push moves no HEAD: it moves a remote-tracking ref, and git notes it in that ref's own
+// reflog (`logs/refs/remotes/<remote>/<branch>`) as "update by push". Each look counts the
+// lines of every such reflog in one call, and reads the new lines of those that grew, the
+// same way as HEAD's. The refs are shared by every worktree of a repository, so a push counts
+// here only when it moved the remote-tracking ref of the branch checked out here
+// (`<remote>/<branch>`), to the commit HEAD is at; and a linked worktree's shared git folder
+// is watched for them as well.
 
 import { exec, readTextFile, watchFolder } from "herdr";
 
@@ -129,9 +138,10 @@ export function parseReflog(lines) {
 export const isCommit = (subject) =>
   /^commit(?: \((?:initial|amend|merge)\))?:/.test(subject) || /^merge [^:]*: Merge made by /.test(subject);
 
-/** @typedef {"checkout" | "reset" | "rebase" | "pull" | "cherry-pick" | "merge" | "revert"} MoveKind */
+/** @typedef {"checkout" | "reset" | "rebase" | "pull" | "cherry-pick" | "merge" | "revert" | "push"} MoveKind */
 /**
- * A move of HEAD that is no commit: its kind, the commit HEAD moved to, and git's note.
+ * A move of HEAD that is no commit, or a push: its kind, the commit HEAD moved to (a push's:
+ * the commit it pushed), and git's note.
  * @typedef {{ kind: MoveKind, sha: string, subject: string }} Move
  */
 
@@ -153,6 +163,13 @@ export function moveKind(subject) {
   const m = /^(checkout|reset|rebase|pull|cherry-pick|merge|revert)(?=[ :])/.exec(subject);
   return m ? /** @type {MoveKind} */ (m[1]) : null;
 }
+
+/**
+ * Whether git wrote this note in a remote-tracking ref's reflog for a push. A fetch's or a
+ * pull's (`fetch: fast-forward`, `pull --rebase: fast-forward`) is not.
+ * @type {(subject: string) => boolean}
+ */
+export const isPush = (subject) => subject === "update by push";
 
 /**
  * The path of HEAD's reflog file, or null when git can't tell. A linked worktree has its own.
@@ -219,6 +236,111 @@ export async function readMoves(log, from) {
 }
 
 /**
+ * The number of whole lines in each file in a folder and its subfolders, by path; an empty map
+ * when there is no such folder, null when it can't be read. One call however many files.
+ * @param {string} dir An absolute path.
+ * @returns {Promise<Map<string, number> | null>}
+ */
+async function lineCounts(dir) {
+  const r = await exec("find", [dir, "-type", "f", "-exec", "wc", "-l", "{}", "+"]);
+  if (r.code !== 0) return (await exec("test", ["-e", dir])).code === 1 ? new Map() : null;
+  /** @type {Map<string, number>} */
+  const counts = new Map();
+  // `wc` adds a line of its own, " <sum> total", for more than one file: no path, as no "/".
+  for (const line of r.stdout.split("\n")) {
+    const m = /^\s*(\d+) (\/.*)$/.exec(line);
+    if (m) counts.set(m[2], Number(m[1]));
+  }
+  return counts;
+}
+
+/**
+ * The pushes noted in the reflogs under `dir` (the remote-tracking refs') after `from`, and how
+ * far each is read now; null when the folder can't be read. Each file is read as HEAD's
+ * reflog is (`readMoves`), from where its cursor got to, and only when its count of lines
+ * changed. A file not in `from` is read from its start: a branch pushed for the first time
+ * makes its file. A file gone (a branch deleted, `git fetch --prune`) is forgotten, and one
+ * that fails to read keeps its cursor for the next read. Each push names the ref it moved,
+ * its file's path under `dir` (`origin/issue/36-x`).
+ * @param {string} dir
+ * @param {Map<string, Cursor>} from By file.
+ * @returns {Promise<{ pushes: (HeadMove & { ref: string })[], to: Map<string, Cursor> } | null>}
+ */
+export async function readPushes(dir, from) {
+  try {
+    const counts = await lineCounts(dir);
+    if (!counts) return null;
+    const files = [...counts].map(async ([file, lines]) => {
+      const was = from.get(file) ?? START;
+      const read = was.lines === lines ? null : await readMoves(file, was);
+      const ref = file.slice(dir.length + 1);
+      return { file, to: read?.to ?? was, pushes: read?.moves.filter((m) => isPush(m.subject)).map((m) => ({ ...m, ref })) ?? [] };
+    });
+    const read = await Promise.all(files);
+    return { pushes: read.flatMap((r) => r.pushes), to: new Map(read.map((r) => [r.file, r.to])) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The commit HEAD is at, or null when git can't tell.
+ * @param {string} root
+ * @returns {Promise<string | null>}
+ */
+async function headOf(root) {
+  try {
+    const r = await git(root, ["rev-parse", "HEAD"]);
+    return r.code === 0 ? r.stdout.trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The branch checked out, as its name under `refs/heads/` (`issue/36-x`), or null when HEAD
+ * is detached or git can't tell.
+ * @param {string} root
+ * @returns {Promise<string | null>}
+ */
+async function branchOf(root) {
+  try {
+    const r = await git(root, ["symbolic-ref", "-q", "HEAD"]);
+    const ref = r.code === 0 ? r.stdout.trim() : "";
+    return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) || null : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a remote-tracking ref, as its name under `refs/remotes/` (`origin/issue/36-x`), is
+ * the branch's on some remote: its first part is the remote's name, the rest the branch's.
+ * @type {(ref: string, branch: string) => boolean}
+ */
+export const tracks = (ref, branch) => ref.indexOf("/") > 0 && ref.slice(ref.indexOf("/") + 1) === branch;
+
+/**
+ * The repository's shared git folder, where its refs and their reflogs are: the same for
+ * every worktree of it. Null when git can't tell.
+ * @param {string} root
+ * @returns {Promise<string | null>}
+ */
+async function commonDirOf(root) {
+  try {
+    // Relative to `root` when it is inside it (".git"), else absolute.
+    const r = await git(root, ["rev-parse", "--git-common-dir"]);
+    const dir = r.code === 0 ? r.stdout.trim() : "";
+    return dir ? (dir.startsWith("/") ? dir : `${root}/${dir}`) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** @type {(path: string, dir: string) => boolean} Whether a path is the folder or inside it. */
+const within = (path, dir) => path === dir || path.startsWith(`${dir}/`);
+
+/**
  * The repository's git folder when it is outside the repository (a linked worktree), else null.
  * @param {string} root
  * @returns {Promise<string | null>}
@@ -227,7 +349,7 @@ async function outerGitDir(root) {
   try {
     const r = await git(root, ["rev-parse", "--absolute-git-dir"]);
     const dir = r.code === 0 ? r.stdout.trim() : "";
-    return dir && dir !== root && !dir.startsWith(`${root}/`) ? dir : null;
+    return dir && !within(dir, root) ? dir : null;
   } catch {
     return null;
   }
@@ -269,12 +391,12 @@ export async function readDiff(root) {
   }
 }
 
-/** Watches the repositories of the folders it is given, and reports what grows in them, their uncommitted lines, the commits made in them, and HEAD's other moves. */
+/** Watches the repositories of the folders it is given, and reports what grows in them, their uncommitted lines, the commits made in them, HEAD's other moves, and their pushes. */
 export class EditWatcher {
   /**
    * @param {(root: string, lines: Lines, cx: AsyncContext) => void} onGrowth
    * @param {(root: string, commit: string, cx: AsyncContext) => void} [onCommit] Gets the new commit's sha.
-   * @param {(root: string, move: Move, cx: AsyncContext) => void} [onMove] Gets a move of HEAD that is no commit.
+   * @param {(root: string, move: Move, cx: AsyncContext) => void} [onMove] Gets a move of HEAD that is no commit, and a push (kind "push").
    * @param {(root: string, lines: number, cx: AsyncContext) => void} [onDiff] Gets the repository's uncommitted lines when they change.
    */
   constructor(onGrowth, onCommit = () => {}, onMove = () => {}, onDiff = () => {}) {
@@ -365,8 +487,12 @@ export class EditWatcher {
     const task = cx.spawn(async (cx) => {
       const live = () => this.watched.get(root) === task;
       const folders = [root];
-      const outer = await outerGitDir(root);
+      const [outer, shared] = await Promise.all([outerGitDir(root), commonDirOf(root)]);
       if (outer) folders.push(outer);
+      // A linked worktree's refs are in the shared git folder, outside both: its pushes wake that.
+      if (shared && !within(shared, root) && !(outer && within(shared, outer))) folders.push(`${shared}/refs`);
+      /** @type {string | null} The shared git folder; asked for again on each look until git tells it. */
+      let common = shared;
       /** @type {Map<string, Promise<unknown>>} One wait per folder, kept until it ends. */
       const waits = new Map();
       /** @type {(dir: string) => Promise<unknown>} */
@@ -390,6 +516,29 @@ export class EditWatcher {
         if (read || made) this.report(root, moved.moves, cx);
         read = moved.to;
       };
+      /** @type {Map<string, Cursor> | null} How far each remote-tracking ref's reflog is read; null: not yet. */
+      let pushed = null;
+      // Pushes count from the first good read, as commits do: the reflogs a push wrote before
+      // it are no push. Every worktree of the repository writes the same shared reflogs, so a
+      // push counts only when it moved the branch checked out here, to the commit HEAD is at:
+      // another worktree has another branch checked out, even at the same commit. A detached
+      // HEAD has no branch, and no push counts.
+      const readPushLog = async () => {
+        common ??= await commonDirOf(root);
+        const got = common ? await readPushes(`${common}/logs/refs/remotes`, pushed ?? new Map()) : null;
+        if (!got || !live()) return;
+        const counts = Boolean(pushed || made);
+        pushed = got.to;
+        if (!counts || !got.pushes.length) return;
+        const [head, branch] = await Promise.all([headOf(root), branchOf(root)]);
+        const push = branch ? got.pushes.filter((m) => m.sha === head && tracks(m.ref, branch)).at(-1) : undefined;
+        if (push && live()) this.onMove(root, { kind: "push", sha: push.sha, subject: push.subject }, cx);
+      };
+      /** Reads HEAD's reflog, then the pushes, so a push in the same look as a move of HEAD is reported after it. */
+      const readLogs = async () => {
+        await readLog();
+        await readPushLog();
+      };
       /** @type {(diff: Diff | null) => void} Keeps the diff's lines, and reports them when they changed. */
       const keep = (diff) => {
         if (!diff || !live()) return;
@@ -398,7 +547,7 @@ export class EditWatcher {
         this.totals.set(root, lines);
         this.onDiff(root, lines, cx);
       };
-      let [last] = await Promise.all([readDiff(root), readLog()]);
+      let [last] = await Promise.all([readDiff(root), readLogs()]);
       keep(last);
       while (live()) {
         try {
@@ -409,7 +558,7 @@ export class EditWatcher {
           return;
         }
         await cx.sleep(SETTLE);
-        const [next] = await Promise.all([readDiff(root), readLog()]);
+        const [next] = await Promise.all([readDiff(root), readLogs()]);
         if (!live() || !next) continue;
         const lines = last ? growth(last, next) : null;
         last = next;
@@ -424,7 +573,8 @@ export class EditWatcher {
    * Reports one thing per look: the newest commit among these moves, else the newest move of
    * a known kind. A rebase writes many lines, often in one look, and is still one move; a
    * commit outweighs the checkouts and resets around it. A reset that leaves HEAD where it was
-   * (`git stash`, `git reset --hard`) is no move, so it never hides an older one.
+   * (`git stash`, `git reset --hard`) is no move, so it never hides an older one. A push is
+   * read apart, after this, and reported as well.
    * @param {string} root
    * @param {HeadMove[]} moves Oldest first.
    * @param {AsyncContext} cx

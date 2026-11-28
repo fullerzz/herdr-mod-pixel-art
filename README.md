@@ -59,6 +59,8 @@ move according to what their agents are doing.
   above and lands in front of its creature.
 - **Cherries.** When an agent cherry-picks a commit, its creature plucks a pair of cherries
   from a twig and holds them up in front of itself.
+- **Rockets.** When an agent pushes, a small rocket in front of its creature lights its
+  engine and lifts off in a puff of smoke.
 - **Smoke.** With [the same hooks](#failed-commands), a command an agent runs that fails
   makes its creature cough, and a puff of black smoke goes up from its face.
 - **Test results.** With [the same hooks](#test-results), tests that pass get a thumbs up
@@ -271,6 +273,20 @@ seconds in all. A cherry-pick that stops on a conflict and is concluded with
 writes a line to git's log for each, but the drawer reads them together, so it is one pluck;
 a long range the drawer catches partway can pluck again. A cherry-pick lands on the same
 agents as a commit.
+
+## Rockets
+
+A `git push` from an agent's repository launches a small rocket off its creature, with no
+setup. The rocket stands on the floor of the cell in front of the creature, lights its
+engine and shakes, then lifts off in a puff of smoke, faster as it climbs, and fades as it
+reaches the top of the cell; the smoke clears. It is over in under two seconds. A force push
+and a branch's first push launch one too. A push that sends nothing, a `git fetch`, a pull
+and a deleted branch launch none. A push counts when it sent the branch the agent has
+checked out, at the commit the agent is on. So when another worktree of the same repository
+pushes its own branch, nothing launches here, even at the same commit. A push from a
+detached HEAD launches nothing. Pushes from a linked worktree
+count as well. A push lands on the same agents as a commit, and a commit
+pushed right away gets both its stamp and its rocket.
 
 ## Failed commands
 
@@ -550,8 +566,9 @@ first 512 bytes and keeps only its kind (testing, building, installing, git or o
 the `pixel.work` label, and after one it keeps only whether it failed, or whether its tests
 passed, in the `pixel.result` label; `just hooks` edits Claude Code's and Codex's hook
 files and keeps a backup of each. Edit tracking watches local agent
-repositories (and the git folder of a linked worktree), runs Git to count changes and
-read HEAD's reflog for new commits and its other moves (with `tail`), and reads up to 50 untracked files per
+repositories (and the git folder of a linked worktree, and its repository's shared refs),
+runs Git to count changes, reads HEAD's reflog for new commits and its other moves and the
+remote-tracking refs' reflogs for pushes (with `find`, `wc` and `tail`), and reads up to 50 untracked files per
 scan to count their lines. The mod makes no direct network requests; Herdr and
 `hc` handle connections to any configured remote machines.
 

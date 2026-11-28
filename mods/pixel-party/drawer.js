@@ -33,8 +33,9 @@
 // deck of cards the creature shuffles in front of itself, twice. A pull, or a fast-forward, is
 // a package that drops in from above and lands in front of the creature with a bounce and a
 // puff of dust. A cherry-pick is a pair of cherries the creature plucks from a twig at the
-// cell's upper right and holds in front of itself. Other kinds of move plug into the same
-// table (`ONE_SHOTS`), one entry each.
+// cell's upper right and holds in front of itself. A push is a small rocket in front of the
+// creature: its engine lights, and it lifts off in a puff of smoke and flies away up the cell.
+// Other kinds of move plug into the same table (`ONE_SHOTS`), one entry each.
 //
 // A command an agent runs that fails is a puff of black smoke: the creature coughs, and the
 // smoke goes up from its face and clears. Tests show how they came out instead: passed, a
@@ -371,7 +372,7 @@ export default class Drawer {
   allDone = false;
   /** @type {Map<string, Party>} The party that moment throws, under ALL, while it plays. */
   party = new Map();
-  /** @type {Map<string, Shot>} The one-shot playing for the last move of HEAD, other than a commit, that landed on each agent, by address. */
+  /** @type {Map<string, Shot>} The one-shot playing for the last move of HEAD, other than a commit, or the last push, that landed on each agent, by address. */
   moves = new Map();
   /** @type {Map<string, string>} Each agent's `pixel.result` when it was last drawn ("" for none), by address. */
   results = new Map();
@@ -534,7 +535,7 @@ export default class Drawer {
 
   /**
    * HEAD moved in a repository other than by a commit: a checkout, reset, rebase, pull,
-   * cherry-pick, merge or revert. It lands on the agents a hit or a stamp would, as the
+   * cherry-pick, merge or revert; or the repository pushed. It lands on the agents a hit or a stamp would, as the
    * one-shot for its kind (`ONE_SHOTS`). A kind without one shows nothing yet. A new move on
    * an agent replaces the last.
    * @param {string} root
@@ -1643,6 +1644,90 @@ function cherryElement(_t, address, { n, step }) {
     .children([twig, cherries]);
 }
 
+// A push's rocket, 5 by 8 cells of a bee's size: a small one, so it has room to fly. A red
+// nose, a white body with a blue window, and red fins that reach down as its legs, so it
+// stands on them. n the nose, b the body, w the window, f the fins.
+const ROCKET = [
+  "..n..",
+  ".nnn.",
+  ".bbb.",
+  ".bwb.",
+  ".bbb.",
+  "fbbbf",
+  "f...f",
+  "f...f",
+];
+// Its engine's flame, between the legs under the body: y the core, o the flame round it.
+const FLAME = [
+  ".....",
+  ".....",
+  ".....",
+  ".....",
+  ".....",
+  ".....",
+  ".oyo.",
+  "..o..",
+];
+/** @type {Record<string, Color>} Its own paint: a red of the cherries', a white body, a blue window, a yellow and orange flame. */
+const ROCKET_PAINT = { n: "#d7263d", b: "#eef1f6", w: "#3b6fd4", f: "#d7263d", y: "#fff1a8", o: "#ff9f1c" };
+const ROCKET_RUNS = runsOf(ROCKET);
+const FLAME_RUNS = runsOf(FLAME);
+const ROCKET_W = ROCKET[0].length * BEE_PX;
+const ROCKET_H = ROCKET.length * BEE_PX;
+const ROCKET_X = (CELL - ROCKET_W) / 2; // px: in front of the creature's middle
+const ROCKET_PAD = STAMP_FLOOR - ROCKET_H; // px: its top on the pad, its legs on the stamp's floor
+const ROCKET_FLIGHT = 500; // ms from the pad to the box's top
+/** @type {[x: number, y: number]} Where its exhaust billows, over the pad, low enough to clear inside the box. */
+const EXHAUST_AT = [CELL / 2, CELL_H - 12];
+/** @type {Look} The exhaust: light smoke, no sparkles, spreading where it is. */
+const EXHAUST = { shades: SMOKE, sparks: [], rise: 0 };
+/** @typedef {"pad" | "show" | "ignite" | "launch" | "clear"} RocketStep */
+/** @type {[ms: number, step: RocketStep | null][]} After "pad": it shows, lights its engine, lifts off in a puff of smoke, and the smoke clears. */
+const ROCKET_STEPS = [[30, "show"], [450, "ignite"], [850, "launch"], [1100, "clear"], [1700, null]];
+
+// Set unseen on the stamp's floor in front of the creature, the rocket shows. Its engine
+// lights: the flame flickers between its legs and the rocket shakes. It lifts off: it climbs
+// to the box's top, faster as it goes, fading as it flies away, and a puff of exhaust billows
+// on the pad and clears. It never goes above the box. The ids carry the shot's number, so a
+// new push starts over.
+/**
+ * @param {Theme} _t
+ * @param {string} address
+ * @param {Shot} shot
+ * @returns {Element}
+ */
+function rocketElement(_t, address, { n, step }) {
+  const id = `pp-rocket-${address}-${n}`;
+  const flying = step === "launch" || step === "clear";
+  const lit = step === "ignite" || flying;
+  // The flame flickers on a layer of its own; the shake moves the rocket on another, so each loops one property.
+  const flame = div().id(`${id}-flame`).absolute().left(0).top(0).size_full().opacity(lit ? 1 : 0)
+    .when(lit, (el) => el.loop("opacity", { from: 1, to: 0.4, period: 120, easing: "linear" }))
+    .children(pixels(FLAME_RUNS, (c) => ROCKET_PAINT[c], [], BEE_PX));
+  const body = div().id(`${id}-body`).absolute().left(0).top(0).size_full()
+    .when(step === "ignite", (el) => el.loop("left", { from: -1, to: 1, period: 100, easing: "linear" }))
+    .children(pixels(ROCKET_RUNS, (c) => ROCKET_PAINT[c], OUTLINE, BEE_PX));
+  const rocket = div()
+    .id(`${id}-ship`)
+    .absolute()
+    .left(ROCKET_X)
+    .top(flying ? 0 : ROCKET_PAD)
+    .w(ROCKET_W)
+    .h(ROCKET_H)
+    .opacity(step === "show" || step === "ignite" ? 1 : 0)
+    .transition("top", { duration: ROCKET_FLIGHT, easing: "ease-in" })
+    .transition("opacity", flying ? { duration: ROCKET_FLIGHT, easing: "ease-in" } : { duration: 150, easing: "ease-out" })
+    .children([flame, body]);
+  return div()
+    .id(id)
+    .absolute()
+    .left(0)
+    .top(0)
+    .size_full()
+    .when(flying, (el) => el.child(smoke(`${id}-exhaust`, EXHAUST_AT, BEE_PX, step === "clear", EXHAUST)))
+    .child(rocket);
+}
+
 /** @type {OneShot} A pull's, and a fast-forward's: what a `git merge` that makes no commit is. */
 const PACKAGE_SHOT = { first: "drop", steps: PACKAGE_STEPS, draw: packageElement };
 
@@ -1654,6 +1739,7 @@ const ONE_SHOTS = {
   pull: PACKAGE_SHOT,
   merge: PACKAGE_SHOT,
   "cherry-pick": { first: "hang", steps: CHERRY_STEPS, draw: cherryElement },
+  push: { first: "pad", steps: ROCKET_STEPS, draw: rocketElement },
 };
 
 // A thumbs up, 7 by 7 cells: the thumb up, the fist under it with its fingers to the right.

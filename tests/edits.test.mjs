@@ -38,12 +38,15 @@ function fakeGit() {
       return ok(repo.log.map(line).map((l) => `${l}\n`).slice(Number(args[1].slice(1)) - 1).join(""));
     }
     if (command === "test") return { code: args[1] === LOG ? 0 : 1, stdout: "", stderr: "" };
+    // No remote-tracking reflogs: nothing pushed (tests/pushes.test.mjs has pushes).
+    if (command === "find") return { code: 1, stdout: "", stderr: "find: No such file or directory" };
     assert.equal(command, "git");
     assert.equal(args[0], "--no-optional-locks", "git must not write the index: that is a change too");
     const [verb, ...rest] = args.slice(1);
     if (verb === "rev-parse") {
       if (!cwd.startsWith("/repo")) return { code: 128, stdout: "", stderr: "not a git repository" };
       if (rest.includes("--git-path")) return ok(".git/logs/HEAD\n");
+      if (rest.includes("--git-common-dir")) return ok(".git\n");
       return ok(rest.includes("--absolute-git-dir") ? "/repo/.git\n" : "/repo\n");
     }
     if (verb === "diff" && rest[0] === "HEAD") return ok(repo.numstat);

@@ -24,10 +24,12 @@ function fakeGit() {
   mock.state.exec = (command, args, { cwd } = {}) => {
     if (command === "tail") return ok(repo.log.map(line).map((l) => `${l}\n`).slice(Number(args[1].slice(1)) - 1).join(""));
     if (command === "test") return { code: args[1] === LOG ? 0 : 1, stdout: "", stderr: "" };
+    if (command === "find") return { code: 1, stdout: "", stderr: "find: No such file or directory" };
     const [verb, ...rest] = args.slice(1);
     if (verb === "rev-parse") {
       if (!cwd.startsWith("/repo")) return { code: 128, stdout: "", stderr: "not a git repository" };
       if (rest.includes("--git-path")) return ok(".git/logs/HEAD\n");
+      if (rest.includes("--git-common-dir")) return ok(".git\n");
       return ok(rest.includes("--absolute-git-dir") ? "/repo/.git\n" : "/repo\n");
     }
     if (verb === "diff" && rest[0] === "HEAD") return ok(repo.numstat);
