@@ -118,6 +118,17 @@ die with a splash, and steam rises off the creature and fades. The creature hold
 for those two seconds, then goes back to work. A blocked agent that turns done or idle
 instead just loses its fire.
 
+![Water drops onto a blocked creature's flames, they die with a splash, steam rises and fades, and the creature goes back to typing](docs/douse.gif)
+
+## Hits
+
+![Four edits land on a working creature: a small +1 tick, a +12 −2 hit, then a green +500 crit and a red −300 crit, each under a CRIT tag](docs/hits.gif)
+
+When an agent adds or removes lines in its git repository, the numbers pop over its
+creature, with no setup. The recording shows four edits: one added line is a small tick,
++12 −2 a plain hit, and a new 500-line file and 300 removed lines are crits, with big
+numbers, a CRIT tag, a solid flash and a longer pause.
+
 ## Stamps
 
 ![A rubber stamp slams down on an agent's creature when it commits and lifts away, leaving a check that holds and fades](docs/commit-stamp.gif)
@@ -137,6 +148,8 @@ when other git commands follow it right away.
 
 ## Signposts
 
+![After a git switch, a signpost by the working creature points back, turns and points the other way, then fades; the idle creature below gets none](docs/signpost.gif)
+
 A `git checkout` or `git switch` in an agent's repository flips a signpost by its creature,
 with no setup. The sign shows at the creature's lower left pointing back, the way the
 agent came from, then its board turns and points the other way, the way it went. It holds
@@ -155,6 +168,8 @@ the branch where it was, such as `git stash` or `git reset --hard` to drop chang
 nothing.
 
 ## Failed commands
+
+![A working creature coughs twice: it lurches down and a puff of black smoke goes up from its face and clears](docs/smoke.gif)
 
 When a command a Claude Code agent runs fails, its creature coughs: it lurches down a little,
 and a puff of black smoke goes up from its face, drifts to the top of its cell and clears.
@@ -188,13 +203,17 @@ empty when it clears. Then the row is gone, a little over a second after the age
 ended. The row does nothing when clicked meanwhile. An agent that comes back during the
 trick arrives again.
 
+![The wand taps a leaving agent's creature, the smoke goes up and clears to an empty cell, and the row is gone](docs/magic-exit.gif)
+
 ## Ways of working
 
 ![One creature recorded in the drawer working each of the first seven ways, side by side: walking, typing, reading, hammering, searching, thinking and signalling](docs/ways-of-working.gif)
 
-The recording is older than the four ways for kinds of command (testing, building,
-installing and git) and than compacting. A working creature shows what its agent is doing,
-when the agent's hooks say:
+![Another creature working the four ways for kinds of command, side by side: a bubbling test tube, a crane lifting a brick, a box it unpacks, and a branching twig](docs/command-ways.gif)
+
+The second recording shows the four ways for kinds of command: testing, building,
+installing and git. Both recordings are older than compacting. A working creature shows
+what its agent is doing, when the agent's hooks say:
 
 | Way | The agent | Claude Code's tools |
 |---|---|---|
