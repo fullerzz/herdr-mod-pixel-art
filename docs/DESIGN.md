@@ -14,6 +14,9 @@ picker lets the person choose another creature for an agent.
   creature. A sprite moves natively: it works while its agent works, catches fire and asks
   for attention when the agent is blocked, celebrates when it finished, and rests when it
   is idle.
+- **Fidgets.** An idle creature fidgets in its own way, at its own rhythm, both picked by
+  its seed: a blink, a glance aside, or a scratch at its side. A fidget shows only for a
+  moment of its rhythm, so almost every frame of an idle creature has its eyes shut.
 - **Fire out.** When a blocked agent goes on, water pours on its creature's fire and puts it
   out, steam rises off the ashes, and the creature goes back to work.
 - **Cheer.** When a working agent finishes, its creature cheers once: a burst of confetti
@@ -162,6 +165,8 @@ export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
 export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse cheer stretch
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
+export const FIDGETS: readonly string[];        // blink look scratch
+export function ownFidget(sprite): { fidget: string, period: number };  // one of FIDGETS and its rhythm in ms, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
 export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // the creature still from one side, in px
 export function daytimeOf(hour): "night" | "morning" | null;  // the part of the day of a local hour, 0 to 23
@@ -222,6 +227,20 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   dim, canvas and accent, never `HIT`, `FIRE` or the blocked, done and idle cues. Every way
   stays inside the box through all its motion at any `px`, and loops each property of an
   element once: a part that moves two ways nests a layer.
+- Idle, the creature has closed eyes, is dimmed, breathes slowly, and a "z" fades behind
+  it. Now and then it fidgets its own way, `ownFidget(sprite)`: a hash of its seed with a
+  salt of its own, apart from the art's and the way of working's, so a seed's creature
+  looks and works as it always did. The hash picks one of `FIDGETS` and a period of 3.6 to
+  7.4 s, its rhythm. The fidget rides in the torso, so it breathes and dims with the body.
+  It sits in six nested layers, each swinging its opacity from 0 to 1 and back on that
+  period with `ease-in`: their product is a spike at the middle of the period, over half
+  strength for under a ninth of it even if the easing were linear. The still frame is the
+  start of the period, so it has the closed eyes.
+  - `blink`: the open eyes show over the closed ones, on a patch of the body where the lid
+    is, so no lid shows through eyes that leave its cells empty.
+  - `look`: the same, with the eyes glancing right.
+  - `scratch`: the eyes stay shut; two strokes in the theme's foreground jiggle in the
+    empty column at its left edge, clear of the time of day's props at the right.
 - `hit` is `{ n, damage, live, size? } | null`. It adds a flash of the creature's silhouette
   in `HIT.removed` (`damage`) or `HIT.added`, and a knock: sideways for damage, up
   otherwise. `live` draws it at full strength; settled, both ease back with `.transition`.

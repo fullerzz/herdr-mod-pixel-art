@@ -12,7 +12,8 @@
 //   blocked  open eyes, still, on fire: a bed of flames at its feet, tongues licking up its
 //            sides, and a blinking "!" badge in the top right corner
 //   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn
-//   idle     closed eyes, dimmed, breathes slowly, a fading "z"
+//   idle     closed eyes, dimmed, breathes slowly, a fading "z", and now and then a brief
+//            fidget of its own at its own rhythm, picked by its seed. See FIDGET below.
 //
 // A creature at rest (done or idle) also keeps a prop for the time of day at its lower
 // right: a lantern at night, a cup of coffee in the morning. See DAYTIME below.
@@ -697,6 +698,85 @@ const OWN = WORKS.slice(0, 7);
  */
 export const ownWork = (sprite) => OWN[hashSeed(`${sprite.seed}\u0000work`) % OWN.length];
 
+/**
+ * How many layers a fidget nests, each swinging its opacity from 0 to 1 and back on the same
+ * period. Opacity multiplies down the tree, so their product is a short spike: the fidget
+ * shows near the middle of each period and the creature rests closed-eyed the rest of it.
+ * Six keeps it over half strength for under a ninth of the period even if the easing were
+ * linear; ease-in makes it shorter still.
+ */
+const DEPTH = 6;
+
+/** The periods a creature's fidget can come round on, in ms: its rhythm. */
+const RHYTHMS = [3600, 4400, 5200, 6200, 7400];
+
+/**
+ * One way of fidgeting while idle: what it shows for a moment, over the closed eyes.
+ * @typedef {(parts: { u: number, nudge: number, t: Theme, sprite: Sprite }) => Element[]} Fidget
+ */
+
+/**
+ * The creature's open eyes in a mood, over a patch of its own body where the closed lid is,
+ * so no lid shows through eyes that leave its cells empty.
+ * @type {(sprite: Sprite, mood: Mood, u: number) => Element}
+ */
+function peep(sprite, mood, u) {
+  const { body, eyes } = sprite.parts;
+  /** @type {Rect[]} */
+  const patch = [];
+  for (const lid of eyes.closed) {
+    for (let y = lid.y; y < lid.y + lid.h; y++) {
+      for (let x = lid.x; x < lid.x + lid.w; x++) {
+        const under = body.find((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+        if (under) patch.push({ x, y, w: 1, h: 1, color: under.color });
+      }
+    }
+  }
+  return layer([...patch, ...eyes[mood]], u);
+}
+
+/**
+ * The ways an idle creature fidgets, by name. Each shows only for a moment of its
+ * period (see DEPTH), so almost every frame of an idle creature is closed-eyed.
+ * @type {Record<string, Fidget>}
+ */
+const FIDGET = {
+  // Opens its eyes and shuts them again.
+  blink: ({ u, sprite }) => [peep(sprite, "open", u)],
+  // Opens its eyes to glance aside, then shuts them again.
+  look: ({ u, sprite }) => [peep(sprite, "look", u)],
+  // Scratches its side, its eyes still shut: quick strokes in the empty column at its left,
+  // clear of the time of day's props at the right.
+  scratch: ({ u, nudge, t }) => [mark([[0, 5], [0, 7]], t.foreground, u).loop("top", { from: 0, to: nudge, period: 160 })],
+};
+
+/** Every way of fidgeting, by name. */
+export const FIDGETS = Object.freeze(Object.keys(FIDGET));
+
+/**
+ * The creature's own fidget and its rhythm: the same for the same seed. Hashed apart from the
+ * art and from its way of working, so the creature looks and works as it always did.
+ * @param {Sprite} sprite
+ * @returns {{ fidget: string, period: number }} One of FIDGETS, and one of RHYTHMS in ms.
+ */
+export function ownFidget(sprite) {
+  const h = hashSeed(`${sprite.seed}\u0000fidget`);
+  return { fidget: FIDGETS[h % FIDGETS.length], period: RHYTHMS[Math.floor(h / FIDGETS.length) % RHYTHMS.length] };
+}
+
+/**
+ * The creature's fidget, nested in DEPTH layers that fade it in and out together.
+ * @param {Sprite} sprite
+ * @param {{ u: number, size: number, nudge: number, t: Theme }} parts
+ * @returns {Element}
+ */
+function fidgeting(sprite, { u, size, nudge, t }) {
+  const { fidget, period } = ownFidget(sprite);
+  let out = full(size).children(FIDGET[fidget]({ u, nudge, t, sprite }));
+  for (let i = 0; i < DEPTH; i++) out = full(size).child(out).loop("opacity", { from: 0, to: 1, period, easing: "ease-in" });
+  return out;
+}
+
 /** @type {Partial<Record<Status, Mood>>} */
 const EYES = { done: "happy", idle: "closed" };
 
@@ -865,7 +945,8 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   if (look === "done") {
     figure.loop("top", { from: 0, to: -u, period: 700, easing: "ease-out" });
   } else if (look === "idle") {
-    torso.loop("top", { from: 0, to: nudge, period: 2600 });
+    // The fidget rides in the torso, so it breathes and dims with the body.
+    torso.loop("top", { from: 0, to: nudge, period: 2600 }).child(fidgeting(sprite, parts));
     figure.opacity(0.75);
   }
   figure.child(left).child(right).child(torso);

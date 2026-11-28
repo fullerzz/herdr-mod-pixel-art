@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { theme } from "herdr";
 import { div } from "gpui-kit";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { CONFETTI, DOUSE, FIRE, HIT, TURNS, WORKS, faceRects, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { CONFETTI, DOUSE, FIDGETS, FIRE, HIT, TURNS, WORKS, faceRects, ownFidget, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -17,14 +17,18 @@ const last = (node, name) => calls(node, name).at(-1)?.[0];
 
 /**
  * The still frame of an element drawn at 1 px per cell, as a GRID by GRID board of colors
- * (null where nothing is drawn). Loops are ignored: this is the pose before motion.
+ * (null where nothing is drawn). Loops are ignored, but for one: this is the pose before
+ * motion, so a layer whose opacity swings up from 0 is hidden. With `peak`, every opacity
+ * loop is at its far end instead, as at the middle of its period.
  * Fails if anything is drawn outside the box.
  */
-function raster(el) {
+function raster(el, { peak = false } = {}) {
   const board = Array.from({ length: GRID }, () => Array(GRID).fill(null));
   const paint = (child, ox, oy) => {
     const node = nodeOf(child);
     if (!node) return;
+    const fade = calls(node, "loop").find(([property]) => property === "opacity")?.[1];
+    if (fade && (peak ? fade.to : fade.from) === 0) return;
     const x = ox + (last(node, "left") ?? 0);
     const y = oy + (last(node, "top") ?? 0);
     const bg = last(node, "bg");
@@ -317,6 +321,132 @@ test("each way of working has its own tree and its own still frame", () => {
     assert.equal(new Set(trees).size, WORKS.length, `${sprite.kind}: ways of working share a tree`);
     const frames = WORKS.map((work) => JSON.stringify(raster(working(sprite, work, 1))));
     assert.equal(new Set(frames).size, WORKS.length, `${sprite.kind}: ways of working share a still frame`);
+  }
+});
+
+// ---- fidgets ----
+
+const idle = (sprite, px = 3) => spriteElement(sprite, { id: "s", px, status: "idle" });
+/** A layer that swings its opacity up from 0 and back: one layer of a fidget. */
+const fades = (node) => calls(node, "loop").some(([property, { from, to }]) => property === "opacity" && from === 0 && to === 1);
+/** A creature's fidget: the opacity loops of its nested layers, outermost first, and what they hold. */
+function fidgetIn(el) {
+  let node = walk(el).find(fades);
+  if (!node) return null;
+  const layers = [];
+  while (fades(node)) {
+    layers.push(calls(node, "loop").find(([property]) => property === "opacity")[1]);
+    node = nodeOf(node.children[0]);
+  }
+  return { layers, inner: node };
+}
+/** The body's color at a cell, or null. */
+const bodyAt = (sprite, x, y) => sprite.parts.body.find((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)?.color ?? null;
+const cellsOf = (rects) => rects.flatMap((r) => Array.from({ length: r.w * r.h }, (_, i) => ({ x: r.x + (i % r.w), y: r.y + Math.floor(i / r.w), color: r.color })));
+
+/** For each kind and each fidget, a seed that has both. */
+const FIDGETERS = (() => {
+  const out = new Map();
+  for (let i = 0; out.size < KINDS.length * FIDGETS.length && i < 5000; i++) {
+    const sprite = makeSprite(`f${i}`);
+    const key = `${sprite.kind} ${ownFidget(sprite).fidget}`;
+    if (!out.has(key)) out.set(key, sprite);
+  }
+  return [...out.values()];
+})();
+
+test("an idle creature's own fidget and rhythm come from its seed, apart from its look and its way of working", () => {
+  assert.deepEqual([...FIDGETS].sort(), ["blink", "look", "scratch"]);
+  assert.equal(FIDGETERS.length, KINDS.length * FIDGETS.length, "every kind fidgets every way, for some seed");
+  const fidgets = new Set();
+  const rhythms = new Set();
+  for (const seed of SEEDS) {
+    const own = ownFidget(makeSprite(seed));
+    assert.equal(own.fidget, FIDGETS[hashSeed(`${seed}\u0000fidget`) % FIDGETS.length], `seed ${seed}: its own salt`);
+    assert.deepEqual(ownFidget(makeSprite(seed)), own);
+    assert.equal(fidgetIn(idle(makeSprite(seed))).layers[0].period, own.period, `seed ${seed} fidgets at its own rhythm`);
+    fidgets.add(own.fidget);
+    rhythms.add(own.period);
+  }
+  assert.deepEqual([...fidgets].sort(), [...FIDGETS].sort(), "every fidget is some seed's");
+  assert.ok(rhythms.size >= 3, "seeds fidget at different rhythms");
+});
+
+test("only an idle creature fidgets", () => {
+  // Two nested layers fading up from 0 together: a fidget. Hammering's sparks fade alone.
+  const nested = (el) => walk(el).some((node) => fades(node) && node.children.some((c) => fades(nodeOf(c))));
+  for (const seed of SEEDS.slice(0, 20)) {
+    for (const status of STATUSES) assert.equal(nested(spriteElement(makeSprite(seed), { id: "s", status })), status === "idle", `seed ${seed}, ${status}`);
+    for (const work of WORKS) assert.ok(!nested(working(makeSprite(seed), work)), `${work} fidgets`);
+  }
+});
+
+test("a fidget is brief: its layers line up into a short spike, so almost every frame is closed-eyed", () => {
+  for (const seed of SEEDS) {
+    const { layers } = fidgetIn(idle(makeSprite(seed)));
+    assert.ok(layers.length >= 2, `seed ${seed}: one layer is a plain pulse, shown half the time`);
+    // One period and one easing for all, so their peaks meet.
+    assert.equal(new Set(layers.map((p) => p.period)).size, 1);
+    assert.ok(layers.every((p) => p.easing === "ease-in"));
+    // Opacity multiplies down the tree. Model each loop as linear there and back: ease-in
+    // stays under that line, so this is the longest the fidget could show.
+    const steps = 1000;
+    let shown = 0;
+    let top = 0;
+    for (let i = 0; i < steps; i++) {
+      const phase = 1 - Math.abs(1 - (2 * i) / steps); // 0 at the start, 1 at the middle
+      const opacity = layers.reduce((product, { from, to }) => product * (from + (to - from) * phase), 1);
+      if (opacity > 0.5) shown++;
+      top = Math.max(top, opacity);
+    }
+    assert.ok(shown / steps < 0.15, `seed ${seed}: shows over half strength for ${shown / steps} of its period`);
+    assert.equal(top, 1, "at its peak it shows in full");
+  }
+});
+
+test("a fidget at its peak: a blink opens the eyes, a look glances aside, a scratch strokes its side with the eyes shut", () => {
+  for (const sprite of FIDGETERS) {
+    const { fidget } = ownFidget(sprite);
+    const rest = raster(idle(sprite, 1));
+    const peak = raster(idle(sprite, 1), { peak: true });
+    const lids = cellsOf(sprite.parts.eyes.closed);
+    const label = `${sprite.kind} ${sprite.seed} ${fidget}`;
+    // At rest, every fidget is shut: the closed eyes show.
+    for (const { x, y, color } of lids) assert.equal(rest[y][x], color, `${label}: shut at rest`);
+    if (fidget === "scratch") {
+      for (const { x, y, color } of lids) assert.equal(peak[y][x], color, `${label}: still shut`);
+      const strokes = (board) => board.filter((row) => row[0] === theme().foreground).length;
+      assert.equal(strokes(rest), 0, `${label}: no strokes at rest`);
+      assert.ok(strokes(peak) >= 2, `${label}: strokes at its left side`);
+    } else {
+      const eyes = cellsOf(sprite.parts.eyes[fidget === "blink" ? "open" : "look"]);
+      for (const { x, y, color } of eyes) assert.equal(peak[y][x], color, `${label}: eye at ${x},${y}`);
+      // Where the lid was and no eye is, the body shows: no lid through an open eye.
+      for (const { x, y } of lids.filter((l) => !eyes.some((e) => e.x === l.x && e.y === l.y))) {
+        assert.equal(peak[y][x], bodyAt(sprite, x, y), `${label}: lid shows at ${x},${y}`);
+      }
+      // A blink's face is the creature's own open-eyed face.
+      if (fidget === "blink") {
+        const awake = still(sprite.seed);
+        for (const { x, y } of [...lids, ...eyes]) assert.equal(peak[y][x], awake[y][x], `${label}: not its open face at ${x},${y}`);
+      }
+    }
+  }
+});
+
+test("every fidget, on every kind, at every size, stays in its box and moves each property once", () => {
+  for (const sprite of FIDGETERS) {
+    for (const px of [1, 2, 3, 4, 8]) {
+      const size = GRID * px;
+      for (const r of reach(nodeOf(idle(sprite, px)))) {
+        assert.ok(r.x[0] >= 0 && r.y[0] >= 0 && r.x[1] <= size && r.y[1] <= size, `${ownFidget(sprite).fidget} on a ${sprite.kind} at ${px} px reaches x ${r.x}, y ${r.y}`);
+      }
+    }
+    for (const node of check(idle(sprite))) {
+      for (const [color] of calls(node, "bg")) assert.match(color, HEX);
+      const looped = calls(node, "loop").map(([property]) => property);
+      assert.equal(new Set(looped).size, looped.length);
+    }
   }
 });
 

@@ -29,13 +29,17 @@ const KINDS = (() => {
 
 const sprite = (s, status, daytime, px = 3) => spriteElement(s, { id: "s", px, status, daytime });
 
-/** The still frame at `px`: a GRID * px square board of colors, null where nothing is drawn. */
+/**
+ * The still frame at `px`: a GRID * px square board of colors, null where nothing is drawn.
+ * It is the pose before motion, so a layer whose opacity swings up from 0 (a fidget) is hidden.
+ */
 function board(el, px) {
   const size = GRID * px;
   const out = Array.from({ length: size }, () => Array(size).fill(null));
   const paint = (child, ox, oy) => {
     const node = nodeOf(child);
     if (!node) return;
+    if (calls(node, "loop").find(([property]) => property === "opacity")?.[1].from === 0) return;
     const x = ox + (last(node, "left") ?? 0);
     const y = oy + (last(node, "top") ?? 0);
     const bg = last(node, "bg");

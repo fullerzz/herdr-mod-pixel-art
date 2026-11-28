@@ -13,6 +13,9 @@ move according to what their agents are doing.
   working agent finishes, one burst of confetti goes up before the creature settles into
   its happy done hop. When an idle or finished agent starts work, its creature wakes up
   first: it yawns, stretches and pops its eyes open.
+- **Fidgets.** An idle creature fidgets now and then in its own way, at its own rhythm:
+  it blinks, glances aside, or scratches its side. Each fidget lasts a moment, so an
+  idle creature almost always has its eyes shut.
 - **Ways of working.** With [one more hook](#ways-of-working), a working creature does
   what its agent does: it types while the agent edits files, reads a book while it reads,
   bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,
