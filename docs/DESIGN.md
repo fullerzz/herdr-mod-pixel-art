@@ -15,6 +15,8 @@ picker lets the person choose another creature for an agent.
   creature. A sprite moves natively: it works while its agent works, catches fire and asks
   for attention when the agent is blocked, celebrates when it finished, and rests when it
   is idle.
+- **Hotter fire.** A long block burns hotter: small flames at first, bigger ones after a
+  minute, and smoke and embers after five.
 - **Fidgets.** An idle creature fidgets in its own way, at its own rhythm, both picked by
   its seed: a blink, a glance aside, or a scratch at its side. A fidget shows only for a
   moment of its rhythm, so almost every frame of an idle creature has its eyes shut.
@@ -171,12 +173,13 @@ export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
 export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
+export const SMOKE: { dark: "#6e655c", light: "#a89d92" };
 export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting delegating
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
 export function ownFidget(sprite): { fidget: string, period: number };  // one of FIDGETS and its rhythm in ms, the same for the same seed
-export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
+export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; blocked: 60000 300000
 export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // the creature still from one side, in px
 export function daytimeOf(hour): "night" | "morning" | null;  // the part of the day of a local hour, 0 to 23
 ```
@@ -189,9 +192,21 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
 - Motion uses only `.loop`, `.frames`, `.spin` and `.transition`. No timers, no `cx`.
 - Status accents may use `theme()` colors. Sprite art uses its own palette.
 - Blocked, the creature is on fire, in `FIRE`'s colors: a bed of flames along the bottom
-  row holds still, so one frame shows it, and tongues flicker in turn over it and up both
-  sides. The tall tongues go behind the art and lick up by one cell. The `!` badge goes over
-  the fire and keeps the theme's blocked color.
+  row holds still, so one frame shows it, and tongues flicker in turn over it and up its
+  sides. The tongues go behind the art and lick up by one cell. The `!` badge goes over
+  the fire and keeps the theme's blocked color. The fire burns as hot as `stage`, and
+  every stage keeps the still bed and the badge, so blocked stays the loudest look. A
+  `stage` that is negative, below 1 or `NaN` is 0:
+  - 0 (the block's first minute, or a start not known): small flames, the bed and a short
+    tongue at each of its ends, in the edge columns just over it.
+  - 1 (from a minute): bigger flames. The bed's ends rise a row and tall tongues lick up
+    both sides, the right one under the badge.
+  - 2 and up (from five minutes): the same, plus smoke and embers behind the art. Two
+    puffs of smoke billow a cell in the top left, in `SMOKE`'s colors, clear of the badge;
+    four embers in `FIRE`'s colors twinkle in turn over the tongues and drift a cell. Each
+    starts shown, so one frame has them. `SMOKE`'s colors are their own: never `FIRE`'s,
+    `DOUSE`'s, `HIT`'s, `CONFETTI`'s or a status cue's, and lighter and warmer than a
+    failed command's black smoke.
 - Working, the creature works the way `work` names, one of `WORKS`. Any other value (null,
   a name it doesn't know, `"__proto__"`) is the creature's own way, `ownWork(sprite)`: a
   hash of its seed, apart from the art's, so a seed's creature looks as it always did. It
@@ -276,11 +291,12 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   - `jolt`, from any status to blocked, the only turn to blocked, with open eyes: `jump`
     snaps the feet and torso up a cell at once, over two 2-cell dashes in the theme's
     foreground on the bottom row; `land` drops them back over 140 ms, easing in, and the
-    dashes go; `catch` fades the blocked fire in over 300 ms, easing in. The fire is drawn
-    from `jump`, at opacity 0, so it fades rather than pops. It draws no badge and no other
+    dashes go; `catch` fades the blocked fire in over 300 ms, easing in. It is the small
+    fire of stage 0, since a turn knows no stage. The fire is drawn from `jump`, at
+    opacity 0, so it fades rather than pops. It draws no badge and no other
     `!`: the badge is the blocked look's, the only `!`, and shows when the jolt is over.
   - `douse`, blocked to working, with the creature still: `pour` draws the blocked fire,
-    without its badge, under water hanging in the top rows; `splash` drops the water onto
+    the small one of stage 0 (a turn knows no stage), without its badge, under water hanging in the top rows; `splash` drops the water onto
     the bed over 300 ms, easing in, and the fire and its tongues die out as it lands, while
     spray shows at both ends of the bed and steam gathers on it; `steam` clears the water
     and spray, and the steam rises six cells off the bed as it fades over 1 s. Water and
@@ -303,8 +319,8 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
 - `stage` is how long the status has held: the number of that status's `STAGES` times
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
-  adds its times to `STAGES` and reads `stage`. None does yet: every list is empty, and
-  `stage` changes nothing.
+  adds its times to `STAGES` and reads `stage`. Blocked has two, at 1 and 5 minutes, for
+  its fire. Every other list is empty, and `stage` changes nothing in those statuses.
 - `faceRects` is the creature still, seen from one side, for a caller that turns it: `face`
   is `"front"` (its open eyes), `"back"` (no eyes), or `"left"` or `"right"`, turned that
   way edge-on: a third as wide, centered, with only the eye on that side. The two turned

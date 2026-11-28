@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { theme } from "herdr";
 import { div } from "gpui-kit";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { CONFETTI, DOUSE, FIDGETS, FIRE, HIT, TURNS, WORKS, faceRects, ownFidget, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { CONFETTI, DOUSE, FIDGETS, FIRE, HIT, SMOKE, STAGES, TURNS, WORKS, faceRects, ownFidget, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -230,6 +230,47 @@ test("a blocked creature is on fire: a still bed of flames at its feet, tongues 
     assert.ok(flickers.some((n) => calls(n, "loop")[0][1].from > calls(n, "loop")[0][1].to) && flickers.some((n) => calls(n, "loop")[0][1].from < calls(n, "loop")[0][1].to), "flames flicker in turn");
     const licks = nodes.flatMap((n) => calls(n, "loop").filter(([p]) => p === "top").map(([, policy]) => policy));
     assert.ok(licks.length >= 1 && licks.every(({ from, to }) => from === 0 && to === -3), "tongues lick up by one cell");
+  }
+});
+
+test("a long block burns hotter: small flames, bigger after a minute, smoke and embers after five", () => {
+  assert.deepEqual(STAGES.blocked, [60_000, 300_000]);
+  const flames = new Set(Object.values(FIRE));
+  const ash = new Set(Object.values(SMOKE));
+  const count = (board, colors) => board.flat().filter((c) => colors.has(c)).length;
+  for (const seed of SEEDS.slice(0, 20)) {
+    const sprite = makeSprite(seed);
+    const blocked = (stage, px = 1) => spriteElement(sprite, { id: "s", px, status: "blocked", stage });
+    const [small, big, hot] = [0, 1, 2].map((stage) => raster(blocked(stage)));
+    for (const [stage, board] of [small, big, hot].entries()) {
+      // Every stage is a fire in a single frame, under its badge: blocked stays the loudest.
+      assert.ok(board[GRID - 1].slice(1, GRID - 1).every((c) => flames.has(c)), `seed ${seed}, stage ${stage}: no fire bed`);
+      assert.ok(board.slice(0, 5).flat().includes(theme().blocked), `seed ${seed}, stage ${stage}: no badge`);
+      raster(blocked(stage), { peak: true });
+      for (const px of [1, 3, 8]) {
+        for (const r of reach(nodeOf(blocked(stage, px)))) {
+          assert.ok(r.x[0] >= 0 && r.y[0] >= 0 && r.x[1] <= GRID * px && r.y[1] <= GRID * px, `stage ${stage} at ${px} px reaches x ${r.x}, y ${r.y}`);
+        }
+      }
+    }
+    assert.ok(count(small, flames) < count(big, flames), `seed ${seed}: a minute in, the flames grow`);
+    assert.ok(count(big, flames) < count(hot, flames), `seed ${seed}: five minutes in, embers fly`);
+    assert.equal(count(small, ash) + count(big, ash), 0, "no smoke before five minutes");
+    assert.ok(count(hot, ash) > 0, `seed ${seed}: five minutes in, it smokes, in a single frame`);
+    assert.deepEqual(raster(blocked(7)), hot, "past the last stage, as hot as the last");
+    for (const junk of [-1, NaN, 0.5]) assert.deepEqual(raster(blocked(junk)), small, `stage ${junk} burns small`);
+  }
+});
+
+test("a fire's smoke has its own colors, and stage changes no other status", () => {
+  const taken = new Set([...Object.values(HIT), ...Object.values(FIRE), ...Object.values(DOUSE), ...Object.values(CONFETTI), theme().blocked, theme().done, theme().idle, theme().working].map((c) => c.toLowerCase()));
+  for (const color of Object.values(SMOKE)) {
+    assert.match(color, HEX);
+    assert.ok(!taken.has(color), `${color} means something else`);
+  }
+  const sprite = makeSprite("t1");
+  for (const status of STATUSES.filter((s) => s !== "blocked")) {
+    assert.equal(tree(spriteElement(sprite, { id: "s", status, stage: 2 })), tree(spriteElement(sprite, { id: "s", status })), `${status} at stage 2`);
   }
 });
 

@@ -9,11 +9,12 @@ move according to what their agents are doing.
   row to go to that agent. The current agent's creature wears a small gold crown, so even
   a closed drawer shows which agent the keys act on.
 - **Motion.** A sprite works while its agent works, catches fire and asks for attention
-  when the agent is blocked, celebrates when it finished, and rests when it is idle. When
-  an agent becomes blocked, its creature jumps as if startled before the fire catches. When
-  a blocked agent goes on, water puts its fire out before it goes back to work. When a
-  working agent finishes, one burst of confetti goes up before the creature settles into
-  its happy done hop. When an idle or finished agent starts work, its creature wakes up
+  when the agent is blocked, burning hotter the longer it waits, celebrates when it
+  finished, and rests when it is idle. When an agent becomes blocked, its creature jumps
+  as if startled before the fire catches. When a blocked agent goes on, water puts its fire
+  out before it goes back to work. When a working agent finishes, one burst of confetti
+  goes up before the creature settles into its happy done hop. When an idle or finished
+  agent starts work, its creature wakes up
   first: it yawns, stretches and pops its eyes open.
 - **Fidgets.** An idle creature fidgets now and then in its own way, at its own rhythm:
   it blinks, glances aside, or scratches its side. Each fidget lasts a moment, so an
@@ -139,6 +140,12 @@ and back down. Then the fire catches, all in under a second. A bed of flames bur
 feet and tongues lick up its sides until the agent goes on. The `!` badge shows once the
 fire has caught. It and the tinted cell, there from the jump on, stay in the theme's
 "Needs you" color. An agent already blocked when the drawer opens just burns.
+
+The longer the agent waits, the hotter it burns. The flames start small, at its feet. After
+a minute they burn bigger and lick up its sides. After five minutes smoke billows over its
+head and embers fly. The drawer counts the wait from when it saw the agent become blocked.
+An agent alone in its tab takes the time from the tab instead. Any other agent that is
+already blocked when the drawer opens keeps small flames until its status next changes.
 
 When the agent goes back to work, the fire is put out: water drops onto the flames, they
 die with a splash, and steam rises off the creature and fades. The creature holds still

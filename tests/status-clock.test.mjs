@@ -1,13 +1,13 @@
 // The status clock: each draw knows since when every agent has had its status, and how many
 // of that status's stages it has held for. The drawer wakes itself when the next is due.
-// Groundwork for looks that change the longer a status holds.
+// A look that changes the longer a status holds reads it: a blocked fire burns hotter.
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { mock } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
-import { check, context } from "./mocks/gpui.mjs";
+import { FIRE, SMOKE, STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
+import { calls, check, context, find, walk } from "./mocks/gpui.mjs";
 
 const draw = (drawer, cx) => check(drawer.render(cx));
 const MIN = 60_000;
@@ -20,7 +20,7 @@ const space = (...tabs) => ({ id: "sp1", index: 1, name: "repo", named: false, f
 
 beforeEach(() => {
   mock.reset();
-  // No look uses a stage yet: these tests give two statuses some.
+  // Blocked ships with these; idle gets some too, to test two statuses at once.
   STAGES.blocked.splice(0, Infinity, 1 * MIN, 5 * MIN);
   STAGES.idle.splice(0, Infinity, 10 * MIN);
 });
@@ -28,8 +28,41 @@ afterEach(() => {
   for (const [status, marks] of Object.entries(saved)) STAGES[status].splice(0, Infinity, ...marks);
 });
 
-test("no look uses a stage yet: every status ships with no stage times", () => {
-  for (const status of Object.keys(saved)) assert.deepEqual(saved[status], [], status);
+test("blocked ships with stages at one and five minutes; no other status has any yet", () => {
+  assert.deepEqual(saved.blocked, [1 * MIN, 5 * MIN]);
+  for (const status of ["working", "done", "idle"]) assert.deepEqual(saved[status], [], status);
+});
+
+test("a blocked agent's fire grows after a minute and smokes after five, as the drawer wakes", (t) => {
+  // Blocked since the drawer opened, from its own tab: no change, so no turn plays first.
+  t.mock.timers.enable({ apis: ["Date"], now: 10 * MIN });
+  mock.agent("t1", { status: "blocked", tab: "tb1" });
+  mock.state.spaces = [space(tab("tb1", { changed_at: 10 * MIN }))];
+  const drawer = new Drawer();
+  const cx = context();
+  /** The sprite's fire and smoke, as the number of rectangles in each. */
+  const heat = () => {
+    const nodes = walk(find(drawer.render(cx), "pp-spr-t1"));
+    const of = (colors) => nodes.filter((n) => calls(n, "bg").some(([c]) => Object.values(colors).includes(c))).length;
+    return { fire: of(FIRE), smoke: of(SMOKE) };
+  };
+
+  const small = heat();
+  assert.ok(small.fire > 0, "on fire from the first second");
+  assert.equal(small.smoke, 0);
+
+  t.mock.timers.tick(1 * MIN);
+  cx.run(1 * MIN);
+  const big = heat();
+  assert.ok(big.fire > small.fire, "a minute in, the fire is bigger");
+  assert.equal(big.smoke, 0);
+
+  t.mock.timers.tick(4 * MIN);
+  cx.run(4 * MIN);
+  const hot = heat();
+  assert.ok(hot.fire > big.fire, "five minutes in, embers fly");
+  assert.ok(hot.smoke > 0, "and it smokes");
+  assert.equal(cx.timers.length, 0, "the hottest fire wakes nothing");
 });
 
 test("an agent of the first draw has no known start, stays at stage 0, and wakes nothing", (t) => {

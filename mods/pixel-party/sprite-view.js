@@ -10,7 +10,9 @@
 //   working  what its agent is doing, when the agent's hooks say (`work`), else the
 //            creature's own way of working, picked by its seed. See WORK below.
 //   blocked  open eyes, still, on fire: a bed of flames at its feet, tongues licking up its
-//            sides, and a blinking "!" badge in the top right corner
+//            sides, and a blinking "!" badge in the top right corner. The longer the block
+//            holds, the hotter it burns: small flames at first, tall ones after a minute,
+//            and smoke and embers after five (`stage`, see STAGES).
 //   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn
 //   idle     closed eyes, dimmed, breathes slowly, a fading "z", and now and then a brief
 //            fidget of its own at its own rhythm, picked by its seed. See FIDGET below.
@@ -79,11 +81,12 @@ const mark = (cells, color, u) => layer(cells.map(([x, y, w = 1, h = 1]) => ({ x
 /**
  * How long a status must hold for a sprite to reach each stage, in ms from its start,
  * ascending, per status. Stage 0 is before the first; the drawer counts the stage from its
- * clock of each agent's status and redraws when the next one is reached. No look uses a
- * stage yet, so every list is empty: a look that changes with time adds its times here.
+ * clock of each agent's status and redraws when the next one is reached. A look that
+ * changes with time adds its times here. Blocked burns hotter after a minute and again
+ * after five (see `fire`); the other statuses have no stage yet.
  * @type {Record<Status, number[]>}
  */
-export const STAGES = { working: [], blocked: [], done: [], idle: [] };
+export const STAGES = { working: [], blocked: [60_000, 300_000], done: [], idle: [] };
 
 /** The colors of hits: added lines heal, removed lines hurt. */
 export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" });
@@ -104,27 +107,53 @@ const STRIKE = { tick: { flash: 0.5, fade: 200 }, hit: { flash: 0.9, fade: 320 }
 export const FIRE = /** @type {const} */ ({ red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" });
 
 /**
- * A blocked creature on fire. The bed at its feet holds still, so a single frame shows the
- * fire; the tongues flicker in turn over it and up both sides. The tall tongues go behind
- * the creature, so they show only where the art leaves room, and lick up by a cell.
+ * The colors of the smoke a long fire gives off: a warm gray ash, lighter than a failed
+ * command's black smoke. Their own: never FIRE's, DOUSE's or a status cue's.
+ */
+export const SMOKE = /** @type {const} */ ({ dark: "#6e655c", light: "#a89d92" });
+
+/**
+ * A blocked creature on fire, as hot as its stage. The bed at its feet holds still, so a
+ * single frame shows the fire; the tongues flicker in turn over it and up both sides, go
+ * behind the creature, so they show only where the art leaves room, and lick up by a cell.
+ * At stage 0 the flames are small: the bed and short tongues at its ends. From stage 1 they
+ * burn bigger: the bed's ends rise and tall tongues lick up both sides. From stage 2 smoke
+ * billows at the top left, clear of the badge, and embers twinkle over the tongues.
  * @param {number} u
+ * @param {number} [stage] How hot it burns: 0, 1, or 2 and above (default 0).
  * @returns {{ behind: Element[], front: Element[] }}
  */
-function fire(u) {
+function fire(u, stage = 0) {
   /** @type {(cells: Cells, color: Color, from: number, to: number, period: number) => Element} */
   const flicker = (cells, color, from, to, period) => mark(cells, color, u).loop("opacity", { from, to, period });
   /** @type {(el: Element, period: number) => Element} Licks up by a cell and back. */
   const lick = (el, period) => div().absolute().left(0).top(0).size(GRID * u).child(el).loop("top", { from: 0, to: -u, period });
+  const big = stage >= 1;
   const bed = [
-    mark([[1, 11, 10, 1], [1, 10], [10, 10]], FIRE.red, u),
-    mark([[3, 11, 6, 1], [2, 10], [9, 10]], FIRE.orange, u),
+    mark([[1, 11, 10, 1], ...(big ? /** @type {Cells} */ ([[1, 10], [10, 10]]) : [])], FIRE.red, u),
+    mark([[3, 11, 6, 1], ...(big ? /** @type {Cells} */ ([[2, 10], [9, 10]]) : [])], FIRE.orange, u),
     mark([[5, 11, 2, 1]], FIRE.yellow, u),
   ];
-  return {
-    behind: [
+  const tongues = big
+    ? [
       lick(flicker([[0, 6, 1, 4], [1, 8, 1, 2], [11, 8, 1, 2]], FIRE.red, 1, 0.3, 420), 300),
       lick(flicker([[11, 5, 1, 3], [10, 8, 1, 2], [0, 9]], FIRE.orange, 0.3, 1, 420), 360),
-    ],
+    ]
+    : [
+      lick(flicker([[0, 9, 1, 2]], FIRE.red, 1, 0.3, 420), 300),
+      lick(flicker([[11, 9, 1, 2]], FIRE.orange, 0.3, 1, 420), 360),
+    ];
+  // Every smoke puff and ember starts shown, so a single frame has them too.
+  const smoke = stage >= 2
+    ? [
+      lick(flicker([[0, 2, 2, 1], [1, 1, 2, 1]], SMOKE.dark, 0.9, 0.4, 1800), 2400),
+      lick(flicker([[4, 1, 3, 1], [5, 2]], SMOKE.light, 0.4, 0.9, 1800), 2000),
+      lick(flicker([[0, 4], [3, 3]], FIRE.yellow, 1, 0.1, 500), 700),
+      lick(flicker([[1, 3], [8, 1]], FIRE.orange, 0.1, 1, 500), 820),
+    ]
+    : [];
+  return {
+    behind: [...tongues, ...smoke],
     front: [
       ...bed,
       flicker([[3, 10], [6, 10], [8, 10]], FIRE.orange, 1, 0.2, 260),
@@ -144,7 +173,9 @@ export const DOUSE = /** @type {const} */ ({ water: "#2f8fe8", spray: "#a3d8ff",
  * it; splashed, the water falls onto the bed, faster as it falls, and the fire dies as it
  * lands, throwing spray at both ends; steamed, the water is gone and steam rises off the
  * bed and fades. Each part keeps its id across the steps, so `.transition` eases between them.
- * The creature holds still meanwhile: none of its parts moves.
+ * The creature holds still meanwhile: none of its parts moves. The fire is the small one of
+ * a block's first minute, the most common: a turn knows no stage, since the status it
+ * plays on has just begun.
  * @param {TurnParts} parts Its step is "pour", "splash" or "steam".
  * @returns {{ behind: Element[], front: Element[] }}
  */
@@ -254,7 +285,8 @@ function stretch({ id, step, u, nudge, size, t, sprite, torso }) {
 /**
  * A creature startled into a block, at one step of the turn. Jumped, the whole creature,
  * feet and all, snaps up a cell at once, over two dashes on the floor it left; landed, it drops back into place, faster as it falls; caught, the blocked fire fades
- * in at its feet and up its sides. The fire is there from the first step, unseen, and each
+ * in at its feet and up its sides: the small one of a block's first minute, since a turn
+ * knows no stage. The fire is there from the first step, unseen, and each
  * part keeps its id across the steps, so `.transition` eases between them. The startle
  * draws no "!": the badge is the blocked look's, and shows when the turn is over.
  * @param {TurnParts} parts Its step is "jump", "land" or "catch".
@@ -909,9 +941,10 @@ function glance(eyes) {
  * The status's marks, drawn behind or in front of the creature.
  * @param {Status | null} status
  * @param {number} u
+ * @param {number} stage How long the status has held (`STAGES`): how hot a fire burns.
  * @returns {{ behind: Element[], front: Element[] }}
  */
-function accents(status, u) {
+function accents(status, u, stage) {
   const t = /** @type {Theme} */ (theme());
   switch (status) {
     case "blocked": {
@@ -920,7 +953,7 @@ function accents(status, u) {
       const badge = div().absolute().left(9 * u).top(0).w(3 * u).h(5 * u).rounded(u).bg(t.blocked)
         .child(div().absolute().left(u).top(Math.round(u / 2)).w(u).h(2 * u).bg("#ffffff"))
         .child(div().absolute().left(u).top(Math.round(3.25 * u)).w(u).h(u).bg("#ffffff"));
-      const { behind, front } = fire(u);
+      const { behind, front } = fire(u, stage);
       return { behind, front: [...front, badge.loop("opacity", { from: 1, to: 0.35, period: 800 })] };
     }
     case "done": {
@@ -953,7 +986,8 @@ function accents(status, u) {
  * @param {SpriteTurn | null} [options.turn] A turn being played, or null. While it plays it
  *   takes the status's place: no status look, motion or way of working is drawn.
  * @param {number} [options.stage] How long the status has held, as the number of its
- *   STAGES reached (default 0, also when its start is unknown). No look uses it yet.
+ *   STAGES reached (default 0, also when its start is unknown). Blocked, it sets how hot
+ *   the fire burns; no other look uses it yet.
  * @param {boolean} [options.tube] Whether a testing creature holds its test tube (default
  *   true). The drawer takes it away while it shows how the tests came out.
  * @param {string | null} [options.daytime] The part of the day (`daytimeOf`): a done or idle
@@ -963,7 +997,7 @@ function accents(status, u) {
  *   that way; happy and closed eyes are a status's cue and stay.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0, tube = true, daytime = null, face = null } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
@@ -1002,7 +1036,7 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   }
   figure.child(left).child(right).child(torso);
 
-  const { behind, front } = worked ?? accents(look, u);
+  const { behind, front } = worked ?? accents(look, u, stage);
   // At rest, the time of day's prop. Working, a way's own props fill its corner; blocked, the fire does.
   const resting = look === "done" || look === "idle";
   const day = resting && typeof daytime === "string" && Object.hasOwn(DAYTIME, daytime) ? DAYTIME[/** @type {Daytime} */ (daytime)](u, nudge) : null;
