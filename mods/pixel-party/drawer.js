@@ -66,6 +66,8 @@
 // Then a bee flies back into the creature and fades, and a sheep hops off to the side; the
 // others glide up a place when it has gone. Herdr clips a floating mod to its frame, so the
 // lane is inside the drawer: it is as wide as the sprite cell, and a closed drawer shows it.
+// A helper that is blocked worries its creature: it looks down at its bees and sweats, while
+// it goes on with what it is doing.
 //
 // A creature at rest keeps a prop for the local time of day: a lantern at night, a cup of
 // coffee in the morning. Sprite motion has no timers, so the drawer looks at the clock each
@@ -1104,18 +1106,20 @@ const runsOf = (grid) =>
 const MARK_RUNS = runsOf(MARK);
 const TOOL_RUNS = runsOf(TOOL);
 
-// Cells of STAMP_PX, each run in its color, over dark copies moved by each of `under`.
+// Cells of `u` px (STAMP_PX unless told), each run in its color, over dark copies moved by
+// each of `under`.
 /**
  * @param {[number, number, number, string][]} runs
  * @param {(c: string) => Color} paint
  * @param {[dx: number, dy: number][]} under
+ * @param {number} [u]
  * @returns {Element[]}
  */
-function pixels(runs, paint, under) {
+function pixels(runs, paint, under, u = STAMP_PX) {
   /** @type {(color: (c: string) => Color, dx: number, dy: number) => Element} */
   const layer = (color, dx, dy) =>
     div().absolute().left(dx).top(dy).size_full().children(runs.map(([x, y, w, c]) =>
-      div().absolute().left(x * STAMP_PX).top(y * STAMP_PX).w(w * STAMP_PX).h(STAMP_PX).bg(color(c))));
+      div().absolute().left(x * u).top(y * u).w(w * u).h(u).bg(color(c))));
   return [...under.map(([dx, dy]) => layer(() => STAMP_DARK, dx, dy)), layer(paint, 0, 0)];
 }
 
@@ -1697,6 +1701,38 @@ const crownElement = (address) =>
     .h(CROWN_H)
     .children(pixels(CROWN_RUNS, (c) => THUMB_PAINT[c], OUTLINE));
 
+// A drop of sweat, 3 by 4 cells of 2 px: d the drop, w its shine.
+const SWEAT = [
+  ".d.",
+  "ddd",
+  "wdd",
+  ".d.",
+];
+const SWEAT_RUNS = runsOf(SWEAT);
+/** @type {Record<string, Color>} An aqua of its own, no douse, confetti, hit or status color, outlined dark. */
+export const SWEAT_PAINT = { d: "#66ead8", w: "#ffffff" };
+const SWEAT_PX = 2;
+const SWEAT_X = 4; // px: by the head's left side, clear of a left stripe (0..3) and of any eye (from 9 px across, 13 px down)
+const SWEAT_TOP = 2; // px: it trickles from here down SWEAT_DROP, clear of the crown in the middle
+const SWEAT_DROP = 2; // px
+const SWEAT_MS = 1000; // ms a trickle takes
+
+// The sweat of a creature worried about a blocked bee: a drop by the left of its head, in
+// front of the sprite, that trickles down a little and back, over and over. It is the
+// worry's own mark: no "!", no blocked color, so the creature's own status still reads.
+// It holds no matter which way the creature faces.
+/** @type {(address: string) => Element} */
+const sweatElement = (address) =>
+  div()
+    .id(`pp-sweat-${address}`)
+    .absolute()
+    .left(SWEAT_X)
+    .top(SWEAT_TOP)
+    .w(SWEAT[0].length * SWEAT_PX)
+    .h(SWEAT.length * SWEAT_PX)
+    .loop("top", { from: SWEAT_TOP, to: SWEAT_TOP + SWEAT_DROP, period: SWEAT_MS, easing: "ease-in" })
+    .children(pixels(SWEAT_RUNS, (c) => SWEAT_PAINT[c], OUTLINE, SWEAT_PX));
+
 // The test tube from the sprite's testing, falling. Its 10 by 8 cells have the upright tube in
 // the two columns at the right, just where the sprite holds it (36..42 by 19..40 in the cell),
 // and room to the left for it to fall into. g glass, a the liquid, the theme's accent as in
@@ -1825,18 +1861,24 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // puff goes over its middle. A failed command's black smoke goes over its face and up, while
 // the sprite lurches with the cough; the box's own top is the stamp's. How tests came out
 // goes beside it, while it holds no tube of its own. The current agent's crown stands behind
-// the sprite at the box's top, and goes while a trick or an exit hides the sprite.
+// the sprite at the box's top, and goes while a trick or an exit hides the sprite. A blocked
+// bee turns the creature down toward the lanes, when hover does not turn it, and puts a drop
+// of sweat by its head, which goes while the sprite is hidden.
 /**
  * @param {Theme} t
  * @param {Item} it
  * @param {"left" | "right" | "bottom"} side
  * @param {Facing | null} face The way the creature faces: toward the open side while hovered.
+ *   Else a worried creature faces down, at its bees.
  * @returns {Element}
  */
 function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime, banner }, side, face) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
+  // A blocked helper worries its creature: it looks down at its bees, unless the drawer's
+  // hover turns it, and sweats. Its status, and so its look, stays its own.
+  const worried = bees.some((bee) => bee.status === "blocked" && !bee.leave);
   const color = cueColor(t, a.status);
   const stripe = side === "bottom"
     ? div().absolute().left(12).bottom(0).w(CELL - 24).h(3).rounded(2).bg(color)
@@ -1862,7 +1904,7 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
       turn,
       tube: !verdict,
       daytime,
-      face,
+      face: face ?? (worried ? "down" : null),
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
       .when(Boolean(shot?.hides), (el) => el.opacity(0))
@@ -1876,6 +1918,7 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
     .when(Boolean(soot), (el) => el.child(smoke(`pp-soot-${a.address}-${soot.n}`, FACE, BEE_PX, soot.step === "rise", SOOT)))
     .when(Boolean(verdict), (el) => el.child(verdictElement(t, a.address, verdict)))
     .when(Boolean(shot), (el) => el.child(shot.draw(t, a.address, move)))
+    .when(worried && !hidden && !shot?.hides, (el) => el.child(sweatElement(a.address)))
     .when(Boolean(combo), (el) => el.child(comboElement(a.address, combo)))
     .when(Boolean(clap), (el) => el.child(clapElement(a.address, clap)))
     .when(Boolean(xp?.cash && xp.cash.lines - xp.cash.left >= LEVEL_LINES && xp.cash.step !== "hold"), (el) => el.child(levelElement(a.address, xp.cash)))

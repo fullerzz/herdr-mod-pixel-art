@@ -90,6 +90,9 @@ picker lets the person choose another creature for an agent.
   program. Both are called bees below. A new bee flies out of the sprite from a puff of
   smoke. When its helper ends, a bee flies back into the sprite and fades, and a sheep hops
   off to the side.
+- **Worry.** When one of an agent's helpers is blocked, its creature looks down at its bees,
+  worried, with a drop of sweat trickling by its head. Its own status still shows: a working
+  creature still works.
 - **Arrivals.** A new agent arrives by a magic trick: a wand taps its empty cell, a puff of
   smoke and sparkles goes up, and its sprite is there when the smoke clears.
 - **Departures.** An agent that ends leaves by the trick in reverse: a wand taps its sprite,
@@ -783,6 +786,19 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   inside the drawer. Most places land over the next place in the lane; only the place
   nearest that side leaves the cell. Then the bees after it glide up a place.
   A helper that comes back while its bee leaves stops the exit, and its bee flies out again.
+- An agent with a blocked bee in `beesOf` (one drawn, or one in the count), not leaving, is
+  worried. Only a sheep can be: a label's bee always works. A worried creature keeps its
+  status, work, stage and turn, and faces `"down"`, at its lanes, unless hover turns it,
+  which wins, since then every creature turns the same way. It also sweats: a drop 3 by 4
+  cells of 2 px in its own aqua (`SWEAT_PAINT`, at least 48 apart in RGB from `DOUSE`'s,
+  `CONFETTI`'s, `HIT`'s, `FIRE`'s colors and `GOLD`) with a white shine, outlined dark as the
+  stamp is, in front of the sprite by the left of its head: 4 px in, clear of a left
+  stripe, and from 2 px down, clear of the crown and of every eye whichever way the
+  creature faces. It trickles 2 px down and back every second with `.loop("top")`, so no
+  timer runs. It has no `!` and no status color: the sprite draws the only `!`. It goes
+  while a trick, an exit or a one-shot that hides the sprite hides it. Worry starts and
+  ends on the draw that finds it, with no turn: it ends when the helper goes on or ends,
+  even while its bee is still leaving.
 - An agent not drawn the time before arrives by a trick, in the box over its sprite. The
   agents of the first draw were there before the drawer, so they get none; an agent that
   leaves and comes back gets one again, and a new seed for the same agent gets none. The

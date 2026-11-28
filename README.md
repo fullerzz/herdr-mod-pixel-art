@@ -67,7 +67,8 @@ move according to what their agents are doing.
   creature from a puff of smoke and stays beside it until the helper ends: a sheep for a
   terminal started with `hc run`, with no setup, and a honey bee for a sub-agent, with
   [one hook](#worker-bees). Then a bee flies back into its creature and fades, and a sheep
-  hops off to the side.
+  hops off to the side. When a helper is blocked, its agent's creature looks down at it,
+  worried, with a drop of sweat by its head, and keeps doing what it was doing.
 - **Magic arrivals.** A new agent appears by a magic trick: a wand taps its empty spot, a
   puff of smoke and sparkles goes up, and its creature is there when the smoke clears. An
   agent that ends leaves by the same trick in reverse.
@@ -434,7 +435,10 @@ runs, a honey bee for a sub-agent. It moves while the helper works (a bee flies,
 hops), blinks when the helper is blocked, and rests when the helper is idle. When the helper
 ends, a bee flies back into the creature and fades, and a sheep hops off to the side; then
 the ones after it move up a place. An agent that leaves sends its figures off first. Past six
-helpers, the last place counts the rest. The recording above is older than the sheep: it
+helpers, the last place counts the rest. While any of an agent's helpers is blocked, its
+creature worries: it looks down at its figures, a drop of sweat trickles by its head, and it
+goes on working, resting or burning as its own status says. Only an `hc` helper can be
+blocked: a sub-agent's hook says only that it is running. The recording above is older than the sheep: it
 shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like this:
 
 ![Two sheep and a honey bee under an agent's creature](docs/worker-sheep.png)
