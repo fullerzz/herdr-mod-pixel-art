@@ -33,8 +33,8 @@ picker lets the person choose another creature for an agent.
   test tube while it runs tests, lifts bricks with a crane while it builds, unpacks a box
   while it installs, grows a branching twig while it uses git, hammers while it runs other
   commands, sweeps a lens while it searches, holds up an antenna while it fetches from the
-  web, calls through a megaphone while it starts a sub-agent, thinks when a prompt comes
-  in, and is squished in a press while it compacts its context. Otherwise it works its own way, picked by its seed: a walk, or one of the six
+  web, calls through a megaphone while it starts a sub-agent, ticks items off a clipboard
+  while it writes its todo list or a plan, thinks when a prompt comes in, and is squished in a press while it compacts its context. Otherwise it works its own way, picked by its seed: a walk, or one of the six
   ways from before the four for kinds of command.
 - **Time of day.** A creature at rest (done or idle) keeps a prop for the local time of day
   at its lower right: a lantern at night, a cup of coffee in the morning.
@@ -109,7 +109,7 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | Herdr reports no file edits. `panes()` gives each pane's live `cwd`; `watchFolder` and `exec("git", ...)` work from a mod. | Hits come from the agent's repository diff, read again after each watched change. |
 | `terminals()` gives each terminal's `parent`: the terminal that started it with `hc run`. A helper without a pane is not in `agents()`. | `hc` helpers are bees with no setup. |
 | Herdr sees nothing of a sub-agent inside an agent's program (Claude Code's Agent tool). Its hooks run with `HC_TERMINAL_ID` set, and `hc label` takes a key such as `pixel.bee.a1B2-c_3`. | A hook keeps one label per running sub-agent; the label change re-renders the drawer. |
-| A Claude Code `PreToolUse` hook's JSON names the tool (`tool_name`: `Read`, `Grep`, `Agent`, ...). A sub-agent's own tool calls carry `agent_id` and `agent_type`; the main agent's carry neither. `UserPromptSubmit` fires for each prompt, a background sub-agent's report included. (Claude Code 2, measured with `claude -p`; the main agent's `Agent` call again with 2.1.332.) | The hook says what the agent is doing from `tool_name`, and leaves a sub-agent's tools to its bee. |
+| A Claude Code `PreToolUse` hook's JSON names the tool (`tool_name`: `Read`, `Grep`, `Agent`, ...). A sub-agent's own tool calls carry `agent_id` and `agent_type`; the main agent's carry neither. `UserPromptSubmit` fires for each prompt, a background sub-agent's report included. (Claude Code 2, measured with `claude -p`; the main agent's `Agent` call again with 2.1.332.) Claude Code 2.1.332 writes its todo list with `TaskCreate` and `TaskUpdate`, and has no `TodoWrite`, even named in `--tools`; under `-p` the Task tools come only when `--tools` names them. `EnterPlanMode` and `ExitPlanMode` fire `PreToolUse` in an interactive session, and `-p` offers neither. | The hook says what the agent is doing from `tool_name`, and leaves a sub-agent's tools to its bee. |
 | A Bash command that exits 0 fires `PostToolUse`: `session_id`, ..., `hook_event_name`, `tool_name`, `tool_input`, then `tool_response` (`stdout`, `stderr`, `interrupted`, ...), `tool_use_id`, `duration_ms`. One with `run_in_background: true` fires it at once, 4 ms in, with empty output and then `backgroundTaskId` in `tool_response`, and its end fires no hook. So does one that outlives its `timeout` (2 s for a 15 s test): it moves to the background, and `PostToolUse` comes at the timeout with empty output, `backgroundTaskId` and `timedOutAfterMs`, and no `run_in_background` in its input. A piped command's exit code is its last program's: `node --test` with a failing test, piped to `tail`, fired `PostToolUse`. (Claude Code 2.1.332, measured with `claude -p`.) | Tests passed when `PostToolUse` comes for a test command of a shell tool with no pipe in it and no `backgroundTaskId`. |
 | A Bash command that exits other than 0 fires Claude Code's `PostToolUseFailure`, not `PostToolUse`. Its JSON is `session_id`, ..., `agent_id` and `agent_type` for a sub-agent's, `hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt`, `duration_ms`. The exit code is only text at the start of `error` (`"Exit code 2\n..."`), which also holds the output, cut to about 10 KB: a failed `seq 1 200000` was 13 KB in all. `PostToolUse` has no exit code at all, and a 1.2 MB output made it 37 KB. A failed Edit (no match) fired neither. (Claude Code 2.1.332, measured with `claude -p`.) Codex 0.172's hook events include no failure event. | A failed command is the `PostToolUseFailure` hook for a shell tool, with no parsing of the error. Codex gets no hook for it. |
 | `hc label` on the caller's own terminal takes about 10 ms; the whole tool hook about 30 ms. A `PreToolUse` JSON holds the tool's whole input (a Write's content: megabytes), after `tool_name` and `agent_id`. | Before a tool or a prompt, the hook parses only up to `"tool_input"`, at most 8 KiB, and reads the rest to throw it away unparsed. A 2 MB Write costs it about 20 ms, not the 530 ms of parsing it all. A shell tool's command is the one exception, with a budget of its own: the first 512 bytes after `"tool_input"`, within those 8 KiB. |
@@ -181,7 +181,7 @@ export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
 export const SMOKE: { dark: "#6e655c", light: "#a89d92" };
 export const DUST: { web: "#cdc8bd", dust: "#8a8478" };
 export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch
-export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting delegating
+export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting delegating planning
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
 export function ownFidget(sprite): { fidget: string, period: number };  // one of FIDGETS and its rhythm in ms, the same for the same seed
@@ -216,8 +216,8 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
 - Working, the creature works the way `work` names, one of `WORKS`. Any other value (null,
   a name it doesn't know, `"__proto__"`) is the creature's own way, `ownWork(sprite)`: a
   hash of its seed, apart from the art's, so a seed's creature looks as it always did. It
-  picks from the first seven only: the four ways for kinds of command, compacting and
-  delegating came later, and a seed keeps the own way it had. `work` changes nothing in any other status.
+  picks from the first seven only: the four ways for kinds of command, compacting,
+  delegating and planning came later, and a seed keeps the own way it had. `work` changes nothing in any other status.
   - `walk`: eyes glance right, feet step in turn, body bobs, speed lines behind.
   - `typing`: open eyes, a keyboard under the face, keys lighting in the theme's working
     color in an uneven rhythm, the body bobbing once a keystroke.
@@ -253,9 +253,14 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
     column 9 in the theme's foreground over a shadow, and a dim handle behind the creature
     down to the shoulder. Two calls in the theme's working color pulse out of the bell in
     turn, a cell and then the edge column, and the body bobs with each one.
+  - `planning`: open eyes, a clipboard under the face: a wooden board 8 by 4 cells from
+    row 8 down, a dim clip at the middle of its top, and a sheet on it with two items, each
+    a box and a line of text, the second line short. The two boxes are ticked in the
+    theme's working color in turn, the first before the second, and the body bobs with
+    each tick.
 - A way of working draws its props over the lower body, in the top left corner, in the two
   columns at each edge or in empty cells, where no kind has an eye. A prop that crosses the face (the hammer, the lens) draws a second copy
-  of the eyes over itself. A prop under the face (the keyboard, the book, the package) covers row 8 down,
+  of the eyes over itself. A prop under the face (the keyboard, the book, the package, the clipboard) covers row 8 down,
   where some creatures (8% of seeds) have their eyes: it draws those eyes again over
   itself, with the torso's own loop, so they bob with the body. No way hides an eye in the
   still frame. Props use their own colors or the theme's working, foreground,
@@ -461,9 +466,11 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
 - `tools/bee-hook.sh tool|think|compact` keeps `pixel.work` from the same hooks: `tool` on
   `PreToolUse` sets the way the tool names (Read is reading; Edit, MultiEdit, Write,
   NotebookEdit and apply_patch are typing; Bash and shell run a command; Grep and Glob are
-  searching; WebFetch, WebSearch and web_search are signal; Agent and Task are delegating)
-  and removes the label for any other tool, `TaskCreate`, `TaskStop` and the like
-  included. Claude Code's names are measured, but for `Task`, its older name for `Agent`; Codex's `Bash` is seen in its hook
+  searching; WebFetch, WebSearch and web_search are signal; Agent and Task are delegating;
+  TaskCreate, TaskUpdate, TodoWrite, EnterPlanMode and ExitPlanMode are planning) and
+  removes the label for any other tool, `TaskList`, `TaskGet`, `TaskStop` and the like
+  included. Claude Code's names are measured, but for `Task`, its older name for `Agent`,
+  and `TodoWrite`, its older todo list; Codex's `Bash` is seen in its hook
   matchers; `apply_patch`, `shell` and `web_search` are unverified guesses at Codex's.
   `tool` and `think` look for the hook's own fields only in the JSON before the tool's own
   input, at most 8 KiB, so keys inside the input are never taken for the hook's; Claude Code puts `agent_id` and

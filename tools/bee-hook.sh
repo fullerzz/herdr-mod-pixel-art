@@ -230,6 +230,10 @@ work_of() {
     # Starting a sub-agent. Older Claude Code names the tool Task; TaskCreate, TaskStop and
     # the like are other tools.
     Agent | Task) echo delegating ;;
+    # Writing its todo list or a plan. Claude Code 2.1 writes its todo list with TaskCreate
+    # and TaskUpdate, older versions with TodoWrite. Reading it back (TaskList, TaskGet) is
+    # no clue.
+    TodoWrite | TaskCreate | TaskUpdate | EnterPlanMode | ExitPlanMode) echo planning ;;
   esac
 }
 

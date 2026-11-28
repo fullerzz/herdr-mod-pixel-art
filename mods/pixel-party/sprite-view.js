@@ -766,6 +766,27 @@ const WORK = {
       return { behind: [handle], front: [...megaphone, inner, outer] };
     },
   },
+  // Writing its todo list or a plan: a clipboard held under the face, two items on its
+  // sheet ticked off one after the other while the body bobs.
+  planning: {
+    eyes: "open",
+    build({ u, nudge, size, t, gaze, torso }) {
+      const tick = { period: 1200 };
+      const bob = { from: 0, to: -nudge, ...tick };
+      torso.loop("top", bob);
+      // A board from row 8 down, a sheet on it under a clip, and on the sheet a box and a
+      // line of text an item, the second line short.
+      const board = mark([[2, 8, 8, 4]], PROP.wood, u);
+      const sheet = mark([[3, 9, 6, 2]], PROP.page, u);
+      const clip = mark([[5, 8, 2, 1]], t.dim, u);
+      const mid = Math.floor((u - nudge) / 2);
+      const text = full(size).children([rect(5 * u, 9 * u + mid, 3 * u, nudge, PROP.ink), rect(5 * u, 10 * u + mid, 2 * u, nudge, PROP.ink)]);
+      // Same period, two easings: the first item is ticked before the second.
+      const first = mark([[4, 9]], t.working, u).loop("opacity", { from: 0.1, to: 1, ...tick, easing: "ease-out" });
+      const second = mark([[4, 10]], t.working, u).loop("opacity", { from: 0.1, to: 1, ...tick, easing: "ease-in" });
+      return { behind: [], front: [board, sheet, clip, text, first, second, ...peek(gaze("open"), u, bob)] };
+    },
+  },
 };
 
 /** Every way of working, by name. `walk` was the only one before the agents' hooks told more. */

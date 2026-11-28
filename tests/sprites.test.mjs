@@ -359,8 +359,8 @@ const working = (sprite, work, px = 3) => spriteElement(sprite, { id: "s", px, s
 /** An element's whole tree as text: every node's kind and calls, children aside. */
 const tree = (el) => JSON.stringify(walk(el).map((node) => [node.kind, node.calls.filter(([name]) => name !== "child" && name !== "children")]));
 
-test("there are thirteen ways of working, walk among them, and the test covers every kind", () => {
-  assert.deepEqual([...WORKS].sort(), ["building", "compacting", "delegating", "git", "hammering", "installing", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
+test("there are fourteen ways of working, walk among them, and the test covers every kind", () => {
+  assert.deepEqual([...WORKS].sort(), ["building", "compacting", "delegating", "git", "hammering", "installing", "planning", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
   assert.equal(KINDS.length, 10);
 });
 
@@ -637,6 +637,30 @@ test("delegating, a megaphone held up over the head calls out toward the right e
   }
 });
 
+test("planning, a clipboard under the face has its items ticked off in turn, in step with the body", () => {
+  const t = theme();
+  for (const sprite of KINDS) {
+    // The clipboard and both ticks show in a single frame, from row 8 down.
+    const board = raster(working(sprite, "planning", 1));
+    const low = new Set(sprite.parts.eyes.open.filter((r) => r.y + r.h > 8).flatMap((r) => Array.from({ length: r.w * r.h }, (_, i) => `${r.x + (i % r.w)},${r.y + Math.floor(i / r.w)}`)));
+    /** The cell's color, unless a low eye is drawn over it. */
+    const at = (x, y) => (low.has(`${x},${y}`) ? "eye" : board[y][x]);
+    assert.ok([2, 9].every((x) => [8, 9, 10, 11].every((y) => ["#a8703f", "eye"].includes(at(x, y)))), `${sprite.kind}: the board's sides`);
+    assert.ok([5, 6].every((x) => [t.dim, "eye"].includes(at(x, 8))), `${sprite.kind}: the clip`);
+    assert.ok([3, 8].every((x) => [9, 10].every((y) => ["#ece6da", "eye"].includes(at(x, y)))), `${sprite.kind}: the sheet`);
+    assert.ok([9, 10].every((y) => [t.working, "eye"].includes(at(4, y))), `${sprite.kind}: two ticks`);
+
+    // The ticks come in turn, the first item before the second, once a bob of the body.
+    const root = nodeOf(working(sprite, "planning"));
+    const ticks = walk(root).filter((node) => calls(node, "loop").some(([p]) => p === "opacity")).map((node) => ({ color: walk(node).map((c) => last(c, "bg")).find(Boolean), ...calls(node, "loop")[0][1] }));
+    assert.deepEqual(ticks.map((c) => [c.color, c.easing]), [[t.working, "ease-out"], [t.working, "ease-in"]]);
+    const figure = nodeOf(root.children.find((c) => nodeOf(c).children.length === 3));
+    const [[property, bob]] = calls(nodeOf(figure.children[2]), "loop");
+    assert.equal(property, "top");
+    assert.ok(bob.to < bob.from && ticks.every((c) => c.period === bob.period), "the body bobs with each tick");
+  }
+});
+
 test("without a known way from its hooks, a working creature works its own way", () => {
   for (const seed of SEEDS.slice(0, 20)) {
     const sprite = makeSprite(seed);
@@ -699,7 +723,7 @@ test("no way of working hides the creature's eyes, whichever way it faces: a pro
     }
     if (sprite.parts.eyes.look.some((r) => r.y + r.h > 8)) {
       low++;
-      for (const work of ["typing", "reading"]) {
+      for (const work of ["typing", "reading", "planning"]) {
         const root = nodeOf(working(sprite, work, px));
         const torso = nodeOf(nodeOf(root.children[0]).children[2]);
         assert.deepEqual(calls(nodeOf(root.children.at(-1)), "loop"), calls(torso, "loop"), `${work}: the eyes over the prop bob with the body`);
