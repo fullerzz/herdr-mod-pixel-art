@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { mock, theme } from "herdr";
-import Drawer from "../mods/pixel-party/drawer.js";
+import Drawer, { GOLD } from "../mods/pixel-party/drawer.js";
+import { FIRE } from "../mods/pixel-party/sprite-view.js";
 import { isCommit, parseReflog, readMoves, START } from "../mods/pixel-party/edits.js";
 import { calls, check, context, find, walk } from "./mocks/gpui.mjs";
 
@@ -442,4 +443,83 @@ test("an agent that leaves mid-clap leaves with no clap, and every edge renders 
   const tree = draw(drawer, cx);
   assert.ok(find(tree, "pp-box-t2"), "its ghost is drawn");
   assert.equal(clapOf(tree, "t2"), null, "with only its creature and exit");
+});
+
+const inksOf = (node) => walk(node).flatMap((c) => calls(c, "bg").map(([color]) => color));
+/** The rubber's and the mark's ink: the one color of the stamp that is no part of the tool and no outline. */
+const inkOf = (stamp) => {
+  const n = stamp.id.split("-").at(-1);
+  const address = stamp.id.split("-").at(-2);
+  const [ink] = inksOf(walk(stamp).find((node) => node.id === `pp-mark-${address}-${n}`)).filter((c) => c !== "#101016");
+  return ink;
+};
+/** How far apart two #rrggbb colors are, as points in RGB. */
+const distance = (a, b) => Math.hypot(...[1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16) - parseInt(b.slice(i, i + 2), 16)));
+
+test("an agent's tenth stamp of the day is gold, the same stamp in another ink; the ninth and eleventh are not", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 10, 27, 9).getTime() });
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  const done = theme().done;
+  /** @type {string[]} */
+  const inks = [];
+  for (let i = 1; i <= 11; i++) {
+    await move(`c${i}`, `commit: number ${i}`);
+    const tree = draw(drawer, cx);
+    const stamp = stampOf(tree, "t1");
+    inks.push(inkOf(stamp));
+    if (i === 10) {
+      const n = stamp.id.split("-").at(-1);
+      assert.ok(inksOf(find(tree, `pp-tool-t1-${n}`)).includes(GOLD), "the tool's rubber is inked gold too");
+      assert.ok(!inksOf(stamp).includes(done), "with no green left on it");
+    }
+    assert.equal(clapOf(tree, "t1"), null);
+    cx.run(3800);
+  }
+  assert.deepEqual(inks, [...Array(9).fill(done), GOLD, done], "only the tenth");
+});
+
+test("a clap is no stamp: an agent that claps for others' commits counts none of them", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  for (let i = 1; i <= 9; i++) await move(`c${i}`, `commit: t1's ${i}`);
+  assert.ok(clapOf(draw(drawer, cx), "t2"), "t2 clapped for them");
+  // t1 stops; t2 now works, and its first commit is its first stamp, not its tenth.
+  mock.state.agents.find((a) => a.address === "t1").status = "idle";
+  mock.state.agents.find((a) => a.address === "t2").status = "working";
+  await move("d", "commit: t2's first");
+  assert.equal(inkOf(stampOf(draw(drawer, cx), "t2")), theme().done);
+  mock.state.agents.find((a) => a.address === "t1").status = "working";
+  mock.state.agents.find((a) => a.address === "t2").status = "idle";
+  await move("e", "commit: t1's tenth");
+  assert.equal(inkOf(stampOf(draw(drawer, cx), "t1")), GOLD, "and t1's count went on");
+});
+
+test("a new day starts the count over", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 10, 27, 9).getTime() });
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  for (let i = 1; i <= 9; i++) await move(`c${i}`, `commit: ${i}`);
+  t.mock.timers.tick(48 * 3600_000);
+  for (let i = 1; i <= 9; i++) await move(`d${i}`, `commit: ${i}`);
+  assert.equal(inkOf(stampOf(draw(drawer, cx), "t1")), theme().done, "nine yesterday and nine today are no ten");
+  await move("e", "commit: today's tenth");
+  assert.equal(inkOf(stampOf(draw(drawer, cx), "t1")), GOLD);
+});
+
+test("the gold is its own: no fire color, no status cue, and clear of the fire on a blocked creature it lands on", async () => {
+  mock.agent("t1", { status: "blocked" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  for (let i = 1; i <= 10; i++) await move(`c${i}`, `commit: ${i}`);
+  const stamp = stampOf(draw(drawer, cx), "t1");
+  assert.equal(inkOf(stamp), GOLD, "with no agent working, the blocked one is stamped");
+  const taken = [...Object.values(FIRE), theme().done, theme().blocked];
+  assert.ok(!inksOf(stamp).some((c) => taken.includes(c)));
+  for (const flame of Object.values(FIRE)) assert.ok(distance(GOLD, flame) >= 48, `${GOLD} reads apart from ${flame}`);
 });

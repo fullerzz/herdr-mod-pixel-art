@@ -38,7 +38,7 @@ move according to what their agents are doing.
   the hits stop.
 - **Stamps.** When an agent makes a git commit, a rubber stamp slams down on its creature
   and lifts away to leave a green check: a stamp of approval on finished work. The check
-  holds a moment, then fades.
+  holds a moment, then fades. An agent's tenth stamp of the day is gold.
 - **Claps.** When an agent commits, the other agents in the same repository clap for it:
   a pair of white gloves claps three times in front of each creature.
 - **XP bar.** The lines an agent has changed since its last commit fill an XP bar under its
@@ -173,6 +173,13 @@ leave a check in the theme's "Finished" color. The check, not its color, says th
 approved, so it never reads as the red "Needs you" cue. Each step is slow enough to follow,
 and the check holds for about two seconds before it fades. A commit lands on the agents working in that
 repository, or on every agent in it when none is working, the same as hits.
+
+An agent's tenth stamp of the day is a milestone, stamped in gold: the same stamp, with the
+check and the rubber in a deep gold instead of the "Finished" color. The gold is darker
+than a fire's yellow, so it still reads on a creature that is on fire. The count is per
+agent and per local day, and the drawer keeps it only while it is open: it starts over at
+midnight and when Herdr reloads the mod. It counts stamps, not commits: commits made between
+two looks at the repository stamp once, and count once.
 
 Any `git commit` counts, whoever runs it: `--amend`, a merge commit (also one `git merge`
 makes) and the first commit of a new repository included, even one made with `git init`

@@ -18,9 +18,10 @@
 //
 // A commit made in an agent's repository is a stamp of approval: a rubber stamp slams down
 // on its sprite, the cell dips under the blow, and the stamp lifts away to leave a check
-// mark that holds a moment before it fades. The other agents in that repository, the ones the
-// stamp does not land on, clap: a pair of white gloves claps three times in front of each, with
-// gold sparks at each clap.
+// mark that holds a moment before it fades. An agent's tenth stamp of the day is gold: a
+// milestone, inked gold instead of "done". The other agents in that repository, the ones the
+// stamp does not land on, clap: a pair of white gloves claps three times in front of each,
+// with gold sparks at each clap.
 //
 // The lines changed in an agent's repository since its last commit fill an XP bar in a strip
 // of its own under the sprite's box. A commit cashes it in: the stamp lands, the bar drains,
@@ -109,7 +110,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @template {string} Step
  * @typedef {{ n: number, step: Step }} Show
  */
-/** @typedef {Show<"drop" | "press" | "lift" | "fade">} Stamp A commit's stamp. */
+/** @typedef {Show<"drop" | "press" | "lift" | "fade"> & { gold: boolean }} Stamp A commit's stamp; `gold` for a milestone. */
 /** @typedef {Show<"clap" | "fade">} Clap The other agents' applause for a commit. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "reveal">} Trick A new agent's arrival. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "clear">} Exit An agent's departure: the trick in reverse. */
@@ -227,6 +228,9 @@ const STAMP_SLAM = 340; // ms from dropped to down
 const STAMP_DIP = 3; // px the cell dips when the tool lands
 /** @type {[ms: number, step: Stamp["step"] | null][]} When each step starts; null: gone. */
 const STAMP_STEPS = [[30, "press"], [900, "lift"], [2700, "fade"], [3800, null]];
+const MILESTONE = 10; // an agent's stamp of the day that is gold
+/** The gold a milestone stamp inks with: deep and ochre, its own, never FIRE's, the clap sparks' or the combo's. */
+export const GOLD = "#c9971c";
 const CLAP_BEAT = 240; // ms from one clap to the next: the hands meet and part again
 const CLAPS = 3;
 /** @type {[ms: number, step: Clap["step"] | null][]} After "clap": the hands clap CLAPS times, then fade. */
@@ -309,6 +313,8 @@ export default class Drawer {
   stamps = new Map();
   /** @type {Map<string, Clap>} By agent address. */
   claps = new Map();
+  /** @type {Map<string, { day: string, count: number }>} The stamps each agent got on its local day, by address; kept only while the drawer is open. */
+  tally = new Map();
   /** @type {Set<string> | null} The agents drawn last time; null before the first draw. */
   seen = null;
   /** @type {Map<string, Trick>} By agent address. */
@@ -462,7 +468,7 @@ export default class Drawer {
         this.play(this.claps, address, "clap", CLAP_STEPS, cx);
         continue;
       }
-      this.play(this.stamps, address, "drop", STAMP_STEPS, cx);
+      this.play(this.stamps, address, "drop", STAMP_STEPS, cx, { gold: this.count(address) === MILESTONE });
       if (lines) this.play(this.cashes, address, "hold", CASH_STEPS, cx, { root, lines, left: lines });
     }
     cx.notify();
@@ -478,6 +484,20 @@ export default class Drawer {
   left(root, lines, cx) {
     for (const cash of this.cashes.values()) if (cash.root === root && cash.step === "hold") cash.left = lines;
     cx.notify();
+  }
+
+  /**
+   * Counts a stamp on an agent: its number among the agent's stamps of this local day. A new
+   * day starts over at one.
+   * @param {string} address
+   * @returns {number}
+   */
+  count(address) {
+    const day = new Date().toDateString();
+    const was = this.tally.get(address);
+    const count = was?.day === day ? was.count + 1 : 1;
+    this.tally.set(address, { day, count });
+    return count;
   }
 
   /**
@@ -1040,6 +1060,7 @@ function pixels(runs, paint, under) {
 // right; pressed, it slams down there as it shows, faster as it falls, and covers the spot;
 // lifted, it rises away and fades, and leaves the mark where it pressed. The mark holds, then
 // fades. The ids carry the stamp's number, so a new stamp starts over instead of easing back.
+// A gold stamp is the same stamp, inked in GOLD instead of the "done" color.
 /**
  * @param {Theme} t
  * @param {string} address
@@ -1048,6 +1069,7 @@ function pixels(runs, paint, under) {
  */
 function stampElement(t, address, stamp) {
   const { n, step } = stamp;
+  const ink = stamp.gold ? GOLD : t.done;
   const down = step === "press";
   const mark = div()
     .id(`pp-mark-${address}-${n}`)
@@ -1058,7 +1080,7 @@ function stampElement(t, address, stamp) {
     .h(MARK_H)
     .opacity(step === "lift" ? 1 : 0)
     .transition("opacity", step === "fade" ? { duration: 1000, easing: "ease-in" } : { duration: 40 })
-    .children(pixels(MARK_RUNS, () => t.done, [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]));
+    .children(pixels(MARK_RUNS, () => ink, [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]));
   const tool = div()
     .id(`pp-tool-${address}-${n}`)
     .absolute()
@@ -1069,7 +1091,7 @@ function stampElement(t, address, stamp) {
     .opacity(down ? 1 : 0)
     .transition("top", down ? { duration: STAMP_SLAM, easing: "ease-in" } : { duration: 400, easing: "ease-out" })
     .transition("opacity", down ? { duration: 60 } : { duration: 400, easing: "ease-in" })
-    .children(pixels(TOOL_RUNS, (c) => (c === "i" ? t.done : TOOL_PAINT[c]), [[1, 1]]));
+    .children(pixels(TOOL_RUNS, (c) => (c === "i" ? ink : TOOL_PAINT[c]), [[1, 1]]));
   return div().id(`pp-stamp-${address}-${n}`).absolute().left(0).top(0).size_full().child(mark).child(tool);
 }
 

@@ -54,6 +54,7 @@ picker lets the person choose another creature for an agent.
   slams down on its sprite, the cell dips under the blow, and the stamp lifts away to leave a
   check that holds a moment, then fades. The check is in the "done" color and says
   "approved" by its shape: red is the "Needs you" cue, so the stamp never relies on it.
+  An agent's tenth stamp of the day is a milestone, in gold.
 - **Claps.** The other agents in the repository of a commit, the ones its stamp does not
   land on, clap: two white gloves clap three times in front of each sprite, then fade.
 - **XP bar.** The lines changed in an agent's repository since its last commit fill an XP
@@ -535,6 +536,7 @@ written.
 ```js
 export default class Drawer { init(props, cx) {}  command(name, cx) {}  render(cx) {} }
 export default class Picker { init(props, cx) {}  render(cx) {} }
+export const GOLD = "#c9971c"; // drawer.js: a milestone stamp's ink
 ```
 
 Plain classes, not `View`s: `main.js` owns the one `View` and calls them. `init` is
@@ -617,6 +619,15 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   bold check, 8 by 6 cells in `theme().done`, outlined dark so it reads on any creature. The
   mark holds, fades over 1 s from 2.7 s, and is gone at 3.8 s. Each step is slow enough to
   follow by eye. A new stamp on the same agent replaces the last, with new ids.
+- Each stamp counts toward the agent it lands on (`tally`, by address: the local day, from
+  `Date#toDateString`, and the count that day). A clap counts nothing. The tenth stamp of an
+  agent's day (`MILESTONE`) is gold: the same stamp, its mark and its rubber inked in `GOLD`
+  (`#c9971c`) instead of `theme().done`. `GOLD` is its own, a deep ochre: never `FIRE`'s,
+  the clap sparks' or the combo's amber, and at least 48 apart in RGB from each of `FIRE`'s
+  colors, so it reads on a burning creature, which a stamp lands on when no agent is
+  working. A stamp on a new day starts the count at one. The tally lives in the drawer
+  only, so it starts over when the drawer is made again. It counts stamps: `EditWatcher`
+  reports one commit per look, so commits in one look count once.
 - The same commit makes the other agents in the repository clap: those whose folder is in
   it (`agentsOf`) and the stamp does not land on (`agentsIn`), whatever their status. With
   no agent working the stamp lands on all of them, and none claps. A clap is two gloves in
