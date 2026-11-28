@@ -11,6 +11,8 @@
 // "−3" red) pop over its sprite and curve away, up-left and up-right, while the sprite
 // flashes and is knocked. A change of a line or a few is a tick: small numbers, a faint
 // flash. A big one is a crit: big numbers under a CRIT tag, a solid flash, a longer stop.
+// Three or more hits on one agent, each within a few seconds of the last, are a combo: a
+// "3 HIT COMBO" counter at the bottom of its cell counts each hit and fades when they stop.
 //
 // A commit made in an agent's repository is a stamp of approval: a rubber stamp slams down
 // on its sprite, the cell dips under the blow, and the stamp lifts away to leave a check
@@ -69,6 +71,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {string} line The status line under its name.
  * @property {boolean} on Whether it is the agent keys act on, marked as focused.
  * @property {Hit | null} hit The hit it is taking, if any.
+ * @property {Combo | null} combo The combo its hits make, once it has COMBO_MIN of them.
  * @property {Stamp | null} stamp The stamp it is getting, if any.
  * @property {Shot | null} move The one-shot for the last move of HEAD that landed on it, while it plays.
  * @property {Trick | null} trick The trick it arrives by, if it is new.
@@ -107,6 +110,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * How tests came out: passed, a thumbs up; failed, the test tube dropped.
  * @typedef {Show<ThumbStep | DropStep> & { passed: boolean }} Verdict
  */
+/** @typedef {Show<"hold" | "fade"> & { count: number }} Combo Hits on one agent in quick succession, and how many. */
 
 /**
  * A result an agent's hooks reported since it was last drawn: the kind its `pixel.result`
@@ -139,6 +143,13 @@ const CRIT_HOLD = 240; // ms a crit stays still: a longer stop, so it lands hard
 const HIT_MS = 1400; // ms a hit shows in all
 const HIT_RISE = 14; // px a hit's numbers rise
 const HIT_SWING = 14; // px they swing aside: left for added lines, right for removed ones
+const COMBO_MIN = 3; // hits in a row from which they show as a combo
+const COMBO_GAP = 2500; // ms a combo waits for its next hit before it fades
+const COMBO_FADE = 400; // ms it takes to fade
+/** @type {[ms: number, step: Combo["step"] | null][]} After "hold": with no next hit, it fades. */
+const COMBO_STEPS = [[COMBO_GAP, "fade"], [COMBO_GAP + COMBO_FADE, null]];
+const COMBO_H = 20; // px: the counter's two rows, at the bottom of the box
+const COMBO_COLOR = "#f7b521"; // amber, as the bees' count: no hit, fire or status color
 /**
  * A hit's numbers by its size: text px, px from one row to the next, and the first row's
  * top. A crit's rows start higher, so two fit under its tag in the 44 px box, and its text
@@ -232,6 +243,8 @@ function currentAgent(list) {
 export default class Drawer {
   /** @type {Map<string, Hit>} By agent address. */
   hits = new Map();
+  /** @type {Map<string, Combo>} By agent address, from its first hit; shown from COMBO_MIN. */
+  combos = new Map();
   serial = 0;
   /** @type {Set<string>} The ids of the bees that have flown out to their places. */
   flown = new Set();
@@ -335,7 +348,8 @@ export default class Drawer {
   }
 
   /**
-   * Lines grew in a repository: a hit on its agents.
+   * Lines grew in a repository: a hit on its agents. A hit while an agent's combo holds adds
+   * to it; one after it faded starts a new count.
    * @param {string} root
    * @param {Lines} lines
    * @param {AsyncContext} cx
@@ -344,6 +358,8 @@ export default class Drawer {
     for (const address of this.agentsIn(root)) {
       const hit = { ...lines, n: ++this.serial, live: true, size: hitSize(lines.added + lines.removed) };
       this.hits.set(address, hit);
+      const was = this.combos.get(address);
+      this.play(this.combos, address, "hold", COMBO_STEPS, cx, { count: was?.step === "hold" ? was.count + 1 : 1 });
       cx.timer.after(hit.size === "crit" ? CRIT_HOLD : HIT_HOLD, (cx) => {
         hit.live = false;
         cx.notify();
@@ -605,12 +621,14 @@ export default class Drawer {
     /** @type {Item[]} */
     const items = list.map((a) => {
       const trick = this.tricks.get(a.address) ?? null;
+      const combo = this.combos.get(a.address);
       return {
         a,
         seed: seedFor(a.address),
         line: trick ? TRICK_WORD : lineOf(a, byAddress.get(a.address)),
         on: a.address === shown,
         hit: this.hits.get(a.address) ?? null,
+        combo: combo && combo.count >= COMBO_MIN ? combo : null,
         stamp: this.stamps.get(a.address) ?? null,
         move: this.moves.get(a.address) ?? null,
         trick,
@@ -631,7 +649,7 @@ export default class Drawer {
       const ghost = this.ghosts.get(old.a.address);
       const exit = this.exits.get(old.a.address);
       if (!ghost || !exit) continue;
-      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, stamp: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: [] });
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, stamp: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: [] });
     }
     this.drawn = items;
 
@@ -746,6 +764,33 @@ function numbers(address, hit) {
       fly(div().id(`${id}-crit`).absolute().left(0).w(CELL).h(10).top(hit.live ? 0 : -HIT_RISE))
         .child(digits("CRIT", "#000000c0", 1, 9))
         .child(digits("CRIT", tag, 0, 9))));
+}
+
+// A combo's counter at the bottom of the box, clear of the hit numbers' first row: "3 HIT"
+// over "COMBO" in amber, outlined dark as the numbers are, so it reads on any creature. Each
+// hit draws it anew with the new count; when the hits stop it fades.
+/**
+ * @param {string} address
+ * @param {Combo} combo
+ * @returns {Element}
+ */
+function comboElement(address, combo) {
+  /** @type {(s: string, size: number, top: number, color: Color, d: number) => Element} */
+  const glyphs = (s, size, top, color, d) => div().absolute().left(d).top(top + d).w(CELL).text_center().text_size(size).font_extrabold().text_color(color).child(s);
+  const count = `${combo.count} HIT`;
+  return div()
+    .id(`pp-combo-${address}-${combo.n}`)
+    .absolute()
+    .left(0)
+    .top(CELL_H - COMBO_H)
+    .w(CELL)
+    .h(COMBO_H)
+    .opacity(combo.step === "fade" ? 0 : 1)
+    .transition("opacity", { duration: COMBO_FADE, easing: "ease-in" })
+    .child(glyphs(count, 10, 0, "#000000c0", 1))
+    .child(glyphs(count, 10, 0, COMBO_COLOR, 0))
+    .child(glyphs("COMBO", 7, 11, "#000000c0", 1))
+    .child(glyphs("COMBO", 7, 11, COMBO_COLOR, 0));
 }
 
 // A stamp's mark, 8 by 6 cells: a bold check. It says "approved" by its shape, so it reads
@@ -1177,9 +1222,9 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 
 // The sprite and its cue in a box, and under the box the lanes of its bees. `side` is where
 // the stripe goes: "left", "right" or "bottom". The sprite draws its own "!" when blocked,
-// so the box adds only the tint. A hit's numbers, a stamp and a move's one-shot go over the
-// sprite, in the box, so a closed drawer shows them too. The box dips as the stamp lands and
-// rises after. A trick hides the sprite until it reveals it, an exit hides it under its
+// so the box adds only the tint. A hit's numbers, a combo's counter, a stamp and a move's
+// one-shot go over the sprite, in the box, so a closed drawer shows them too. The box dips as
+// the stamp lands and rises after. A trick hides the sprite until it reveals it, an exit hides it under its
 // smoke, a one-shot that draws the creature itself hides it while it plays, and a new bee's
 // puff goes over its middle. A failed command's black smoke goes over its face and up, while
 // the sprite lurches with the cough; the box's own top is the stamp's. How tests came out
@@ -1190,7 +1235,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side) {
+function cell(t, { a, seed, hit, combo, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1231,6 +1276,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, verdict, 
     .when(Boolean(soot), (el) => el.child(smoke(`pp-soot-${a.address}-${soot.n}`, FACE, BEE_PX, soot.step === "rise", SOOT)))
     .when(Boolean(verdict), (el) => el.child(verdictElement(t, a.address, verdict)))
     .when(Boolean(shot), (el) => el.child(shot.draw(t, a.address, move)))
+    .when(Boolean(combo), (el) => el.child(comboElement(a.address, combo)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
       .top(stamp.step === "press" ? STAMP_DIP : 0)

@@ -23,7 +23,9 @@ move according to what their agents are doing.
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock. The bigger the change, the harder it hits: a
   line or a few is a small tick, and 200 lines or more is a crit, with big numbers, a CRIT
-  tag, a solid flash and a longer pause.
+  tag, a solid flash and a longer pause. Three or more hits in quick succession are a
+  combo: a `3 HIT COMBO` counter at the creature's feet counts each new hit, and fades when
+  the hits stop.
 - **Stamps.** When an agent makes a git commit, a rubber stamp slams down on its creature
   and lifts away to leave a green check: a stamp of approval on finished work. The check
   holds a moment, then fades.

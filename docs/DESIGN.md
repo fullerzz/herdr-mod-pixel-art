@@ -37,6 +37,8 @@ picker lets the person choose another creature for an agent.
   The sprite flashes the hit's color and is knocked: lifted by added lines, pushed sideways
   by removed ones. A hit's size follows its lines: a change of a line or a few is a small
   tick, a big one a crit, with bigger numbers, a CRIT tag, a solid flash and a longer stop.
+  Three or more hits on one agent, each within a few seconds of the last, are a combo: a
+  `3 HIT COMBO` counter that grows with each hit and fades when the hits stop.
 - **Stamps.** A commit made in an agent's repository is a stamp of approval: a rubber stamp
   slams down on its sprite, the cell dips under the blow, and the stamp lifts away to leave a
   check that holds a moment, then fades. The check is in the "done" color and says
@@ -475,6 +477,13 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   fit the cell), in rows of 12, 15 and 17 px. A 9 px CRIT tag goes over a crit's numbers,
   at the box's top, in the color of its bigger number and outlined as the numbers are; it
   rises 14 px straight up and fades with them. A crit holds 240 ms, not 90, before it moves.
+- A hit on an agent within 2.5 s of its last hit adds one to its combo; a later hit starts
+  the count at one. From the third hit the cell shows the count: "3 HIT" over "COMBO", 10 px
+  and 7 px, in amber (`#f7b521`, as the bees' count) outlined as the numbers are, over the
+  creature's feet in the bottom 20 px of the box, drawn beneath the numbers. Each hit draws
+  it anew, with the new count. 2.5 s after the last hit it fades over 400 ms, and is gone; a
+  hit while it fades starts a new count. Every hit counts, ticks and crits alike. It plays
+  through `play`.
 - A commit in a repository stamps the same agents a hit would, in the box over the sprite's
   lower right, so a closed drawer shows it. The tool, 8 by 9 cells of 3 px, is drawn 14 px
   above its spot and unseen, then 30 ms later falls onto the spot over 340 ms, easing in, as
@@ -523,7 +532,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - An agent drawn the time before and gone now leaves by an exit, the trick in reverse. Its
   row stays as it was last drawn, a ghost, in its place, with the seed it was drawn with,
   so its creature stays the same though its terminal and label are gone. A ghost shows
-  only its creature and the exit: no hit, stamp, arrival or bees, and it is out of the
+  only its creature and the exit: no hit, combo, stamp, arrival or bees, and it is out of the
   status changes, the clocks and the current agent. It does nothing when clicked or right
   clicked. The wand shows over the creature and taps at 240 ms; at 440 ms it fades, the
   puff goes up, and the sprite fades out under it over 360 ms; at 760 ms the puff clears

@@ -317,6 +317,76 @@ test("a tick nudges the sprite by less than a cell and flashes faintly; a crit f
   );
 });
 
+/** An agent's combo counter, or null. */
+const comboOf = (tree, address) => walk(tree).find((n) => n.id?.startsWith(`pp-combo-${address}-`)) ?? null;
+/** One more line added to a.js: a hit. */
+let lines = 0;
+const hitAgain = () => edit(() => (repo.numstat = `${++lines}\t0\ta.js\n`));
+
+test("three quick hits on one agent make a combo that counts each hit, in its cell, then fades when they stop", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await hitAgain();
+  cx.run(100);
+  await hitAgain();
+  assert.equal(comboOf(draw(drawer, cx), "t1"), null, "two hits are no combo");
+  cx.run(2000);
+  await hitAgain();
+  let tree = draw(drawer, cx);
+  let combo = comboOf(tree, "t1");
+  assert.ok(combo, "the third hit within a few seconds of the last is");
+  assert.equal(said(combo), "3 HIT COMBO");
+  assert.ok(walk(find(tree, "pp-box-t1")).includes(combo), "in the sprite's box, so a closed drawer shows it");
+  assert.ok(walk(combo).flatMap((n) => calls(n, "text_color").map(([c]) => c)).includes("#000000c0"), "outlined, as the numbers are");
+  assert.equal(comboOf(tree, "t2"), null, "the idle agent took none of the hits");
+  assert.ok(hitOf(tree, "t1"), "the hit's numbers still show over it");
+
+  await hitAgain();
+  tree = draw(drawer, cx);
+  assert.equal(said(comboOf(tree, "t1")), "4 HIT COMBO", "it grows with each hit");
+  cx.run(2000);
+  tree = draw(drawer, cx);
+  assert.equal(hitOf(tree, "t1"), null, "the last hit's numbers are gone");
+  combo = comboOf(tree, "t1");
+  assert.equal(said(combo), "4 HIT COMBO", "the combo still waits for the next hit");
+  assert.equal(last(combo, "opacity"), 1);
+
+  cx.run(2500);
+  tree = draw(drawer, cx);
+  const fading = find(tree, combo.id);
+  assert.ok(fading, "the same counter, so it fades instead of starting over");
+  assert.equal(last(fading, "opacity"), 0, "no hit came: it fades");
+  assert.ok(calls(fading, "transition").some(([p]) => p === "opacity"));
+  cx.run(3000);
+  assert.equal(comboOf(draw(drawer, cx), "t1"), null, "and is gone");
+
+  await hitAgain();
+  assert.equal(comboOf(draw(drawer, cx), "t1"), null, "the next hit counts from one again");
+});
+
+test("hits a few seconds apart, or one in a combo's fade, make no combo", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  for (let i = 0; i < 4; i++) {
+    await hitAgain();
+    assert.equal(comboOf(draw(drawer, cx), "t1"), null, `hit ${i + 1}, after a pause`);
+    cx.run(2500);
+  }
+
+  for (let i = 0; i < 3; i++) await hitAgain();
+  cx.run(2500);
+  const fading = comboOf(draw(drawer, cx), "t1");
+  assert.equal(last(fading, "opacity"), 0);
+  await hitAgain();
+  await hitAgain();
+  assert.equal(comboOf(draw(drawer, cx), "t1"), null, "a hit as it fades starts a new count");
+  await hitAgain();
+  assert.equal(said(comboOf(draw(drawer, cx), "t1")), "3 HIT COMBO");
+});
+
 test("an agent that leaves the repository stops its watch and takes no more hits", async () => {
   mock.agent("t1", { status: "working" });
   mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
