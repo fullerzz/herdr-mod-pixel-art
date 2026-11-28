@@ -180,6 +180,7 @@ test("a tool about to run says what the agent is doing, in Claude Code's names a
     mcp__probe__ping: "mcp",
     mcp__linear__get_issue: "mcp",
     mcp__claude_ai_Slack__slack_read_channel: "mcp",
+    Skill: "skill",
   };
   for (const [tool, work] of Object.entries(cases)) {
     ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command: "\"tool_name\": \"Read\"" } }));
@@ -288,7 +289,7 @@ test("only a shell tool's command is read, from its input's first 512 bytes, and
 test("a tool that says nothing about the work takes the label away: the creature works its own way", async () => {
   seed(["pixel.avatar=knight7", "pixel.work=typing"]);
   // An MCP tool is named mcp__<server>__<tool>: a name that only looks like one is no clue.
-  for (const tool of ["TaskList", "TaskGet", "TaskStop", "TaskOutput", "Skill", "mcp", "mcp_x", "ListMcpResourcesTool", "ReadMcpResourceTool", ""]) {
+  for (const tool of ["TaskList", "TaskGet", "TaskStop", "TaskOutput", "SkillList", "mcp", "mcp_x", "ListMcpResourcesTool", "ReadMcpResourceTool", ""]) {
     seed(["pixel.avatar=knight7", "pixel.work=typing"]);
     ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool }));
     assert.deepEqual(labels(), ["pixel.avatar=knight7"], tool);

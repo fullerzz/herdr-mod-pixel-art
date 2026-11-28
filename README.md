@@ -30,7 +30,7 @@ move according to what their agents are doing.
   while it runs other commands, sweeps a lens while it searches, holds up an antenna
   while it fetches from the web, calls through a megaphone while it starts a sub-agent,
   ticks items off a clipboard while it writes its todo list or a plan, pushes a plug into
-  a socket while it calls an MCP tool, thinks when a prompt comes in, and is squished in a press while it compacts its context. Without the hook, each creature works its own way, the same every time.
+  a socket while it calls an MCP tool, unrolls a scroll while it loads a skill, thinks when a prompt comes in, and is squished in a press while it compacts its context. Without the hook, each creature works its own way, the same every time.
 - **Time of day.** A creature at rest keeps a prop for the local time of day beside it:
   a lantern at night, a cup of coffee in the morning.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
@@ -343,7 +343,7 @@ trick arrives again.
 ![Another creature working the four ways for kinds of command, side by side: a bubbling test tube, a crane lifting a brick, a box it unpacks, and a branching twig](docs/command-ways.gif)
 
 The second recording shows the four ways for kinds of command: testing, building,
-installing and git. Both recordings are older than compacting, delegating, planning and mcp. A creature whose agent was
+installing and git. Both recordings are older than compacting, delegating, planning, mcp and skill. A creature whose agent was
 idle or done wakes up before it works: for a second and a half it yawns with its eyes shut,
 stretches up, and drops back with its eyes popped open. Then it shows what its agent is
 doing, when the agent's hooks say:
@@ -362,6 +362,7 @@ doing, when the agent's hooks say:
 | delegating | starts a sub-agent | Agent (Task in older versions) |
 | planning | writes its todo list or a plan | TaskCreate, TaskUpdate (TodoWrite in older versions), EnterPlanMode, ExitPlanMode |
 | mcp | calls a tool of an MCP server | any `mcp__<server>__<tool>` |
+| skill | loads a skill | Skill |
 | thinking | has a new prompt to think about | none: a prompt came in |
 | compacting | compacts its context | none: a compaction began |
 
@@ -390,7 +391,7 @@ They keep a `pixel.work` label on the agent's terminal. The hooks of a sub-agent
 leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
 
 ```sh
-hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the fourteen ways, or walk
+hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the fifteen ways, or walk
 hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 ```
 
@@ -399,7 +400,7 @@ hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 A creature tires when its agent works for a long time, whatever way it is working. After
 ten minutes sweat drips down both sides of its face. After thirty minutes a cup of coffee
 with steam rising from it stands by it as well: at its lower right, or in its top right
-corner when its keyboard, book, box, clipboard, test tube or plug fills that side. Neither
+corner when its keyboard, book, box, clipboard, scroll, test tube or plug fills that side. Neither
 covers its eyes or the props of its work: the sweat stays on its face, and anything it
 holds passes in front of the drops. The drawer counts the work from when it saw the
 agent start working. An agent alone in its tab takes the time from the tab instead. Any

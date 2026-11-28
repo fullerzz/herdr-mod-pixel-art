@@ -237,6 +237,8 @@ work_of() {
     # Calling a tool of an MCP server: Claude Code names it mcp__<server>__<tool>. One way
     # for every server.
     mcp__*) echo mcp ;;
+    # Loading a skill.
+    Skill) echo skill ;;
   esac
 }
 

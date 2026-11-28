@@ -933,6 +933,27 @@ const WORK = {
       return { behind: [], front: [socket, over, under] };
     },
   },
+  // Loading a skill: a scroll held under the face, which the creature reads as it unrolls to
+  // the right and rolls up again, a rune glowing at its start while the body bobs.
+  skill: {
+    eyes: "look",
+    cup: "top",
+    build({ u, nudge, size, t, gaze, torso }) {
+      // Ease-in-out: the roller slows at each end, open and rolled up.
+      const roll = { period: 2400, easing: /** @type {const} */ ("ease-in-out") };
+      const bob = { from: 0, to: -nudge, period: roll.period / 2 };
+      torso.loop("top", bob);
+      // A sheet two rows tall from column 2, a roller a row taller at each end of it. Open,
+      // it reaches column 9; rolled up, its first two cells show, the rune and the text on
+      // them, and the right roller rides its end.
+      const sheet = rect(2 * u, 9 * u, 8 * u, 2 * u, PROP.page).loop("width", { from: 8 * u, to: 2 * u, ...roll });
+      const rollers = [mark([[1, 8, 1, 4]], PROP.wood, u), full(size).child(mark([[10, 8, 1, 4]], PROP.wood, u)).loop("left", { from: 0, to: -6 * u, ...roll })];
+      const mid = Math.floor((u - nudge) / 2);
+      const text = full(size).children([rect(3 * u, 9 * u + mid, u, nudge, PROP.ink), rect(2 * u, 10 * u + mid, 2 * u, nudge, PROP.ink)]);
+      const rune = mark([[2, 9]], t.working, u).loop("opacity", { from: 1, to: 0.3, ...roll });
+      return { behind: [], front: [sheet, text, rune, ...rollers, ...peek(gaze("look"), u, bob)] };
+    },
+  },
 };
 
 /** Every way of working, by name. `walk` was the only one before the agents' hooks told more. */
