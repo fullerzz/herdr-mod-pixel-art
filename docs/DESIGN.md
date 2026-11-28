@@ -47,6 +47,8 @@ picker lets the person choose another creature for an agent.
   smoke; it leaves when its helper ends.
 - **Arrivals.** A new agent arrives by a magic trick: a wand taps its empty cell, a puff of
   smoke and sparkles goes up, and its sprite is there when the smoke clears.
+- **Departures.** An agent that ends leaves by the trick in reverse: a wand taps its sprite,
+  a puff of smoke goes up, and the cell is empty when the smoke clears.
 - **Keys.** Three commands act on the current agent, for `keys.json` and
   `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`.
 
@@ -356,7 +358,8 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 
 ## Drawer behavior
 
-- Rows follow `agents()` in the order given. No agents: render an empty `div()` so the
+- Rows follow `agents()` in the order given, with a leaving agent's row kept in its place
+  while its exit plays. No agents and none leaving: render an empty `div()` so the
   floating block hides.
 - A row is a sprite cell and a text column. The sprite cell is 48 px wide: a 36 px sprite
   with 6 px on each side. The dock script leaves exactly that strip showing (`PEEK = 48`).
@@ -415,11 +418,21 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   sparkles, gold and lilac. At 760 ms the clouds drift out to twice their distance and the
   sparkles a cell further, all fading over 520 ms, while the sprite fades in over 360 ms.
   It is gone at 1.5 s. Its status line reads "Abracadabra!" until then.
+- An agent drawn the time before and gone now leaves by an exit, the trick in reverse. Its
+  row stays as it was last drawn, a ghost, in its place, with the seed it was drawn with,
+  so its creature stays the same though its terminal and label are gone. A ghost shows
+  only its creature and the exit: no hit, stamp, arrival or bees, and it is out of the
+  status changes, the clocks and the current agent. It does nothing when clicked or right
+  clicked. The wand shows over the creature and taps at 240 ms; at 440 ms it fades, the
+  puff goes up, and the sprite fades out under it over 360 ms; at 760 ms the puff clears
+  over 520 ms to an empty cell. The row is gone at 1.3 s. Its status line reads "Poof!"
+  until then. An agent leaving mid-arrival stops arriving. One that comes back mid-exit
+  stops leaving and arrives again, in one row.
 - A new bee comes out of the same puff at 2 px cells over the middle of the sprite. It
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
-  get none. Stamps, tricks, puffs and moves' one-shots share one timeline helper (`play`):
-  each step is one render, and a new one on the same agent replaces the last, with new ids.
-  A one-shot for a status change is to play through it too; none exists yet.
+  get none. Stamps, tricks, exits, puffs and moves' one-shots share one timeline helper
+  (`play`): each step is one render, and a new one on the same agent replaces the last, with
+  new ids. A one-shot for a status change is to play through it too; none exists yet.
 - Each draw keeps every agent's status and finds the changes since the draw before, as
   `{ address, from, to }` (`changes`). Only agents drawn both times can change: the first
   draw, a new agent and an agent that left and came back have none, and an empty drawer

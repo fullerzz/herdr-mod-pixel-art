@@ -25,6 +25,8 @@
 // A new agent arrives by a magic trick: a wand taps the empty cell, a puff of smoke and
 // sparkles goes up, and the creature is there when it clears. "Abracadabra!" stands in for
 // its status line meanwhile. The agents already there when the drawer first draws get none.
+// An agent that ends leaves by the same trick in reverse: its row stays, as it was last
+// drawn, while the wand taps the creature and the smoke goes up, and is gone when it clears.
 //
 // Each helper an agent has running is a small figure (a sheep for an `hc` terminal it
 // started, a honey bee for a sub-agent; both are "bees" below) that flies out of its sprite
@@ -51,12 +53,14 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * One agent as the drawer shows it.
  * @typedef {object} Item
  * @property {AgentInfo} a
+ * @property {string} seed The seed its creature is drawn from.
  * @property {string} line The status line under its name.
  * @property {boolean} on Whether it is the agent keys act on, marked as focused.
  * @property {Hit | null} hit The hit it is taking, if any.
  * @property {Stamp | null} stamp The stamp it is getting, if any.
  * @property {Shot | null} move The one-shot for the last move of HEAD that landed on it, while it plays.
  * @property {Trick | null} trick The trick it arrives by, if it is new.
+ * @property {Exit | null} exit The trick it leaves by, if it is gone.
  * @property {Puff | null} puff The puff a new bee of its flies out of, if any.
  * @property {Soot | null} soot The black smoke a failed command of its coughs up, if any.
  * @property {Flier[]} bees Its helpers, as bees.
@@ -72,6 +76,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  */
 /** @typedef {Show<"drop" | "press" | "lift" | "fade">} Stamp A commit's stamp. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "reveal">} Trick A new agent's arrival. */
+/** @typedef {Show<"wand" | "tap" | "poof" | "clear">} Exit An agent's departure: the trick in reverse. */
 /** @typedef {Show<"cloud" | "clear">} Puff Smoke where a new bee comes out. */
 /** @typedef {Show<string> & { move: Move }} Shot A move of HEAD being shown, and the move. */
 /**
@@ -132,12 +137,15 @@ const STAMP_DIP = 3; // px the cell dips when the tool lands
 const STAMP_STEPS = [[30, "press"], [900, "lift"], [2700, "fade"], [3800, null]];
 /** @type {[ms: number, step: Trick["step"] | null][]} After "wand": the wand taps, smoke goes up, the creature shows. */
 const TRICK_STEPS = [[240, "tap"], [440, "poof"], [760, "reveal"], [1500, null]];
+/** @type {[ms: number, step: Exit["step"] | null][]} After "wand": the wand taps, smoke goes up as the creature goes, and clears. */
+const EXIT_STEPS = [[240, "tap"], [440, "poof"], [760, "clear"], [1300, null]];
 /** @type {[ms: number, step: Puff["step"] | null][]} After "cloud": it clears as the bee flies out. */
 const PUFF_STEPS = [[BEE_HOLD + 20, "clear"], [800, null]];
 /** @type {[ms: number, step: Soot["step"] | null][]} After "cough": the smoke goes up and clears. */
 const SOOT_STEPS = [[250, "rise"], [1000, null]];
 const COUGH = 2; // px the creature lurches down as it coughs
 const TRICK_WORD = "Abracadabra!";
+const EXIT_WORD = "Poof!";
 /** The label an agent's hooks keep what it is doing in (`tools/bee-hook.sh`): one of sprite-view's WORKS. */
 const WORK = "pixel.work";
 /** The label an agent's hooks keep its last result in (`tools/bee-hook.sh fail`): `<kind>.<nonce>`, new for each one. */
@@ -199,6 +207,12 @@ export default class Drawer {
   seen = null;
   /** @type {Map<string, Trick>} By agent address. */
   tricks = new Map();
+  /** @type {Map<string, Exit>} By agent address. */
+  exits = new Map();
+  /** @type {Map<string, Item>} The agents that left, as they were last drawn, while their exit plays; by address. */
+  ghosts = new Map();
+  /** @type {Item[]} The rows drawn last time, in order, ghosts included. */
+  drawn = [];
   /** @type {Set<string>} The ids of the new bees that have had their puff. */
   puffed = new Set();
   /** @type {Map<string, Puff>} By agent address. */
@@ -334,6 +348,28 @@ export default class Drawer {
     const now = new Set(list.map((a) => a.address));
     if (this.seen) for (const address of now) if (!this.seen.has(address)) this.play(this.tricks, address, "wand", TRICK_STEPS, cx);
     this.seen = now;
+  }
+
+  /**
+   * An exit for each agent drawn last time and gone now. Its row is kept as it was drawn, a
+   * ghost, while the exit plays, and goes with it. An agent that comes back is no ghost: its
+   * exit stops, and it arrives again. A trick it was arriving by stops too.
+   * @param {AgentInfo[]} list
+   * @param {Context} cx
+   */
+  departures(list, cx) {
+    const now = new Set(list.map((a) => a.address));
+    for (const it of this.drawn) {
+      const address = it.a.address;
+      if (it.exit || now.has(address)) continue;
+      this.ghosts.set(address, it);
+      this.tricks.delete(address);
+      this.play(this.exits, address, "wand", EXIT_STEPS, cx);
+    }
+    for (const address of this.ghosts.keys()) {
+      if (now.has(address)) this.exits.delete(address);
+      if (!this.exits.has(address)) this.ghosts.delete(address);
+    }
   }
 
   /**
@@ -473,26 +509,33 @@ export default class Drawer {
     const first = this.seen === null;
     const now = Date.now();
     const byAddress = new Map(terminals().map((x) => [x.address, x]));
+    this.departures(list, cx);
     this.arrivals(list, cx);
     this.statusChanges(list, now);
     this.clock(list, now, cx);
     this.reported(list, byAddress);
     for (const { address, kind } of this.reports) if (kind === "failed") this.play(this.soots, address, "cough", SOOT_STEPS, cx);
-    if (!list.length) return div();
+    if (!list.length && !this.ghosts.size) {
+      this.drawn = [];
+      return div();
+    }
     const bees = this.swarm(list, cx, first);
     const t = /** @type {Theme} */ (theme());
     const edge = placement()?.edge ?? null;
     const shown = currentAgent(list);
+    /** @type {Item[]} */
     const items = list.map((a) => {
       const trick = this.tricks.get(a.address) ?? null;
       return {
         a,
+        seed: seedFor(a.address),
         line: trick ? TRICK_WORD : lineOf(a, byAddress.get(a.address)),
         on: a.address === shown,
         hit: this.hits.get(a.address) ?? null,
         stamp: this.stamps.get(a.address) ?? null,
         move: this.moves.get(a.address) ?? null,
         trick,
+        exit: /** @type {Exit | null} */ (null),
         puff: this.puffs.get(a.address) ?? null,
         soot: this.soots.get(a.address) ?? null,
         bees: bees.get(a.address) ?? [],
@@ -500,6 +543,15 @@ export default class Drawer {
         stage: this.stages.get(a.address) ?? 0,
       };
     });
+    // A ghost keeps its place, so its exit plays where its creature stood. It shows only the
+    // creature and its exit: its news and its helpers went with it.
+    for (const [i, old] of this.drawn.entries()) {
+      const ghost = this.ghosts.get(old.a.address);
+      const exit = this.exits.get(old.a.address);
+      if (!ghost || !exit) continue;
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, stamp: null, move: null, trick: null, exit, puff: null, soot: null, bees: [] });
+    }
+    this.drawn = items;
 
     if (edge === "top" || edge === "bottom") {
       return h_flex().items_start().children(items.map((it) => tile(t, it)));
@@ -756,16 +808,17 @@ const WAND_PAINT = { h: "#8b6fd6", t: "#ffffff" };
 const CENTER = /** @type {[number, number]} */ ([CELL / 2, CELL_H / 2]);
 const FACE = /** @type {[number, number]} */ ([CELL / 2, 18]); // where a cough's smoke starts: it rises to the cell's top
 
-// A new agent's arrival. The wand shows over the cell's upper right, taps down toward the
-// middle, and fades as the smoke goes up there; the smoke clears as the creature fades in.
-// The cell holds the creature unseen until then.
+// A magic trick in the box. The wand shows over the cell's upper right, taps down toward the
+// middle, and fades as the smoke goes up there; then the smoke clears. Arriving, the cell
+// holds the creature unseen until the smoke clears ("reveal"); leaving, the creature goes
+// under the smoke ("poof") and the smoke clears to an empty cell ("clear"). The cell hides
+// the creature: this draws the wand and the smoke only.
 /**
- * @param {string} address
- * @param {Trick} trick
+ * @param {string} id
+ * @param {Trick["step"] | Exit["step"]} step
  * @returns {Element}
  */
-function trickElement(address, { n, step }) {
-  const id = `pp-trick-${address}-${n}`;
+function trickElement(id, step) {
   const shown = step === "wand" || step === "tap";
   const tap = step !== "wand";
   const wand = div()
@@ -781,7 +834,7 @@ function trickElement(address, { n, step }) {
     .transition("opacity", { duration: 160 })
     .children(pixels(WAND_RUNS, (c) => WAND_PAINT[c], [[1, 1]]));
   const el = div().id(id).absolute().left(0).top(0).size_full();
-  if (step === "poof" || step === "reveal") el.child(smoke(`${id}-smoke`, CENTER, PX, step === "reveal"));
+  if (!shown) el.child(smoke(`${id}-smoke`, CENTER, PX, step !== "poof"));
   return el.child(wand);
 }
 
@@ -886,17 +939,17 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // the stripe goes: "left", "right" or "bottom". The sprite draws its own "!" when blocked,
 // so the box adds only the tint. A hit's numbers, a stamp and a move's one-shot go over the
 // sprite, in the box, so a closed drawer shows them too. The box dips as the stamp lands and
-// rises after. A trick hides the sprite until it reveals it, and a new bee's puff goes over
-// its middle. A failed command's black smoke goes over its face and up, while the sprite
-// lurches with the cough; the box's own top is the stamp's.
+// rises after. A trick hides the sprite until it reveals it, an exit hides it under its
+// smoke, and a new bee's puff goes over its middle. A failed command's black smoke goes over
+// its face and up, while the sprite lurches with the cough; the box's own top is the stamp's.
 /**
  * @param {Theme} t
  * @param {Item} it
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, hit, stamp, move, trick, puff, soot, bees, work, stage }, side) {
-  const hidden = Boolean(trick) && trick.step !== "reveal";
+function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, work, stage }, side) {
+  const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
   const stripe = side === "bottom"
@@ -912,7 +965,7 @@ function cell(t, { a, hit, stamp, move, trick, puff, soot, bees, work, stage }, 
     .justify_center()
     .rounded(6)
     .when(blocked, (el) => el.bg(`${t.blocked}40`))
-    .child(spriteElement(makeSprite(seedFor(a.address)), {
+    .child(spriteElement(makeSprite(seed), {
       id: `pp-spr-${a.address}`,
       px: PX,
       status: a.status,
@@ -920,12 +973,13 @@ function cell(t, { a, hit, stamp, move, trick, puff, soot, bees, work, stage }, 
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live },
       stage,
     })
-      .when(Boolean(trick), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
+      .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
       .when(Boolean(soot), (el) => el
         .top(soot.step === "cough" ? COUGH : 0)
         .transition("top", soot.step === "cough" ? { duration: 60, easing: "ease-out" } : { duration: 300, easing: "ease-out" })))
     .child(stripe)
-    .when(Boolean(trick), (el) => el.child(trickElement(a.address, trick)))
+    .when(Boolean(trick), (el) => el.child(trickElement(`pp-trick-${a.address}-${trick.n}`, trick.step)))
+    .when(Boolean(exit), (el) => el.child(trickElement(`pp-exit-${a.address}-${exit.n}`, exit.step)))
     .when(Boolean(puff), (el) => el.child(smoke(`pp-puff-${a.address}-${puff.n}`, CENTER, BEE_PX, puff.step === "clear")))
     .when(Boolean(soot), (el) => el.child(smoke(`pp-soot-${a.address}-${soot.n}`, FACE, BEE_PX, soot.step === "rise", SOOT)))
     .when(Boolean(move), (el) => el.child(ONE_SHOTS[move.move.kind].draw(t, a.address, move)))
@@ -941,18 +995,20 @@ function cell(t, { a, hit, stamp, move, trick, puff, soot, bees, work, stage }, 
 const machineOf = (address) => (address.includes("/") ? address.split("/")[0] : null);
 
 // What every agent's element does, whatever its shape: focus marked, click goes there,
-// right click opens the picker. The id is the address, unique and stable per agent.
+// right click opens the picker. The id is the address, unique and stable per agent. A
+// leaving agent's element does nothing: its pane and terminal are gone.
 /** @type {(t: Theme, it: Item, el: Element, id: string) => Element} */
-const shell = (t, { a, on }, el, id) =>
+const shell = (t, { a, on, exit }, el, id) =>
   el
     .id(id)
     .rounded(6)
-    .cursor_pointer()
     .when(a.status === "blocked" && !on, (el) => el.bg(`${t.blocked}1f`))
     .when(on, (el) => el.bg(t.selected))
-    .hover((s) => s.bg(t.hover))
-    .on_click(() => go(a))
-    .on_mouse_down("right", () => openPicker(a.address));
+    .when(!exit, (el) => el
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .on_click(() => go(a))
+      .on_mouse_down("right", () => openPicker(a.address)));
 
 // A side edge: the cell on the edge side, the name and status line beside it.
 /**

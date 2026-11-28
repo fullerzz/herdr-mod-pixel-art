@@ -30,7 +30,8 @@ move according to what their agents are doing.
   terminal started with `hc run`, with no setup, and a honey bee for a sub-agent, with
   [one hook](#worker-bees).
 - **Magic arrivals.** A new agent appears by a magic trick: a wand taps its empty spot, a
-  puff of smoke and sparkles goes up, and its creature is there when the smoke clears.
+  puff of smoke and sparkles goes up, and its creature is there when the smoke clears. An
+  agent that ends leaves by the same trick in reverse.
 - **Yours to choose.** Right-click a row for a grid of other creatures. The choice is saved
   as a label on the agent's terminal, so it stays through restarts and shows on every
   Herdr client.
@@ -158,6 +159,12 @@ shows over its empty cell and taps it, a puff of smoke and sparkles goes up, and
 clears to show the creature. Its status line says "Abracadabra!" meanwhile. The whole trick
 takes about a second and a half. A new helper's figure comes out of a small puff of its
 own. The agents and helpers already running when the drawer opens get no trick.
+
+An agent that ends leaves by the trick in reverse. Its row stays where it was, and its
+status line says "Poof!". The wand taps the creature, the smoke goes up, and the cell is
+empty when it clears. Then the row is gone, a little over a second after the agent
+ended. The row does nothing when clicked meanwhile. An agent that comes back during the
+trick arrives again.
 
 ## Ways of working
 
