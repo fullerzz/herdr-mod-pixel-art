@@ -115,11 +115,13 @@ export const isCommit = (subject) =>
  * a commit and for a note of any other kind. `git switch` writes a checkout's note, `git stash`
  * a reset's, a fast-forward `git merge` a merge's, and a cherry-pick concluded after a conflict
  * `commit (cherry-pick): ...`. A pull's note carries its options (`pull --rebase (pick): ...`).
+ * A checkout of the branch already checked out (`moving from main to main`) goes nowhere, and
+ * is none.
  * @param {string} subject
  * @returns {MoveKind | null}
  */
 export function moveKind(subject) {
-  if (isCommit(subject)) return null;
+  if (isCommit(subject) || /^checkout: moving from (.+) to \1$/.test(subject)) return null;
   if (subject.startsWith("commit (cherry-pick):")) return "cherry-pick";
   const m = /^(checkout|reset|rebase|pull|cherry-pick|merge|revert)(?=[ :])/.exec(subject);
   return m ? /** @type {MoveKind} */ (m[1]) : null;

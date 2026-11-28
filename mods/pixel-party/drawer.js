@@ -15,6 +15,10 @@
 // on its sprite, the cell dips under the blow, and the stamp lifts away to leave a check
 // mark that holds a moment before it fades.
 //
+// A checkout in an agent's repository flips a signpost by its sprite: it shows pointing the
+// way HEAD came from, turns edge-on, and points the other way before it fades. Other kinds of
+// move plug into the same table (`ONE_SHOTS`), one entry each.
+//
 // A new agent arrives by a magic trick: a wand taps the empty cell, a puff of smoke and
 // sparkles goes up, and the creature is there when it clears. "Abracadabra!" stands in for
 // its status line meanwhile. The agents already there when the drawer first draws get none.
@@ -36,7 +40,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /** @import { AsyncContext, Color, Context, Element } from "gpui-kit" */
 /** @import { Bee } from "./bees.js" */
-/** @import { Lines, Move } from "./edits.js" */
+/** @import { Lines, Move, MoveKind } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status, TabInfo } from "herdr" */
 /** @import { Theme } from "./sprite-view.js" */
 
@@ -48,6 +52,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {boolean} on Whether it is the agent keys act on, marked as focused.
  * @property {Hit | null} hit The hit it is taking, if any.
  * @property {Stamp | null} stamp The stamp it is getting, if any.
+ * @property {Shot | null} move The one-shot for the last move of HEAD that landed on it, while it plays.
  * @property {Trick | null} trick The trick it arrives by, if it is new.
  * @property {Puff | null} puff The puff a new bee of its flies out of, if any.
  * @property {Flier[]} bees Its helpers, as bees.
@@ -64,6 +69,12 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @typedef {Show<"drop" | "press" | "lift" | "fade">} Stamp A commit's stamp. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "reveal">} Trick A new agent's arrival. */
 /** @typedef {Show<"cloud" | "clear">} Puff Smoke where a new bee comes out. */
+/** @typedef {Show<string> & { move: Move }} Shot A move of HEAD being shown, and the move. */
+/**
+ * What one kind of move plays: its first step, when each next step starts (null: gone), and
+ * how a step draws, in the box over the sprite.
+ * @typedef {{ first: string, steps: [ms: number, step: string | null][], draw: (t: Theme, address: string, shot: Shot) => Element }} OneShot
+ */
 
 /**
  * An agent whose status is not the one it had when the drawer last drew it.
@@ -182,7 +193,7 @@ export default class Drawer {
   changes = [];
   /** Whether the last draw was the moment every agent was done. */
   allDone = false;
-  /** @type {Map<string, Move>} The last move of HEAD, other than a commit, that landed on each agent, by address. */
+  /** @type {Map<string, Shot>} The one-shot playing for the last move of HEAD, other than a commit, that landed on each agent, by address. */
   moves = new Map();
   /** @type {Map<string, number | null>} When each agent's status began, ms since the epoch, by address; null when unknown. */
   since = new Map();
@@ -194,16 +205,16 @@ export default class Drawer {
   /**
    * Plays a one-shot effect on an agent: `first` now, then each step at its time, and gone
    * at null. A new one replaces the last, whose timers then do nothing.
-   * @template {string} Step
-   * @param {Map<string, Show<Step>>} shows
+   * @template {Show<string>} S
+   * @param {Map<string, S>} shows
    * @param {string} address
-   * @param {Step} first
-   * @param {[ms: number, step: Step | null][]} steps
+   * @param {S["step"]} first
+   * @param {[ms: number, step: S["step"] | null][]} steps
    * @param {AsyncContext | Context} cx
+   * @param {Omit<S, "n" | "step">} [more] Kept on the show beside its step, such as the move it shows.
    */
-  play(shows, address, first, steps, cx) {
-    /** @type {Show<Step>} */
-    const show = { n: ++this.serial, step: first };
+  play(shows, address, first, steps, cx, more) {
+    const show = /** @type {S} */ ({ ...more, n: ++this.serial, step: first });
     shows.set(address, show);
     for (const [ms, step] of steps) {
       cx.timer.after(ms, (cx) => {
@@ -223,7 +234,7 @@ export default class Drawer {
     this.edits = new EditWatcher(
       (root, lines, cx) => this.strike(root, lines, cx),
       (root, _commit, cx) => this.stamp(root, cx),
-      (root, move) => this.moved(root, move),
+      (root, move, cx) => this.moved(root, move, cx),
     );
     /** @type {(cx: AsyncContext) => void} */
     const follow = (cx) => this.edits.follow(folders().values(), cx);
@@ -277,13 +288,18 @@ export default class Drawer {
 
   /**
    * HEAD moved in a repository other than by a commit: a checkout, reset, rebase, pull,
-   * cherry-pick, merge or revert. It lands on the agents a hit or a stamp would. Nothing is
-   * drawn for it yet: a one-shot for its kind plays from here.
+   * cherry-pick, merge or revert. It lands on the agents a hit or a stamp would, as the
+   * one-shot for its kind (`ONE_SHOTS`). A kind without one shows nothing yet. A new move on
+   * an agent replaces the last.
    * @param {string} root
    * @param {Move} move
+   * @param {AsyncContext} cx
    */
-  moved(root, move) {
-    for (const address of this.agentsIn(root)) this.moves.set(address, move);
+  moved(root, move, cx) {
+    const shot = ONE_SHOTS[move.kind];
+    if (!shot) return;
+    for (const address of this.agentsIn(root)) this.play(this.moves, address, shot.first, shot.steps, cx, { move });
+    cx.notify();
   }
 
   /**
@@ -430,6 +446,7 @@ export default class Drawer {
         on: a.address === shown,
         hit: this.hits.get(a.address) ?? null,
         stamp: this.stamps.get(a.address) ?? null,
+        move: this.moves.get(a.address) ?? null,
         trick,
         puff: this.puffs.get(a.address) ?? null,
         bees: bees.get(a.address) ?? [],
@@ -709,6 +726,65 @@ function trickElement(address, { n, step }) {
   return el.child(wand);
 }
 
+// A signpost, 7 by 9 cells: a board on a post. The board points right; `mirror` turns it to
+// point left, and seen edge-on it is one plank. b board, w its writing, e the plank, p post.
+const BOARD = [
+  "bbbbb..",
+  "bbbbbb.",
+  "bwwwbbb",
+  "bbbbbb.",
+  "bbbbb..",
+];
+/** @type {(grid: string[]) => string[]} */
+const mirror = (grid) => grid.map((line) => [...line].reverse().join(""));
+const EDGE = BOARD.map(() => "...e...");
+const POST = [...BOARD.map(() => "......."), "...p...", "...p...", "...p...", "..ppp.."];
+/** @type {Record<string, Color>} The sign's own wood, the stamp tool's. */
+const SIGN_PAINT = { b: "#ebbd85", w: "#7a4e2d", e: "#c98b4f", p: "#7a4e2d" };
+/** @typedef {"plant" | "left" | "edge" | "right" | "fade"} SignStep */
+/** @type {Record<"left" | "edge" | "right", [x: number, y: number, w: number, c: string][]>} The board as each step of its turn shows it. */
+const BOARD_RUNS = { left: runsOf(mirror(BOARD)), edge: runsOf(EDGE), right: runsOf(BOARD) };
+const POST_RUNS = runsOf(POST);
+const SIGN_W = POST[0].length * STAMP_PX;
+const SIGN_H = POST.length * STAMP_PX;
+const SIGN_X = 0; // px: the sign stands at the sprite's lower left, clear of a stamp at its lower right
+/** @type {[dx: number, dy: number][]} A dark outline, so the sign reads on any creature. */
+const OUTLINE = [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]];
+/** @type {[ms: number, step: SignStep | null][]} After "plant": it shows pointing back, turns, points on, and fades. */
+const SIGN_STEPS = [[30, "left"], [700, "edge"], [820, "right"], [2400, "fade"], [3100, null]];
+
+// A checkout's signpost at the sprite's lower left. Planted unseen with its board pointing
+// left, the way HEAD came from, it shows; the board turns edge-on, then points right, the way
+// HEAD went. It holds there, then fades. Each frame of the turn is its own layer, shown in its
+// step. The ids carry the shot's number, so a new checkout starts over.
+/**
+ * @param {Theme} _t
+ * @param {string} address
+ * @param {Shot} shot
+ * @returns {Element}
+ */
+function signElement(_t, address, { n, step }) {
+  const id = `pp-sign-${address}-${n}`;
+  const facing = step === "plant" ? "left" : step === "fade" ? "right" : step;
+  /** @type {(runs: [number, number, number, string][]) => Element[]} */
+  const paint = (runs) => pixels(runs, (c) => SIGN_PAINT[c], OUTLINE);
+  const boards = /** @type {const} */ (["left", "edge", "right"]).map((side) =>
+    div().id(`${id}-${side}`).absolute().left(0).top(0).size_full().opacity(facing === side ? 1 : 0).transition("opacity", { duration: 60 }).children(paint(BOARD_RUNS[side])));
+  return div()
+    .id(id)
+    .absolute()
+    .left(SIGN_X)
+    .top(STAMP_FLOOR - SIGN_H)
+    .w(SIGN_W)
+    .h(SIGN_H)
+    .opacity(step === "plant" || step === "fade" ? 0 : 1)
+    .transition("opacity", step === "fade" ? { duration: 600, easing: "ease-in" } : { duration: 200, easing: "ease-out" })
+    .children([div().absolute().left(0).top(0).size_full().children(paint(POST_RUNS)), ...boards]);
+}
+
+/** @type {Partial<Record<MoveKind, OneShot>>} The one-shot each kind of move plays; a kind not here shows nothing yet. */
+const ONE_SHOTS = { checkout: { first: "plant", steps: SIGN_STEPS, draw: signElement } };
+
 // The bees in the lanes under the sprite's box. Each has a place by its position in the
 // list, so when one leaves the ones after it glide up a place. A new bee starts unseen in
 // the middle of the sprite.
@@ -749,16 +825,17 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 
 // The sprite and its cue in a box, and under the box the lanes of its bees. `side` is where
 // the stripe goes: "left", "right" or "bottom". The sprite draws its own "!" when blocked,
-// so the box adds only the tint. A hit's numbers and a stamp go over the sprite, in the box,
-// so a closed drawer shows them too. The box dips as the stamp lands and rises after. A
-// trick hides the sprite until it reveals it, and a new bee's puff goes over its middle.
+// so the box adds only the tint. A hit's numbers, a stamp and a move's one-shot go over the
+// sprite, in the box, so a closed drawer shows them too. The box dips as the stamp lands and
+// rises after. A trick hides the sprite until it reveals it, and a new bee's puff goes over
+// its middle.
 /**
  * @param {Theme} t
  * @param {Item} it
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, hit, stamp, trick, puff, bees, work, stage }, side) {
+function cell(t, { a, hit, stamp, move, trick, puff, bees, work, stage }, side) {
   const hidden = Boolean(trick) && trick.step !== "reveal";
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
@@ -786,6 +863,7 @@ function cell(t, { a, hit, stamp, trick, puff, bees, work, stage }, side) {
     .child(stripe)
     .when(Boolean(trick), (el) => el.child(trickElement(a.address, trick)))
     .when(Boolean(puff), (el) => el.child(smoke(`pp-puff-${a.address}-${puff.n}`, CENTER, BEE_PX, puff.step === "clear")))
+    .when(Boolean(move), (el) => el.child(ONE_SHOTS[move.move.kind].draw(t, a.address, move)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
       .top(stamp.step === "press" ? STAMP_DIP : 0)

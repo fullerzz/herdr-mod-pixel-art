@@ -35,6 +35,9 @@ picker lets the person choose another creature for an agent.
   slams down on its sprite, the cell dips under the blow, and the stamp lifts away to leave a
   check that holds a moment, then fades. The check is in the "done" color and says
   "approved" by its shape: red is the "Needs you" cue, so the stamp never relies on it.
+- **Signposts.** A checkout or switch in an agent's repository flips a signpost by its
+  sprite: it shows pointing back the way HEAD came from, turns edge-on, and points the
+  other way, then fades. Other moves of HEAD get one-shots of their own the same way.
 - **Bees.** Each helper an agent has running is a small figure beside its sprite: a sheep
   for a terminal it started with `hc run`, a honey bee for a sub-agent inside its own
   program. Both are called bees below. A new bee flies out of the sprite from a puff of
@@ -233,7 +236,8 @@ export class EditWatcher {
   `MoveKind` is `checkout` (`git switch` too), `reset` (`git stash` too), `rebase`, `pull`
   (its note carries its options: `pull --rebase (pick): `), `cherry-pick` (`commit
   (cherry-pick): ` too), `merge` (a fast-forward) or `revert`. A note of any other kind
-  (`clone: `, `am: `) is no move.
+  (`clone: `, `am: `) is no move, and nor is a checkout of the branch already checked out
+  (`checkout: moving from main to main`): HEAD goes nowhere.
 - Commits and moves count from the first good read: starting Herdr is no commit, and so is anything
   already in the reflog when that first read failed. A repository found where a folder had
   none (`git init`) counts from the start of its reflog, and is reported as soon as it is
@@ -370,9 +374,18 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   bold check, 8 by 6 cells in `theme().done`, outlined dark so it reads on any creature. The
   mark holds, fades over 1 s from 2.7 s, and is gone at 3.8 s. Each step is slow enough to
   follow by eye. A new stamp on the same agent replaces the last, with new ids.
-- A move of HEAD that is no commit lands on the same agents a hit or a stamp would. The
-  drawer keeps the last one per agent (`moves`, by address) and draws nothing for it yet: a
-  one-shot for its kind plays from there.
+- A move of HEAD that is no commit lands on the same agents a hit or a stamp would, as the
+  one-shot for its kind: one entry per kind in `ONE_SHOTS` (its first step, its steps'
+  times, and how a step draws in the box over the sprite). It plays with `play` into
+  `moves`, by address, so a new move on the same agent replaces the last, with new ids, and
+  it is forgotten when it ends. A kind without an entry shows nothing yet, and starts no
+  timer.
+- A checkout's one-shot is a signpost at the box's lower left, clear of a stamp at its lower
+  right: a post and a board, 7 by 9 cells of 3 px in the stamp tool's wood, outlined dark.
+  It is planted unseen with the board pointing left, the way HEAD came from, and 30 ms
+  later fades in over 200 ms. At 700 ms the board turns edge-on, one plank, and at 820 ms it
+  points right, the way HEAD went; each frame of the turn is its own layer, swapped over
+  60 ms. The sign holds, fades over 600 ms from 2.4 s, and is gone at 3.1 s.
 - Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees
@@ -391,9 +404,9 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   It is gone at 1.5 s. Its status line reads "Abracadabra!" until then.
 - A new bee comes out of the same puff at 2 px cells over the middle of the sprite. It
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
-  get none. Stamps, tricks and puffs share one timeline helper (`play`): each step is one
-  render, and a new one on the same agent replaces the last, with new ids. A one-shot for a
-  status change is to play through it too; none exists yet.
+  get none. Stamps, tricks, puffs and moves' one-shots share one timeline helper (`play`):
+  each step is one render, and a new one on the same agent replaces the last, with new ids.
+  A one-shot for a status change is to play through it too; none exists yet.
 - Each draw keeps every agent's status and finds the changes since the draw before, as
   `{ address, from, to }` (`changes`). Only agents drawn both times can change: the first
   draw, a new agent and an agent that left and came back have none, and an empty drawer

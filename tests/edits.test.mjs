@@ -1,7 +1,7 @@
 // Hits: lines an agent adds or removes, read from git, shown over its sprite in the drawer.
 // Moves: HEAD moved by a checkout, reset, rebase, pull or cherry-pick, read from its reflog,
-// landed on the drawer's agents. Git is faked through the herdr stand-in's `exec`, and a
-// change through `mock.touch`.
+// landed on the drawer's agents; a checkout flips a signpost by the sprite. Git is faked
+// through the herdr stand-in's `exec`, and a change through `mock.touch`.
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
@@ -256,6 +256,8 @@ test("a move's kind is the git command its reflog note names; a commit or a note
   const kinds = {
     "checkout: moving from main to x": "checkout",
     "checkout: moving from 98c219a6f1db5d03558069fa5b3c934a1e7f5083 to main": "checkout",
+    "checkout: moving from main to main": null, // the branch already checked out: HEAD stays
+    "checkout: moving from main to main-2": "checkout",
     "reset: moving to HEAD~1": "reset",
     "reset: moving to HEAD": "reset", // `git stash`
     "rebase (start): checkout main": "rebase",
@@ -286,13 +288,16 @@ test("a checkout lands on the working agent, as a hit would, with its kind, comm
   mock.agent("t1", { status: "working" });
   mock.agent("t2", { status: "idle" });
   mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
-  const { drawer } = await start();
+  const { drawer, cx } = await start();
   assert.equal(drawer.moves.size, 0, "the reflog's lines before the drawer are no move");
+  const before = cx.notified;
   await moves([["b", "checkout: moving from main to x"]]);
-  assert.deepEqual(drawer.moves.get("t1"), { kind: "checkout", sha: sha("b"), subject: "checkout: moving from main to x" });
+  assert.ok(cx.notified > before, "the drawer draws again");
+  assert.deepEqual(drawer.moves.get("t1").move, { kind: "checkout", sha: sha("b"), subject: "checkout: moving from main to x" });
   assert.equal(drawer.moves.has("t2"), false, "the idle one in the same repository takes none");
-  await moves([["c", "reset: moving to HEAD~1"]]);
-  assert.equal(drawer.moves.get("t1").kind, "reset", "a later move replaces it");
+  const first = drawer.moves.get("t1").n;
+  await moves([["c", "checkout: moving from x to main"]]);
+  assert.ok(drawer.moves.get("t1").n > first, "a later move replaces it");
 });
 
 test("with no agent working, a move lands on every agent in the repository", async () => {
@@ -300,10 +305,11 @@ test("with no agent working, a move lands on every agent in the repository", asy
   mock.agent("t2", { status: "done" });
   mock.agent("t3", { status: "working" });
   mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo/lib" }, { pane: "p-t3", cwd: "/tmp" }];
-  const { drawer } = await start();
-  await moves([["b", "pull: Fast-forward"]]);
+  const { drawer, cx } = await start();
+  await moves([["b", "checkout: moving from main to x"]]);
   assert.deepEqual([...drawer.moves.keys()].sort(), ["t1", "t2"]);
-  assert.equal(drawer.moves.get("t2").kind, "pull");
+  const tree = draw(drawer, cx);
+  assert.ok(signOf(tree, "t1") && signOf(tree, "t2") && !signOf(tree, "t3"));
 });
 
 test("one look reports one move, the newest: a rebase's many lines are one rebase", async () => {
@@ -335,4 +341,129 @@ test("a note of no known kind is no move, and never hides an older one in the sa
   assert.deepEqual(got, [["checkout", "checkout: moving from main to x", sha("c"), "/repo"]]);
   await moves([]);
   assert.equal(got.length, 1, "a file saved: HEAD did not move");
+});
+
+/** The signpost by an agent's sprite, or null. */
+const signOf = (tree, address) => walk(tree).find((n) => /^pp-sign-[^-]+-\d+$/.test(n.id ?? "") && n.id.startsWith(`pp-sign-${address}-`)) ?? null;
+/** The board layer of a sign for one frame of its turn: "left", "edge" or "right". */
+const board = (sign, side) => find(sign, `${sign.id}-${side}`);
+/** Each row of a board's own colors (its last layer, over the outline) as [first x, last x], in px. */
+function extents(layer) {
+  const paint = walk(layer.children.at(-1)).slice(1);
+  const rows = new Map();
+  for (const px of paint) {
+    const [x, y, w] = [last(px, "left"), last(px, "top"), last(px, "w")];
+    const [from, to] = rows.get(y) ?? [Infinity, -Infinity];
+    rows.set(y, [Math.min(from, x), Math.max(to, x + w)]);
+  }
+  return [...rows].sort(([a], [b]) => a - b).map(([, ext]) => ext);
+}
+
+test("a checkout flips a signpost by the sprite: it shows pointing back, turns edge-on, points on, and fades", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  assert.equal(signOf(draw(drawer, cx), "t1"), null, "no move, no sign");
+  await moves([["b", "checkout: moving from main to x"]]);
+  let tree = draw(drawer, cx);
+  const sign = () => signOf(tree, "t1");
+  const shown = () => ["left", "edge", "right"].filter((side) => last(board(sign(), side), "opacity") === 1);
+  assert.ok(sign(), "a sign by the creature");
+  assert.ok(find(tree, "pp-box-t1") && walk(find(tree, "pp-box-t1")).includes(sign()), "in the sprite's box, so a closed drawer shows it");
+  assert.equal(last(sign(), "opacity"), 0, "planted unseen");
+  assert.deepEqual(shown(), ["left"]);
+
+  // The left board points left: its middle row reaches further left than its top row; the right board the other way.
+  const [left, right] = [extents(board(sign(), "left")), extents(board(sign(), "right"))];
+  assert.ok(left[2][0] < left[0][0] && left[2][1] === left[0][1], "pointing left");
+  assert.ok(right[2][1] > right[0][1] && right[2][0] === right[0][0], "pointing right");
+  assert.ok(extents(board(sign(), "edge")).every(([from, to]) => to - from < right[0][1] - right[0][0]), "edge-on, a narrow plank");
+
+  cx.run(30);
+  tree = draw(drawer, cx);
+  assert.equal(last(sign(), "opacity"), 1, "it shows");
+  assert.deepEqual(shown(), ["left"], "pointing the way HEAD came from");
+  cx.run(600);
+  tree = draw(drawer, cx);
+  assert.deepEqual(shown(), ["left"], "long enough to see");
+  cx.run(700);
+  tree = draw(drawer, cx);
+  assert.deepEqual(shown(), ["edge"], "it turns");
+  cx.run(820);
+  tree = draw(drawer, cx);
+  assert.deepEqual(shown(), ["right"], "and points the way HEAD went");
+  cx.run(2300);
+  tree = draw(drawer, cx);
+  assert.equal(last(sign(), "opacity"), 1, "it holds");
+  cx.run(2400);
+  tree = draw(drawer, cx);
+  assert.equal(last(sign(), "opacity"), 0, "then fades");
+  assert.deepEqual(shown(), ["right"]);
+  cx.run(3100);
+  tree = draw(drawer, cx);
+  assert.equal(sign(), null, "and is gone");
+  assert.equal(drawer.moves.size, 0, "forgotten too");
+});
+
+test("a second checkout starts a new sign; the first one's steps no longer touch it", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "checkout: moving from main to x"]]);
+  const first = signOf(draw(drawer, cx), "t1").id;
+  cx.run(30);
+  // The first sign's steps still to come, held back to run after the second sign starts.
+  const pending = cx.timers.filter((t) => !t.every);
+  cx.timers = cx.timers.filter((t) => t.every);
+  await moves([["c", "checkout: moving from x to main"]]);
+  const second = signOf(draw(drawer, cx), "t1").id;
+  assert.notEqual(second, first, "a new id: it starts over instead of easing back");
+  for (const t of pending) t.handler(cx);
+  let tree = draw(drawer, cx);
+  assert.equal(signOf(tree, "t1")?.id, second, "the first one's end does not clear the second");
+  assert.equal(last(signOf(tree, "t1"), "opacity"), 0, "still planted, as the second's own steps have it");
+  cx.run(5000);
+  tree = draw(drawer, cx);
+  assert.equal(signOf(tree, "t1"), null, "the second's own end clears it");
+});
+
+test("a checkout of the branch already checked out, and a move of a kind with no one-shot yet, show nothing", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  const before = cx.notified;
+  await moves([["a", "checkout: moving from main to main"]]);
+  for (const subject of ["reset: moving to HEAD~1", "rebase (finish): returning to refs/heads/x", "pull: Fast-forward", "cherry-pick: fix"]) {
+    await moves([["b", subject]]);
+  }
+  assert.equal(cx.notified, before, "nothing to draw");
+  assert.equal(drawer.moves.size, 0);
+  assert.equal(signOf(draw(drawer, cx), "t1"), null);
+  assert.equal(cx.timers.filter((t) => !t.every).length, 0, "and nothing left to time");
+});
+
+test("a commit and a checkout in one look stamp, with no sign", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "commit: x"], ["c", "checkout: moving from x to main"]]);
+  const tree = draw(drawer, cx);
+  assert.equal(signOf(tree, "t1"), null);
+  assert.ok(walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")));
+});
+
+test("every edge renders a sign beside a stamp with unique ids", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "commit: x"]]);
+  await moves([["c", "checkout: moving from x to main"]]);
+  for (const step of [0, 30, 700, 820, 2400]) {
+    cx.run(step);
+    for (const edge of ["top", "right", "bottom", "left", null]) {
+      mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
+      const tree = draw(drawer, cx);
+      assert.ok(signOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
+    }
+  }
 });

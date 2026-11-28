@@ -21,6 +21,8 @@ move according to what their agents are doing.
 - **Stamps.** When an agent makes a git commit, a rubber stamp slams down on its creature
   and lifts away to leave a green check: a stamp of approval on finished work. The check
   holds a moment, then fades.
+- **Signposts.** When an agent checks out or switches to another branch, a signpost by its
+  creature flips from pointing back to pointing the other way.
 - **Worker bees.** Every helper an agent starts is a little figure that flies out of its
   creature from a puff of smoke and stays beside it until the helper ends: a sheep for a
   terminal started with `hc run`, with no setup, and a honey bee for a sub-agent, with
@@ -118,6 +120,14 @@ makes) and the first commit of a new repository included, even one made with `gi
 where the agent already is. A checkout, reset, rebase, pull or cherry-pick moves the branch
 too, but is no stamp. Commits in a linked worktree count as well, and a commit still counts
 when other git commands follow it right away.
+
+## Signposts
+
+A `git checkout` or `git switch` in an agent's repository flips a signpost by its creature,
+with no setup. The sign shows at the creature's lower left pointing back, the way the
+agent came from, then its board turns and points the other way, the way it went. It holds
+a moment and fades, about three seconds in all. A checkout lands on the same agents as a
+commit. A checkout of the branch already checked out goes nowhere and shows nothing.
 
 ## Magic arrivals
 
