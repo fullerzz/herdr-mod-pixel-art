@@ -18,6 +18,13 @@
 // creature's silhouette and a knock: up for added lines, sideways for removed ones. Both
 // start at full strength and ease back with `.transition`, so the caller renders a hit
 // twice: `live` first, then settled.
+//
+// A turn (a one-shot the caller plays when its agent's status changes, see TURNS) takes the
+// status's place while it lasts: the turn moves the creature's parts, as a way of working
+// does, and draws its own marks, once a step as the caller renders it. The creature goes
+// back to its status's look when the turn is over.
+//
+//   douse    blocked to working: water pours on the fire and puts it out, steam rises
 
 import { div } from "gpui-kit";
 import { theme } from "herdr";
@@ -104,6 +111,84 @@ function fire(u) {
 
 /** @type {(size: number) => Element} An empty full-size layer, to move what it holds as one. */
 const full = (size) => div().absolute().left(0).top(0).size(size);
+
+/** The colors of the water that puts a fire out and of the steam it raises. Their own: never FIRE's or a status cue's. */
+export const DOUSE = /** @type {const} */ ({ water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" });
+
+/**
+ * A fire put out, at one step of the turn. Poured, the fire still burns and water hangs over
+ * it; splashed, the water falls onto the bed, faster as it falls, and the fire dies as it
+ * lands, throwing spray at both ends; steamed, the water is gone and steam rises off the
+ * bed and fades. Each part keeps its id across the steps, so `.transition` eases between them.
+ * The creature holds still meanwhile: none of its parts moves.
+ * @param {TurnParts} parts Its step is "pour", "splash" or "steam".
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
+function douse({ id, step, u }) {
+  const size = GRID * u;
+  const wet = step !== "pour";
+  const steamed = step === "steam";
+  /** @type {(name: string, children: Element[]) => Element} */
+  const part = (name, children) => full(size).id(`${id}-${name}`).children(children);
+  /** @type {(name: string, children: Element[]) => Element} Burns until the water lands, then dies. */
+  const dying = (name, children) => part(name, children).opacity(wet ? 0 : 1).transition("opacity", { duration: 240, delay: 260, easing: "ease-in" });
+  const flames = fire(u);
+  const water = part("water", [
+    mark([[2, 0, 1, 2], [5, 1, 1, 2], [7, 0, 1, 2], [10, 1, 1, 2]], DOUSE.water, u),
+    mark([[2, 0], [7, 0]], DOUSE.spray, u),
+  ])
+    .top(wet ? 8 * u : 0)
+    .opacity(steamed ? 0 : 1)
+    .transition("top", { duration: 300, easing: "ease-in" })
+    .transition("opacity", { duration: 200 });
+  const spray = part("spray", [mark([[0, 9], [1, 8], [10, 8], [11, 9]], DOUSE.spray, u)])
+    .opacity(step === "splash" ? 1 : 0)
+    .transition("opacity", steamed ? { duration: 300 } : { duration: 80, delay: 280 });
+  // Steam goes up in front, over the creature: it is the news that the fire is out.
+  const steam = part("steam", [[1, 8], [5, 9], [9, 8]].map(([x, y], i) => cell({ x, y, w: 2, h: 2, color: i === 1 ? DOUSE.haze : DOUSE.steam }, u).rounded(u)))
+    .top(steamed ? -6 * u : 0)
+    .opacity(step === "splash" ? 0.9 : 0)
+    .transition("top", { duration: 1000, easing: "ease-out" })
+    .transition("opacity", steamed ? { duration: 1000, easing: "ease-in" } : { duration: 160, delay: 420 });
+  return { behind: [dying("embers", flames.behind)], front: [dying("fire", flames.front), spray, water, steam] };
+}
+
+/**
+ * A one-shot a sprite plays when its agent's status changes: a turn.
+ * @typedef {object} Turn
+ * @property {Status | null} from The status it plays from; null for any.
+ * @property {Status | null} to The status it plays to; null for any.
+ * @property {string} first Its first step, drawn on the draw that finds the change.
+ * @property {[ms: number, step: string | null][]} steps When each next step starts, in ms
+ *   from the change, ascending; null: it is over.
+ * @property {Mood} eyes The creature's eyes while it plays.
+ * @property {(parts: TurnParts) => { behind: Element[], front: Element[] }} build
+ *   At a step: moves the creature's parts, as a way of working does, and returns its marks,
+ *   in place of the status's. A part it leaves alone holds still.
+ */
+
+/**
+ * What a turn is given at a step: the creature's parts, the turn's id (the sprite's, its
+ * kind and its number: any id it uses starts with `id + "-"`) and the step.
+ * @typedef {Parts & { id: string, step: string }} TurnParts
+ */
+
+/**
+ * The turns, by name. The caller plays the first whose `from` and `to` match a change, and
+ * a later change on the same agent ends it. A new turn adds its entry here.
+ * @type {Record<string, Turn>}
+ */
+export const TURNS = {
+  douse: { from: "blocked", to: "working", first: "pour", steps: [[40, "splash"], [700, "steam"], [1800, null]], eyes: "open", build: douse },
+};
+
+/**
+ * A turn as the sprite shows it.
+ * @typedef {object} SpriteTurn
+ * @property {string} kind Its name in TURNS. Any other name is no turn.
+ * @property {number} n Its number: a new number is a new turn, drawn from the start.
+ * @property {string} step The step it is at.
+ */
 /** @type {(x: number, y: number, w: number, h: number, color: Color) => Element} A rectangle in px. */
 const rect = (x, y, w, h, color) => div().absolute().left(x).top(y).w(w).h(h).bg(color);
 
@@ -536,36 +621,43 @@ function accents(status, u) {
  * @param {string | null} [options.work] What a working agent is doing, as its hooks say:
  *   one of WORKS. Anything else, or null, is the creature's own way (`ownWork`).
  * @param {SpriteHit | null} [options.hit] A hit being shown, or null.
+ * @param {SpriteTurn | null} [options.turn] A turn being played, or null. While it plays it
+ *   takes the status's place: no status look, motion or way of working is drawn.
  * @param {number} [options.stage] How long the status has held, as the number of its
  *   STAGES reached (default 0, also when its start is unknown). No look uses it yet.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, stage: _stage = 0 } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0 } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
   const nudge = Math.max(1, Math.round(u / 3)); // a sub-cell move, at least one pixel
+  // A turn takes the status's place until it is over: only a name of TURNS' own is one.
+  const shot = turn && typeof turn.kind === "string" && Object.hasOwn(TURNS, turn.kind) ? TURNS[turn.kind] : null;
+  const look = shot ? null : status;
   // A label anyone can set picks it, so only a name of WORK's own counts ("__proto__" doesn't).
-  const how = status === "working" ? WORK[typeof work === "string" && Object.hasOwn(WORK, work) ? work : ownWork(sprite)] : null;
+  const how = look === "working" ? WORK[typeof work === "string" && Object.hasOwn(WORK, work) ? work : ownWork(sprite)] : null;
 
   const left = layer(feet[0], u);
   const right = layer(feet[1], u);
   const torso = div().absolute().left(0).top(0).size(size)
     .child(layer(body, u))
-    .child(layer(eyes[how?.eyes ?? EYES[status] ?? "open"], u));
+    .child(layer(eyes[how?.eyes ?? shot?.eyes ?? EYES[look] ?? "open"], u));
   const figure = div().absolute().left(0).top(0).size(size);
 
-  // Working, the way of working moves the parts and draws its own marks.
-  const worked = how?.build({ u, size, nudge, t: /** @type {Theme} */ (theme()), sprite, left, right, torso });
-  if (status === "done") {
+  // Working, the way of working moves the parts and draws its own marks; a turn, the same.
+  /** @type {Parts} */
+  const parts = { u, size, nudge, t: /** @type {Theme} */ (theme()), sprite, left, right, torso };
+  const worked = shot ? shot.build({ ...parts, id: `${id}-${turn.kind}-${turn.n}`, step: turn.step }) : how?.build(parts);
+  if (look === "done") {
     figure.loop("top", { from: 0, to: -u, period: 700, easing: "ease-out" });
-  } else if (status === "idle") {
+  } else if (look === "idle") {
     torso.loop("top", { from: 0, to: nudge, period: 2600 });
     figure.opacity(0.75);
   }
   figure.child(left).child(right).child(torso);
 
-  const { behind, front } = worked ?? accents(status, u);
+  const { behind, front } = worked ?? accents(look, u);
   return div().id(id).relative().size(size).flex_none().children([...behind, hit ? struck(figure, sprite, id, u, hit) : figure, ...front]);
 }
 

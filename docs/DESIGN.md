@@ -13,6 +13,8 @@ picker lets the person choose another creature for an agent.
   creature. A sprite moves natively: it works while its agent works, catches fire and asks
   for attention when the agent is blocked, celebrates when it finished, and rests when it
   is idle.
+- **Fire out.** When a blocked agent goes on, water pours on its creature's fire and puts it
+  out, steam rises off the ashes, and the creature goes back to work.
 - **Ways of working.** A working sprite shows what its agent is doing, when the agent's
   hooks say: it types while the agent edits files, reads a book while it reads, bubbles a
   test tube while it runs tests, lifts bricks with a crane while it builds, unpacks a box
@@ -103,7 +105,7 @@ main.js ──> drawer.js ──┬─> identity.js ──> herdr
 | `main.js` | coordinator | Picks the view from `props().view`; feeds key commands to a view that defines `command`. |
 | `identity.js` | coordinator | The label: `seedFor`, `hasAvatar`, `setAvatar`, `clearAvatar`, `openPicker`. |
 | `sprites.js` | sprites | Seed to sprite. Pure: no imports, runs under plain node. |
-| `sprite-view.js` | sprites | Sprite to element, with motion per status and way of working, and a hit's flash and knock. |
+| `sprite-view.js` | sprites | Sprite to element, with motion per status and way of working, a turn for a status change, and a hit's flash and knock. |
 | `edits.js` | drawer | Lines added and removed in the agents' repositories, and HEAD's moves there, from git. |
 | `bees.js` | drawer | An agent's helpers, and the bee drawn for each. |
 | `drawer.js` | drawer | The party drawer. |
@@ -133,9 +135,11 @@ nothing from it. Its shape is the sprites module's own business, with these guar
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, stage = 0 }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0 }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
+export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
+export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
@@ -194,6 +198,22 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
   `HIT.removed` (`damage`) or `HIT.added`, and a knock of one cell: sideways for damage,
   up otherwise. `live` draws it at full strength; settled, both ease back with
   `.transition`. Its ids carry `n`.
+- `turn` is `{ kind, n, step } | null`: a one-shot being played because the agent's status
+  changed. A `Turn` in `TURNS` is `{ from, to, first, steps, eyes, build }`: the change it
+  plays on (null for any status), its first step, when each next step starts in ms from the
+  change (null: over), the creature's eyes, and what it does at a step: `build` gets the
+  same parts a way of working gets, plus the turn's `id` and `step`, moves them as it likes
+  and returns its marks. While a turn of a known `kind` plays it takes the status's place:
+  no way of working, status motion or status accent is drawn, and a part the turn leaves
+  alone holds still. Any other `kind` (`"__proto__"` too) is no turn. Its ids start with
+  `id-<kind>-<n>-`, and a part keeps its id from step to step, so `.transition` eases
+  between them. A new turn adds an entry to `TURNS`.
+  - `douse`, blocked to working, with the creature still: `pour` draws the blocked fire,
+    without its badge, under water hanging in the top rows; `splash` drops the water onto
+    the bed over 300 ms, easing in, and the fire and its tongues die out as it lands, while
+    spray shows at both ends of the bed and steam gathers on it; `steam` clears the water
+    and spray, and the steam rises six cells off the bed as it fades over 1 s. Water and
+    steam are in `DOUSE`'s colors, never `FIRE`'s, `HIT`'s or a status cue's.
 - `stage` is how long the status has held: the number of that status's `STAGES` times
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
@@ -432,7 +452,14 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
   get none. Stamps, tricks, exits, puffs and moves' one-shots share one timeline helper
   (`play`): each step is one render, and a new one on the same agent replaces the last, with
-  new ids. A one-shot for a status change is to play through it too; none exists yet.
+  new ids. A status change's one-shot, its turn, plays through it too.
+- Each status change plays the first of `TURNS` whose `from` and `to` match it, on the draw
+  that finds it, and the sprite draws the turn until its last step. A change ends the turn
+  an earlier change started on that agent, even when it plays none itself: a block again
+  shows the fire at once, and the ended turn's steps wake nothing. A blocked agent that
+  goes on is doused: `pour` at once, `splash` at 40 ms, `steam` at 700 ms, and back to work
+  at 1.8 s. A blocked agent that turns done or idle, the first draw and a new agent get no
+  douse.
 - Each draw keeps every agent's status and finds the changes since the draw before, as
   `{ address, from, to }` (`changes`). Only agents drawn both times can change: the first
   draw, a new agent and an agent that left and came back have none, and an empty drawer

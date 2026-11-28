@@ -7,7 +7,8 @@ move according to what their agents are doing.
 - **Drawer.** One sprite per agent. On a side edge only the sprites show; hover slides out
   each agent's name and what it is doing. Click a row to go to that agent.
 - **Motion.** A sprite works while its agent works, catches fire and asks for attention
-  when the agent is blocked, celebrates when it finished, and rests when it is idle.
+  when the agent is blocked, celebrates when it finished, and rests when it is idle. When
+  a blocked agent goes on, water puts its fire out before it goes back to work.
 - **Ways of working.** With [one more hook](#ways-of-working), a working creature does
   what its agent does: it types while the agent edits files, reads a book while it reads,
   bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,
@@ -106,6 +107,11 @@ link is remade.
 An agent that is blocked, waiting on a permission prompt or a question, sets its creature
 on fire. A bed of flames burns at its feet and tongues lick up its sides until the agent
 goes on. The `!` badge and the tinted cell stay, in the theme's "Needs you" color.
+
+When the agent goes back to work, the fire is put out: water drops onto the flames, they
+die with a splash, and steam rises off the creature and fades. The creature holds still
+for those two seconds, then goes back to work. A blocked agent that turns done or idle
+instead just loses its fire.
 
 ## Stamps
 

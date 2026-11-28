@@ -4,8 +4,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { theme } from "herdr";
+import { div } from "gpui-kit";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { FIRE, HIT, WORKS, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { DOUSE, FIRE, HIT, TURNS, WORKS, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -453,5 +454,105 @@ test("a thought bubble's tail leads to the head: a short one, beside the art, cl
       const gap = Math.hypot(Math.max(0, cx + 0.5 - last(bubble, "w") / px), Math.max(0, cy + 0.5 - last(bubble, "h") / px));
       assert.ok(gap <= 2.5, `t${i} (${sprite.kind}): the tail runs ${gap} cells from the bubble`);
     }
+  }
+});
+
+// ---- turns ----
+
+/** A creature having its fire put out, at one step of the douse. */
+const doused = (sprite, step, { px = 3, n = 1 } = {}) =>
+  spriteElement(sprite, { id: "s", px, status: "working", work: "typing", turn: { kind: "douse", n, step } });
+const DOUSE_STEPS = ["pour", "splash", "steam"];
+
+test("a blocked agent going on plays a douse: from blocked to working, in steps that end", () => {
+  const { from, to, first, steps } = TURNS.douse;
+  assert.deepEqual([from, to, first], ["blocked", "working", "pour"]);
+  assert.deepEqual(steps.map(([, step]) => step), ["splash", "steam", null]);
+  assert.ok(steps.every(([ms], i) => i === 0 || ms > steps[i - 1][0]), "each step after the last");
+  assert.ok(steps.at(-1)[0] >= 1200, "slow enough to follow");
+});
+
+test("a douse: the fire burns under hanging water, dies as the water falls on it, and steam rises off the bed", () => {
+  const flames = new Set(Object.values(FIRE));
+  for (const sprite of KINDS) {
+    const part = (el, name) => walk(el).find((n) => n.id === `s-douse-1-${name}`);
+    const [pour, splash, steam] = DOUSE_STEPS.map((step) => doused(sprite, step));
+    for (const el of [pour, splash, steam]) check(el);
+
+    // Poured: the creature still stands in its fire, in a single frame, and water hangs over it.
+    const board = raster(doused(sprite, "pour", { px: 1 }));
+    assert.ok(board[GRID - 1].slice(1, GRID - 1).every((c) => flames.has(c)), `${sprite.kind}: the fire still burns`);
+    assert.ok(board.slice(0, 3).flat().includes(DOUSE.water), "water over the creature");
+    assert.equal(last(part(pour, "fire"), "opacity"), 1);
+    assert.equal(last(part(pour, "embers"), "opacity"), 1, "the tongues behind it too");
+    assert.equal(last(part(pour, "steam"), "opacity"), 0, "no steam yet");
+
+    // Splashed: the water falls onto the bed, faster as it falls, and the fire dies as it lands.
+    assert.ok(last(part(splash, "water"), "top") > last(part(pour, "water"), "top"), "the water falls");
+    assert.equal(Object.fromEntries(calls(part(splash, "water"), "transition")).top.easing, "ease-in");
+    for (const name of ["fire", "embers"]) {
+      assert.equal(last(part(splash, name), "opacity"), 0, `the ${name} go out`);
+      assert.ok(Object.fromEntries(calls(part(splash, name), "transition")).opacity.delay > 0, "as the water lands, not before");
+    }
+    assert.equal(last(part(splash, "spray"), "opacity"), 1, "spray flies off the bed");
+    assert.ok(last(part(splash, "steam"), "opacity") > 0, "steam gathers on the bed");
+
+    // Steamed: the water is gone and the steam rises and fades, slowly enough to see.
+    assert.equal(last(part(steam, "water"), "opacity"), 0);
+    assert.equal(last(part(steam, "fire"), "opacity"), 0, "the fire stays out");
+    assert.ok(last(part(steam, "steam"), "top") < last(part(splash, "steam"), "top"), "the steam rises");
+    assert.equal(last(part(steam, "steam"), "opacity"), 0);
+    assert.ok(Object.fromEntries(calls(part(steam, "steam"), "transition")).top.duration >= 600);
+
+    // Every step stays in the box: `raster` fails on anything outside it.
+    for (const step of DOUSE_STEPS) raster(doused(sprite, step, { px: 1 }));
+  }
+});
+
+test("a douse holds the creature still, with no badge, in water and steam of their own colors", () => {
+  const taken = new Set([...Object.values(HIT), ...Object.values(FIRE), theme().blocked, theme().done, theme().idle, theme().working].map((c) => c.toLowerCase()));
+  for (const c of Object.values(DOUSE)) assert.ok(!taken.has(c.toLowerCase()), `${c} means something else`);
+  for (const sprite of KINDS) {
+    for (const step of DOUSE_STEPS) {
+      const el = doused(sprite, step);
+      const nodes = walk(el);
+      assert.ok(!nodes.some((n) => calls(n, "bg").some(([c]) => c === theme().blocked)), `${step}: no "Needs you" badge`);
+      assert.ok(!nodes.some((n) => calls(n, "bg").some(([c]) => c === theme().working)), `${step}: not working yet`);
+      // Only the turn's own parts move: the creature holds still until it is over.
+      const own = new Set(nodes.filter((n) => n.id?.startsWith("s-douse-1-")).flatMap((n) => walk(n)));
+      assert.ok(nodes.filter((n) => !own.has(n)).every((n) => calls(n, "loop").length === 0), `${step}: the creature moves`);
+      for (const name of ["water", "spray", "steam"]) {
+        const colors = walk(nodes.find((n) => n.id === `s-douse-1-${name}`)).flatMap((n) => calls(n, "bg").map(([c]) => c));
+        assert.ok(colors.length && colors.every((c) => Object.values(DOUSE).includes(c)), `${name} in DOUSE's colors`);
+      }
+      for (const node of nodes) if (node.id !== null && node !== nodes[0]) assert.ok(node.id.startsWith("s-"), node.id);
+    }
+  }
+});
+
+test("a new douse has new ids, and a turn of no known kind is no turn", () => {
+  const sprite = makeSprite("t1");
+  const ids = (el) => walk(el).map((n) => n.id).filter(Boolean);
+  assert.ok(ids(doused(sprite, "pour", { n: 7 })).includes("s-douse-7-water"));
+  assert.ok(!ids(doused(sprite, "pour", { n: 7 })).includes("s-douse-1-water"));
+  const plain = tree(working(sprite, "typing"));
+  for (const kind of ["splash", "__proto__", "toString", 5]) {
+    assert.equal(tree(spriteElement(sprite, { id: "s", px: 3, status: "working", work: "typing", turn: { kind, n: 1, step: "pour" } })), plain, String(kind));
+  }
+});
+
+test("a turn is given the creature's parts and moves them as a way of working does", () => {
+  const sprite = makeSprite("t1");
+  TURNS.jig = { from: null, to: null, first: "up", steps: [[100, null]], eyes: "closed",
+    build: ({ torso, nudge, id, step }) => (torso.loop("top", { from: 0, to: -nudge, period: 200 }), { behind: [], front: [div().id(`${id}-${step}`)] }) };
+  try {
+    const el = spriteElement(sprite, { id: "s", px: 3, status: "blocked", turn: { kind: "jig", n: 4, step: "up" } });
+    const nodes = check(el);
+    assert.ok(nodes.some((n) => n.id === "s-jig-4-up"), "its id and step");
+    const torso = nodeOf(nodeOf(nodeOf(el).children[0]).children[2]);
+    assert.deepEqual(calls(torso, "loop"), [["top", { from: 0, to: -1, period: 200 }]], "the torso moves");
+    assert.ok(!nodes.some((n) => calls(n, "bg").some(([c]) => Object.values(FIRE).includes(c))), "in place of the status's look");
+  } finally {
+    delete TURNS.jig;
   }
 });

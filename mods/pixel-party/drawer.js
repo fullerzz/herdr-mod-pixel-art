@@ -28,6 +28,10 @@
 // An agent that ends leaves by the same trick in reverse: its row stays, as it was last
 // drawn, while the wand taps the creature and the smoke goes up, and is gone when it clears.
 //
+// A blocked agent that goes on has its fire put out: water pours on the flames, they die,
+// and steam rises before the creature goes back to work. Each such one-shot for a status
+// change is one of sprite-view's TURNS.
+//
 // Each helper an agent has running is a small figure (a sheep for an `hc` terminal it
 // started, a honey bee for a sub-agent; both are "bees" below) that flies out of its sprite
 // to a lane under it, out of a small puff of smoke, and stays there until the helper ends.
@@ -39,7 +43,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, focused, run, theme, placement } from "herdr";
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { makeSprite, randomSeed } from "./sprites.js";
-import { spriteElement, HIT, STAGES } from "./sprite-view.js";
+import { spriteElement, HIT, STAGES, TURNS } from "./sprite-view.js";
 import { EditWatcher } from "./edits.js";
 import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
@@ -47,7 +51,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @import { Bee } from "./bees.js" */
 /** @import { Lines, Move, MoveKind } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status, TabInfo } from "herdr" */
-/** @import { Theme } from "./sprite-view.js" */
+/** @import { SpriteTurn, Theme } from "./sprite-view.js" */
 
 /**
  * One agent as the drawer shows it.
@@ -66,6 +70,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Flier[]} bees Its helpers, as bees.
  * @property {string | null} work What it is doing, as its hooks say (`pixel.work`), if they do.
  * @property {number} stage How many of its status's STAGES it has held for: 0 when its start is unknown.
+ * @property {SpriteTurn | null} turn The turn its last status change plays, if any.
  */
 
 /**
@@ -237,6 +242,8 @@ export default class Drawer {
   stages = new Map();
   /** @type {number | null} When the pending stage timer wakes the drawer, ms since the epoch; null for none. */
   wake = null;
+  /** @type {Record<string, Map<string, Show<string>>>} The turns being played, by name in TURNS, then by agent address. */
+  turns = Object.fromEntries(Object.keys(TURNS).map((kind) => [kind, new Map()]));
 
   /**
    * Plays a one-shot effect on an agent: `first` now, then each step at its time, and gone
@@ -376,7 +383,7 @@ export default class Drawer {
    * Each agent's status change since it was last drawn, and whether this draw is the moment
    * every agent is done: one of them just turned done and none is anything else. An agent
    * not drawn last time has no earlier status, so the first draw, a new agent and one that
-   * comes back report no change. One-shots for a change play from here with `play`, before the items are built.
+   * comes back report no change. A change's turn plays from them (`react`), before the items are built.
    *
    * It also keeps each agent's status clock: a change starts it at this draw. An agent not
    * drawn last time takes its start from its tab when it has the tab to itself, since a
@@ -455,6 +462,33 @@ export default class Drawer {
     this.reports = reports;
   }
 
+  /**
+   * Plays a turn for each status change the last draw found: the first of TURNS whose `from`
+   * and `to` match it (null: any). A change ends the turn an earlier one started on the same
+   * agent, even when it plays none: a fire lit again is not still being put out.
+   * @param {Context} cx
+   */
+  react(cx) {
+    for (const { address, from, to } of this.changes) {
+      for (const shows of Object.values(this.turns)) shows.delete(address);
+      const kind = Object.keys(TURNS).find((k) => (TURNS[k].from ?? from) === from && (TURNS[k].to ?? to) === to);
+      if (kind) this.play(this.turns[kind], address, TURNS[kind].first, TURNS[kind].steps, cx);
+    }
+  }
+
+  /**
+   * The turn an agent is being shown, if any.
+   * @param {string} address
+   * @returns {SpriteTurn | null}
+   */
+  turnOf(address) {
+    for (const [kind, shows] of Object.entries(this.turns)) {
+      const show = shows.get(address);
+      if (show) return { kind, n: show.n, step: show.step };
+    }
+    return null;
+  }
+
   /** @param {string} name A `pixel-party.<name>` key command: "pick", "reroll" or "reset". */
   command(name) {
     const target = currentAgent(agents());
@@ -512,6 +546,7 @@ export default class Drawer {
     this.departures(list, cx);
     this.arrivals(list, cx);
     this.statusChanges(list, now);
+    this.react(cx);
     this.clock(list, now, cx);
     this.reported(list, byAddress);
     for (const { address, kind } of this.reports) if (kind === "failed") this.play(this.soots, address, "cough", SOOT_STEPS, cx);
@@ -541,6 +576,7 @@ export default class Drawer {
         bees: bees.get(a.address) ?? [],
         work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
         stage: this.stages.get(a.address) ?? 0,
+        turn: this.turnOf(a.address),
       };
     });
     // A ghost keeps its place, so its exit plays where its creature stood. It shows only the
@@ -948,7 +984,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, work, stage }, side) {
+function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, work, stage, turn }, side) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
@@ -972,6 +1008,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, wor
       work,
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live },
       stage,
+      turn,
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
       .when(Boolean(soot), (el) => el
