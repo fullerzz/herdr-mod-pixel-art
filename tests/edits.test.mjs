@@ -1,8 +1,9 @@
 // Hits: lines an agent adds or removes, read from git, shown over its sprite in the drawer.
 // Moves: HEAD moved by a checkout, reset, rebase, pull or cherry-pick, read from its reflog,
 // landed on the drawer's agents; a checkout flips a signpost by the sprite, a reset rewinds
-// the creature, a rebase shuffles a deck of cards in front of it, and a pull or a
-// fast-forward drops a package in front of it. Git is faked through
+// the creature, a rebase shuffles a deck of cards in front of it, a pull or a
+// fast-forward drops a package in front of it, and a cherry-pick has it pluck a pair of
+// cherries. Git is faked through
 // the herdr stand-in's `exec`, and a change through `mock.touch`.
 
 import assert from "node:assert/strict";
@@ -618,9 +619,7 @@ test("a checkout of the branch already checked out, a reset that stays, and a mo
   const before = cx.notified;
   await moves([["a", "checkout: moving from main to main"]]);
   await moves([["a", "reset: moving to HEAD"]]);
-  for (const subject of ['revert: Revert "two"', "cherry-pick: fix"]) {
-    await moves([["b", subject]]);
-  }
+  await moves([["b", 'revert: Revert "two"']]);
   assert.equal(cx.notified, before, "nothing to draw");
   assert.equal(drawer.moves.size, 0);
   assert.equal(signOf(draw(drawer, cx), "t1"), null);
@@ -1000,6 +999,130 @@ test("every edge renders a package beside a stamp with unique ids", async () => 
       mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
       const tree = draw(drawer, cx);
       assert.ok(packageOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
+    }
+  }
+});
+
+/** The cherries' one-shot in an agent's box, or null. */
+const cherryOf = (tree, address) => walk(tree).find((n) => /^pp-cherry-[^-]+-\d+$/.test(n.id ?? "") && n.id.startsWith(`pp-cherry-${address}-`)) ?? null;
+/** Its twig. */
+const twigOf = (shot) => find(shot, `${shot.id}-twig`);
+/** Its pair of cherries. */
+const pairOf = (shot) => find(shot, `${shot.id}-pair`);
+
+test("a cherry-pick has the creature pluck a pair of cherries from a twig: tugged, plucked as the branch springs back, held, then faded", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  let tree = draw(drawer, cx);
+  assert.equal(cherryOf(tree, "t1"), null, "no move, no cherries");
+  const before = cx.notified;
+  await moves([["b", "cherry-pick: fix"]]);
+  assert.ok(cx.notified > before, "the drawer draws again");
+  assert.equal(drawer.moves.get("t1").move.kind, "cherry-pick");
+  tree = draw(drawer, cx);
+  const shot = () => cherryOf(tree, "t1");
+  const twig = () => twigOf(shot());
+  const pair = () => pairOf(shot());
+  const at = (node) => [last(node, "left"), last(node, "top")];
+  const sprite = () => find(tree, "pp-spr-t1");
+  assert.ok(shot() && walk(find(tree, "pp-box-t1")).includes(shot()), "in the sprite's box, so a closed drawer shows it");
+  assert.equal(cherryOf(tree, "t2"), null, "the idle one in the same repository takes none");
+  assert.notEqual(last(sprite(), "opacity"), 0, "the creature stays: it is the one plucking");
+  assert.equal(last(shot(), "opacity"), 0, "hung unseen");
+  const [twigX, twigY] = at(twig());
+  const [hangX, hangY] = at(pair());
+  assert.ok(twigX + last(twig(), "w") <= 47 && twigX > 24 && twigY >= 1, "the twig at the box's upper right, inside it");
+  assert.ok(hangY > twigY && hangY < 12 && hangX + last(pair(), "w") <= 47, "the cherries hang from it");
+
+  cx.run(30);
+  tree = draw(drawer, cx);
+  assert.equal(last(shot(), "opacity"), 1, "they show");
+
+  cx.run(600);
+  tree = draw(drawer, cx);
+  assert.ok(last(pair(), "top") > hangY && last(twig(), "top") > twigY, "tugged: the cherries and the branch bend down");
+  assert.equal(last(pair(), "left"), hangX, "still on the twig");
+
+  cx.run(800);
+  tree = draw(drawer, cx);
+  const [heldX, heldY] = at(pair());
+  assert.ok(heldX < hangX && heldY > hangY, "plucked: down and in, in front of the creature");
+  assert.ok(heldX >= 6 && heldX + last(pair(), "w") <= 42 && heldY + last(pair(), "h") <= 44, "over the creature, inside the box");
+  const swing = Object.fromEntries(calls(pair(), "transition").map(([p, policy]) => [p, policy.easing]));
+  assert.deepEqual([swing.left, swing.top], ["ease-out", "ease-in"], "aside easing out and down easing in: an arc");
+  assert.ok(last(twig(), "top") < twigY, "the branch springs up past where it was");
+  assert.ok(last(twig(), "top") >= 1, "never over the row above");
+
+  cx.run(900);
+  tree = draw(drawer, cx);
+  assert.equal(last(twig(), "top"), twigY, "and settles");
+  assert.deepEqual(at(pair()), [heldX, heldY], "the creature holds the cherries");
+
+  cx.run(2200);
+  tree = draw(drawer, cx);
+  assert.equal(last(shot(), "opacity"), 1, "it holds");
+  cx.run(2300);
+  tree = draw(drawer, cx);
+  assert.equal(last(shot(), "opacity"), 0, "then fades");
+  assert.deepEqual(at(pair()), [heldX, heldY], "in its hands");
+  cx.run(2800);
+  tree = draw(drawer, cx);
+  assert.equal(shot(), null, "and is gone");
+  assert.equal(drawer.moves.size, 0, "forgotten too");
+});
+
+test("a cherry-pick concluded after a conflict plucks too, with no stamp; a range of picks in one look plucks once", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "commit (cherry-pick): fix"]]);
+  let tree = draw(drawer, cx);
+  assert.ok(cherryOf(tree, "t1"));
+  assert.equal(walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), false, "no stamp");
+  cx.run(5000);
+  assert.equal(cherryOf(draw(drawer, cx), "t1"), null);
+  const n = drawer.serial;
+  await moves([["c", "cherry-pick: one"], ["d", "cherry-pick: two"], ["e", "cherry-pick: three"]]);
+  assert.equal(drawer.serial, n + 1, "one pluck for the whole range");
+  tree = draw(drawer, cx);
+  assert.ok(cherryOf(tree, "t1"));
+});
+
+test("a second cherry-pick hangs new cherries; the first one's steps no longer touch them", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "cherry-pick: one"]]);
+  const first = cherryOf(draw(drawer, cx), "t1").id;
+  cx.run(700);
+  // The first pluck's steps still to come, held back to run after the second starts.
+  const pending = cx.timers.filter((t) => !t.every);
+  cx.timers = cx.timers.filter((t) => t.every);
+  await moves([["c", "cherry-pick: two"]]);
+  const second = cherryOf(draw(drawer, cx), "t1").id;
+  assert.notEqual(second, first, "a new id: the cherries hang on the twig again");
+  for (const t of pending) t.handler(cx);
+  const tree = draw(drawer, cx);
+  assert.equal(cherryOf(tree, "t1")?.id, second, "the first one's end does not clear the second");
+  assert.equal(last(cherryOf(tree, "t1"), "opacity"), 0, "still hung unseen, as the second's own steps have it");
+  cx.run(5000);
+  assert.equal(cherryOf(draw(drawer, cx), "t1"), null, "the second's own end clears it");
+});
+
+test("every edge renders cherries beside a stamp with unique ids", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "commit: x"]]);
+  await moves([["c", "cherry-pick: fix"]]);
+  for (const step of [0, 30, 600, 800, 900, 2300]) {
+    cx.run(step);
+    for (const edge of ["top", "right", "bottom", "left", null]) {
+      mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
+      const tree = draw(drawer, cx);
+      assert.ok(cherryOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
     }
   }
 });

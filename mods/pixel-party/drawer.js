@@ -32,7 +32,9 @@
 // the creature: it spins backwards, jittering like a worn tape, under a "◀◀". A rebase is a
 // deck of cards the creature shuffles in front of itself, twice. A pull, or a fast-forward, is
 // a package that drops in from above and lands in front of the creature with a bounce and a
-// puff of dust. Other kinds of move plug into the same table (`ONE_SHOTS`), one entry each.
+// puff of dust. A cherry-pick is a pair of cherries the creature plucks from a twig at the
+// cell's upper right and holds in front of itself. Other kinds of move plug into the same
+// table (`ONE_SHOTS`), one entry each.
 //
 // A command an agent runs that fails is a puff of black smoke: the creature coughs, and the
 // smoke goes up from its face and clears. Tests show how they came out instead: passed, a
@@ -1497,6 +1499,84 @@ function packageElement(_t, address, { n, step }) {
   return div().id(id).absolute().left(0).top(0).size_full().children([...dust, box]);
 }
 
+// A cherry-pick's twig, 5 by 2 cells of the stamp's size, coming in from the box's right
+// edge: b the branch, l a leaf at its tip.
+const TWIG = [
+  "lbbbb",
+  "ll...",
+];
+// Its pair of cherries, 5 by 4 cells, hanging from the branch by their stems: s the stems,
+// r the cherries, h a shine on each.
+const CHERRY = [
+  "..s..",
+  ".s.s.",
+  "hr.hr",
+  "rr.rr",
+];
+/** @type {Record<string, Color>} The branch in the stamp tool's dark wood, a green leaf and stems, red cherries. */
+const CHERRY_PAINT = { b: "#7a4e2d", l: "#6cc24a", s: "#4a9a3a", r: "#d7263d", h: "#ffffff" };
+const TWIG_RUNS = runsOf(TWIG);
+const CHERRY_RUNS = runsOf(CHERRY);
+const TWIG_W = TWIG[0].length * STAMP_PX;
+const TWIG_H = TWIG.length * STAMP_PX;
+const CHERRY_W = CHERRY[0].length * STAMP_PX;
+const CHERRY_H = CHERRY.length * STAMP_PX;
+const TWIG_X = CELL - TWIG_W - 1; // px: at the box's upper right, its outline inside the box
+const TWIG_TOP = 3; // px: low enough that its spring-back keeps its outline inside the box
+const CHERRY_HANG = TWIG_TOP + STAMP_PX; // px: the stems' top, under the branch
+const CHERRY_X = Math.floor((CELL - CHERRY_W) / 2); // px: plucked, in front of the creature's middle
+const CHERRY_HELD = STAMP_FLOOR - CHERRY_H; // px: plucked, its bottom on the stamp's floor
+const CHERRY_TUG = 2; // px the creature pulls the cherries, and the branch with them, down
+/** @typedef {"hang" | "show" | "tug" | "pluck" | "held" | "fade"} CherryStep */
+/** @type {[ms: number, step: CherryStep | null][]} After "hang": it shows, is tugged, plucked as the branch springs back, held, and fades. */
+const CHERRY_STEPS = [[30, "show"], [600, "tug"], [800, "pluck"], [900, "held"], [2300, "fade"], [2800, null]];
+
+// Hung unseen from a twig at the box's upper right, a pair of cherries shows. The creature
+// tugs at them: they and the branch bend down. Then it plucks them: they swing down into its
+// hands, in front of its middle, while the branch springs up past where it was and settles.
+// It holds them, and both fade. The ids carry the shot's number, so a new cherry-pick starts
+// over.
+/**
+ * @param {Theme} _t
+ * @param {string} address
+ * @param {Shot} shot
+ * @returns {Element}
+ */
+function cherryElement(_t, address, { n, step }) {
+  const id = `pp-cherry-${address}-${n}`;
+  const tugged = step === "tug" ? CHERRY_TUG : 0;
+  const plucked = step === "pluck" || step === "held" || step === "fade";
+  const twig = div()
+    .id(`${id}-twig`)
+    .absolute()
+    .left(TWIG_X)
+    .top(TWIG_TOP + tugged - (step === "pluck" ? CHERRY_TUG : 0))
+    .w(TWIG_W)
+    .h(TWIG_H)
+    .transition("top", step === "pluck" ? { duration: 100, easing: "ease-out" } : { duration: 150, easing: "ease-in-out" })
+    .children(pixels(TWIG_RUNS, (c) => CHERRY_PAINT[c], OUTLINE));
+  // Plucked, the cherries go aside easing out and down easing in, so they swing down in an arc.
+  const cherries = div()
+    .id(`${id}-pair`)
+    .absolute()
+    .left(plucked ? CHERRY_X : TWIG_X)
+    .top(plucked ? CHERRY_HELD : CHERRY_HANG + tugged)
+    .w(CHERRY_W)
+    .h(CHERRY_H)
+    .transition("left", plucked ? { duration: 250, easing: "ease-out" } : { duration: 150 })
+    .transition("top", plucked ? { duration: 250, easing: "ease-in" } : { duration: 150, easing: "ease-in-out" })
+    .children(pixels(CHERRY_RUNS, (c) => CHERRY_PAINT[c], OUTLINE));
+  return div()
+    .id(id)
+    .absolute()
+    .left(0)
+    .top(0)
+    .size_full()
+    .opacity(step === "hang" || step === "fade" ? 0 : 1)
+    .transition("opacity", step === "fade" ? { duration: 500, easing: "ease-in" } : { duration: 150, easing: "ease-out" })
+    .children([twig, cherries]);
+}
+
 /** @type {OneShot} A pull's, and a fast-forward's: what a `git merge` that makes no commit is. */
 const PACKAGE_SHOT = { first: "drop", steps: PACKAGE_STEPS, draw: packageElement };
 
@@ -1507,6 +1587,7 @@ const ONE_SHOTS = {
   rebase: { first: "deal", steps: DECK_STEPS, draw: deckElement },
   pull: PACKAGE_SHOT,
   merge: PACKAGE_SHOT,
+  "cherry-pick": { first: "hang", steps: CHERRY_STEPS, draw: cherryElement },
 };
 
 // A thumbs up, 7 by 7 cells: the thumb up, the fist under it with its fingers to the right.

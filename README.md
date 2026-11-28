@@ -52,6 +52,8 @@ move according to what their agents are doing.
   front of itself, twice.
 - **Packages.** When an agent pulls or fast-forwards its branch, a package drops in from
   above and lands in front of its creature.
+- **Cherries.** When an agent cherry-picks a commit, its creature plucks a pair of cherries
+  from a twig and holds them up in front of itself.
 - **Smoke.** With [the same hooks](#failed-commands), a command an agent runs that fails
   makes its creature cough, and a puff of black smoke goes up from its face.
 - **Test results.** With [the same hooks](#test-results), tests that pass get a thumbs up
@@ -251,6 +253,18 @@ the cell, bounces once as it lands with a puff of dust either side, rests a mome
 fades, under three seconds in all. A `git pull --rebase` drops one package however many
 commits it replays, and shuffles no deck. A pull that makes a merge commit drops a package
 too, and is no stamp. A pull lands on the same agents as a commit.
+
+## Cherries
+
+A `git cherry-pick` in an agent's repository has its creature pluck a pair of cherries,
+with no setup. The cherries hang from a twig at the upper right of the cell. The creature
+tugs at them, and the branch bends; then it plucks them, and they swing down in front of
+it while the branch springs back. It holds them a moment, and they fade, under three
+seconds in all. A cherry-pick that stops on a conflict and is concluded with
+`git cherry-pick --continue` plucks too, and is no stamp. A range of commits picked at once
+writes a line to git's log for each, but the drawer reads them together, so it is one pluck;
+a long range the drawer catches partway can pluck again. A cherry-pick lands on the same
+agents as a commit.
 
 ## Failed commands
 

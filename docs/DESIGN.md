@@ -69,8 +69,10 @@ picker lets the person choose another creature for an agent.
   jittering like a worn tape, under a blinking `◀◀`. A rebase shuffles a deck of cards in
   front of the sprite: it splits and riffles twice, then fades. A pull or a fast-forward
   drops a package in front of the sprite: it falls from the top of the box, bounces with a
-  puff of dust, rests, then fades. Other moves of HEAD get one-shots of their own the same
-  way.
+  puff of dust, rests, then fades. A cherry-pick has the sprite pluck a pair of cherries
+  from a twig at the box's upper right: it tugs, the cherries swing down in front of it as
+  the branch springs back, and it holds them, then they fade. Other moves of HEAD get
+  one-shots of their own the same way.
 - **Smoke.** A shell command an agent runs that fails makes its sprite cough: it lurches,
   and a puff of black smoke goes up from its face and clears. Only Claude Code's hooks say
   so (`PostToolUseFailure`).
@@ -709,6 +711,18 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   from 2.2 s, and is gone at 2.7 s. Every `pull` note is a pull: `pull --rebase` lines too,
   so a `git pull --rebase` drops one package and shuffles no deck, and a pull that made a
   merge commit (`pull: Merge made by ...`) is a pull, not a stamp.
+- A cherry-pick's one-shot is a pair of cherries the sprite plucks, while it stays: a twig,
+  5 by 2 cells of 3 px, a dark-wood branch with a green leaf at its tip, at the box's upper
+  right, 1 px in from its right edge and 3 px down, so it springs up no higher than 1 px; and two red cherries with a white shine on
+  green stems, 5 by 4 cells, hanging from it, both outlined dark. Hung unseen, they fade
+  in at 30 ms over 150 ms. At 600 ms the sprite tugs: the cherries and the twig go 2 px
+  down over 150 ms. At 800 ms it plucks them: over 250 ms they swing to the middle of the
+  box, their bottom on the stamp's floor, going aside easing out and down easing in so they
+  arc, and the twig springs 2 px above where it hung over 100 ms; at 900 ms it settles
+  back. They overlap the left of a stamp there, which draws over them. They hold, fade
+  with the twig over 500 ms from 2.3 s, and are gone at 2.8 s. `commit (cherry-pick): `, a
+  cherry-pick concluded after a conflict, plucks too, and a range of picks in one look is
+  one move, so one pluck.
 - Bees sit under the sprite's box, and under its XP bar when it shows, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees
