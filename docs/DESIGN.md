@@ -65,8 +65,10 @@ picker lets the person choose another creature for an agent.
   sprite: it shows pointing back the way HEAD came from, turns edge-on, and points the
   other way, then fades. A reset rewinds the sprite: it spins backwards three times, its rows
   jittering like a worn tape, under a blinking `◀◀`. A rebase shuffles a deck of cards in
-  front of the sprite: it splits and riffles twice, then fades. Other moves of HEAD get
-  one-shots of their own the same way.
+  front of the sprite: it splits and riffles twice, then fades. A pull or a fast-forward
+  drops a package in front of the sprite: it falls from the top of the box, bounces with a
+  puff of dust, rests, then fades. Other moves of HEAD get one-shots of their own the same
+  way.
 - **Smoke.** A shell command an agent runs that fails makes its sprite cough: it lurches,
   and a puff of black smoke goes up from its face and clears. Only Claude Code's hooks say
   so (`PostToolUseFailure`).
@@ -670,6 +672,17 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   at 1,250 ms, holds, fades over 500 ms from 2.3 s, and is gone at 2.8 s. Each card keeps
   its id through the shuffle, so it glides; a rebase's many reflog lines in one look are
   one move, so one shuffle.
+- A pull's one-shot, and a fast-forward `merge`'s, is a package dropped in front of the
+  sprite, which stays: a cardboard box, 6 by 5 cells of 3 px in the stamp tool's wood with a
+  strip of paler tape and a white label, outlined dark. It stands over the sprite's middle
+  columns, its bottom on the stamp's floor; there it overlaps the left of a stamp, which
+  draws over it. Dropped unseen at the box's top, never above it, it falls at 30 ms over
+  300 ms, ease-in, and shows as it falls. At 330 ms it lands and bounces 4 px back up over
+  90 ms, and a 2 px puff of dust shows at each of its lower corners; at 420 ms it rests, and
+  the puffs spread 6 px aside and up as they clear over 300 ms. It holds, fades over 500 ms
+  from 2.2 s, and is gone at 2.7 s. Every `pull` note is a pull: `pull --rebase` lines too,
+  so a `git pull --rebase` drops one package and shuffles no deck, and a pull that made a
+  merge commit (`pull: Merge made by ...`) is a pull, not a stamp.
 - Bees sit under the sprite's box, and under its XP bar when it shows, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees

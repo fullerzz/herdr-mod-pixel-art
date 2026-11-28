@@ -1,7 +1,8 @@
 // Hits: lines an agent adds or removes, read from git, shown over its sprite in the drawer.
 // Moves: HEAD moved by a checkout, reset, rebase, pull or cherry-pick, read from its reflog,
 // landed on the drawer's agents; a checkout flips a signpost by the sprite, a reset rewinds
-// the creature, and a rebase shuffles a deck of cards in front of it. Git is faked through
+// the creature, a rebase shuffles a deck of cards in front of it, and a pull or a
+// fast-forward drops a package in front of it. Git is faked through
 // the herdr stand-in's `exec`, and a change through `mock.touch`.
 
 import assert from "node:assert/strict";
@@ -617,7 +618,7 @@ test("a checkout of the branch already checked out, a reset that stays, and a mo
   const before = cx.notified;
   await moves([["a", "checkout: moving from main to main"]]);
   await moves([["a", "reset: moving to HEAD"]]);
-  for (const subject of ["pull: Fast-forward", "cherry-pick: fix"]) {
+  for (const subject of ['revert: Revert "two"', "cherry-pick: fix"]) {
     await moves([["b", subject]]);
   }
   assert.equal(cx.notified, before, "nothing to draw");
@@ -873,6 +874,132 @@ test("every edge renders a deck beside a stamp with unique ids", async () => {
       mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
       const tree = draw(drawer, cx);
       assert.ok(deckOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
+    }
+  }
+});
+
+/** The package in an agent's box, or null. */
+const packageOf = (tree, address) => walk(tree).find((n) => /^pp-package-[^-]+-\d+$/.test(n.id ?? "") && n.id.startsWith(`pp-package-${address}-`)) ?? null;
+/** The package's box itself. */
+const boxOf = (pkg) => find(pkg, `${pkg.id}-box`);
+/** Its puffs of dust. */
+const dustOf = (pkg) => walk(pkg).filter((n) => /-dust-\d+$/.test(n.id ?? ""));
+
+test("a pull drops a package in front of the creature: it falls from the top, bounces with a puff of dust, rests, and fades", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  let tree = draw(drawer, cx);
+  assert.equal(packageOf(tree, "t1"), null, "no move, no package");
+  const before = cx.notified;
+  await moves([["b", "pull: Fast-forward"]]);
+  assert.ok(cx.notified > before, "the drawer draws again");
+  assert.equal(drawer.moves.get("t1").move.kind, "pull");
+  tree = draw(drawer, cx);
+  const pkg = () => packageOf(tree, "t1");
+  const box = () => boxOf(pkg());
+  const sprite = () => find(tree, "pp-spr-t1");
+  assert.ok(pkg() && walk(find(tree, "pp-box-t1")).includes(pkg()), "in the sprite's box, so a closed drawer shows it");
+  assert.equal(packageOf(tree, "t2"), null, "the idle one in the same repository takes none");
+  assert.notEqual(last(sprite(), "opacity"), 0, "the creature stays: the package lands in front of it");
+  assert.equal(last(box(), "opacity"), 0, "dropped unseen");
+  assert.equal(last(box(), "top"), 0, "at the top of the box, never over the row above");
+  const [x, w] = [last(box(), "left"), last(box(), "w")];
+  assert.ok(x >= 6 && x + w <= 42, "over the creature's columns");
+  assert.ok(dustOf(pkg()).length >= 2 && dustOf(pkg()).every((d) => last(d, "opacity") === 0), "no dust yet");
+
+  cx.run(30);
+  tree = draw(drawer, cx);
+  assert.equal(last(box(), "opacity"), 1, "it shows as it falls");
+  const rest = last(box(), "top");
+  assert.ok(rest > 0, "down to the floor");
+  assert.ok(rest + last(box(), "h") <= 44, "inside the box");
+  assert.equal(calls(box(), "transition").filter(([p]) => p === "top").at(-1)[1].easing, "ease-in", "faster as it falls");
+
+  cx.run(330);
+  tree = draw(drawer, cx);
+  assert.ok(last(box(), "top") < rest, "it bounces back up as it lands");
+  assert.ok(dustOf(pkg()).every((d) => last(d, "opacity") === 1), "with a puff of dust at each corner");
+  const puffs = dustOf(pkg()).map((d) => last(d, "left"));
+
+  cx.run(420);
+  tree = draw(drawer, cx);
+  assert.equal(last(box(), "top"), rest, "and comes to rest");
+  const spread = dustOf(pkg()).map((d) => last(d, "left"));
+  assert.ok(spread[0] < puffs[0] && spread[1] > puffs[1], "the dust spreads either way");
+  assert.ok(dustOf(pkg()).every((d) => last(d, "opacity") === 0), "and clears");
+
+  cx.run(2100);
+  tree = draw(drawer, cx);
+  assert.equal(last(box(), "opacity"), 1, "it holds");
+  cx.run(2200);
+  tree = draw(drawer, cx);
+  assert.equal(last(box(), "opacity"), 0, "then fades");
+  cx.run(2700);
+  tree = draw(drawer, cx);
+  assert.equal(pkg(), null, "and is gone");
+  assert.equal(drawer.moves.size, 0, "forgotten too");
+});
+
+test("a fast-forward merge and a pull that merges drop a package too; a pull --rebase's many lines drop one, and shuffle no deck", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  for (const subject of ["merge x: Fast-forward", "pull --no-rebase: Merge made by the 'ort' strategy."]) {
+    await moves([["b", subject]]);
+    const tree = draw(drawer, cx);
+    assert.ok(packageOf(tree, "t1"), subject);
+    assert.equal(walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), false, `${subject}: no stamp`);
+    cx.run(5000);
+    assert.equal(packageOf(draw(drawer, cx), "t1"), null);
+  }
+  const n = drawer.serial;
+  await moves([
+    ["c", "pull --rebase (start): checkout c"],
+    ["d", "pull --rebase (pick): one"],
+    ["e", "pull --rebase (pick): two"],
+    ["e", "pull --rebase (finish): returning to refs/heads/x"],
+  ]);
+  assert.equal(drawer.serial, n + 1, "one package for the whole pull");
+  const tree = draw(drawer, cx);
+  assert.ok(packageOf(tree, "t1"));
+  assert.equal(deckOf(tree, "t1"), null, "a pull, not a rebase");
+});
+
+test("a second pull drops a new package; the first one's steps no longer touch it", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "pull: Fast-forward"]]);
+  const first = packageOf(draw(drawer, cx), "t1").id;
+  cx.run(400);
+  // The first package's steps still to come, held back to run after the second drops.
+  const pending = cx.timers.filter((t) => !t.every);
+  cx.timers = cx.timers.filter((t) => t.every);
+  await moves([["c", "pull: Fast-forward"]]);
+  const second = packageOf(draw(drawer, cx), "t1").id;
+  assert.notEqual(second, first, "a new id: it drops from the top again");
+  for (const t of pending) t.handler(cx);
+  const tree = draw(drawer, cx);
+  assert.equal(packageOf(tree, "t1")?.id, second, "the first one's end does not clear the second");
+  assert.equal(last(boxOf(packageOf(tree, "t1")), "opacity"), 0, "still dropped unseen, as the second's own steps have it");
+  cx.run(5000);
+  assert.equal(packageOf(draw(drawer, cx), "t1"), null, "the second's own end clears it");
+});
+
+test("every edge renders a package beside a stamp with unique ids", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "commit: x"]]);
+  await moves([["c", "pull: Fast-forward"]]);
+  for (const step of [0, 30, 330, 420, 2200]) {
+    cx.run(step);
+    for (const edge of ["top", "right", "bottom", "left", null]) {
+      mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
+      const tree = draw(drawer, cx);
+      assert.ok(packageOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
     }
   }
 });

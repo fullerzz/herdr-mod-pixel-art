@@ -30,8 +30,9 @@
 // A checkout in an agent's repository flips a signpost by its sprite: it shows pointing the
 // way HEAD came from, turns edge-on, and points the other way before it fades. A reset rewinds
 // the creature: it spins backwards, jittering like a worn tape, under a "◀◀". A rebase is a
-// deck of cards the creature shuffles in front of itself, twice. Other kinds of move plug
-// into the same table (`ONE_SHOTS`), one entry each.
+// deck of cards the creature shuffles in front of itself, twice. A pull, or a fast-forward, is
+// a package that drops in from above and lands in front of the creature with a bounce and a
+// puff of dust. Other kinds of move plug into the same table (`ONE_SHOTS`), one entry each.
 //
 // A command an agent runs that fails is a puff of black smoke: the creature coughs, and the
 // smoke goes up from its face and clears. Tests show how they came out instead: passed, a
@@ -1422,11 +1423,90 @@ function deckElement(_t, address, { n, step }) {
     .children(cards);
 }
 
+// A pull's package, 6 by 5 cells of the stamp's size: a cardboard box seen from the front, its
+// lid on top and a strip of tape down the middle of both, a white label on its front. l the
+// lid, d the lid's edge, c the box, t the tape, w the label.
+const PACKAGE = [
+  "llttll",
+  "dddddd",
+  "cctccc",
+  "wctccc",
+  "cctccc",
+];
+/** @type {Record<string, Color>} Cardboard in the stamp tool's wood, with paler tape and a white label. */
+const PACKAGE_PAINT = { l: "#ebbd85", d: "#7a4e2d", c: "#c98b4f", t: "#f3d9a4", w: "#ffffff" };
+const PACKAGE_RUNS = runsOf(PACKAGE);
+const PACKAGE_W = PACKAGE[0].length * STAMP_PX;
+const PACKAGE_H = PACKAGE.length * STAMP_PX;
+const PACKAGE_X = (CELL - PACKAGE_W) / 2; // px: in front of the creature, over its middle columns
+const PACKAGE_REST = STAMP_FLOOR - PACKAGE_H; // px: its top when it rests, its bottom on the stamp's floor
+const PACKAGE_FALL = 300; // ms from the box's top to the floor
+const PACKAGE_BOUNCE = 4; // px it bounces back up when it lands
+/** @type {[dx: number, dy: number][]} Where each puff of dust goes as it spreads from under the package, from its lower corners. */
+const DUST = [[-6, -3], [6, -3]];
+const DUST_PX = 2;
+/** @type {Color} */
+const DUST_COLOR = "#d9d9e3";
+/** @typedef {"drop" | "fall" | "bounce" | "rest" | "fade"} PackageStep */
+/** @type {[ms: number, step: PackageStep | null][]} After "drop": it falls, bounces, rests, holds, and fades. */
+const PACKAGE_STEPS = [[30, "fall"], [30 + PACKAGE_FALL, "bounce"], [30 + PACKAGE_FALL + 90, "rest"], [2200, "fade"], [2700, null]];
+
+// Dropped unseen at the top of the box, the package falls onto the stamp's floor in front of
+// the creature, faster as it falls, and shows on the way down. It bounces once, and a puff of
+// dust spreads from each of its lower corners as it lands. It rests there, holds, and fades.
+// The ids carry the shot's number, so a new pull starts over.
+/**
+ * @param {Theme} _t
+ * @param {string} address
+ * @param {Shot} shot
+ * @returns {Element}
+ */
+function packageElement(_t, address, { n, step }) {
+  const id = `pp-package-${address}-${n}`;
+  const top = step === "drop" ? 0 : step === "bounce" ? PACKAGE_REST - PACKAGE_BOUNCE : PACKAGE_REST;
+  /** @type {import("gpui-shell").TransitionPolicy} */
+  const move = step === "fall" ? { duration: PACKAGE_FALL, easing: "ease-in" } : step === "bounce" ? { duration: 90, easing: "ease-out" } : { duration: 90, easing: "ease-in" };
+  const box = div()
+    .id(`${id}-box`)
+    .absolute()
+    .left(PACKAGE_X)
+    .top(top)
+    .w(PACKAGE_W)
+    .h(PACKAGE_H)
+    .opacity(step === "drop" || step === "fade" ? 0 : 1)
+    .transition("top", move)
+    .transition("opacity", step === "fade" ? { duration: 500, easing: "ease-in" } : { duration: 80 })
+    .children(pixels(PACKAGE_RUNS, (c) => PACKAGE_PAINT[c], OUTLINE));
+  // Each puff stands at a lower corner, unseen, until the package lands; then it shows and spreads.
+  const spread = step === "rest" || step === "fade";
+  const dust = DUST.map(([dx, dy], i) => {
+    const [x, y] = [PACKAGE_X + (i ? PACKAGE_W - DUST_PX : 0), STAMP_FLOOR - DUST_PX];
+    return div()
+      .id(`${id}-dust-${i}`)
+      .absolute()
+      .left(x + (spread ? dx : 0))
+      .top(y + (spread ? dy : 0))
+      .w(DUST_PX)
+      .h(DUST_PX)
+      .bg(DUST_COLOR)
+      .opacity(step === "bounce" ? 1 : 0)
+      .transition("left", { duration: 300, easing: "ease-out" })
+      .transition("top", { duration: 300, easing: "ease-out" })
+      .transition("opacity", spread ? { duration: 300, easing: "ease-in" } : { duration: 40 });
+  });
+  return div().id(id).absolute().left(0).top(0).size_full().children([...dust, box]);
+}
+
+/** @type {OneShot} A pull's, and a fast-forward's: what a `git merge` that makes no commit is. */
+const PACKAGE_SHOT = { first: "drop", steps: PACKAGE_STEPS, draw: packageElement };
+
 /** @type {Partial<Record<MoveKind, OneShot>>} The one-shot each kind of move plays; a kind not here shows nothing yet. */
 const ONE_SHOTS = {
   checkout: { first: "plant", steps: SIGN_STEPS, draw: signElement },
   reset: { first: "front", steps: REWIND_STEPS, draw: rewindElement, hides: true },
   rebase: { first: "deal", steps: DECK_STEPS, draw: deckElement },
+  pull: PACKAGE_SHOT,
+  merge: PACKAGE_SHOT,
 };
 
 // A thumbs up, 7 by 7 cells: the thumb up, the fist under it with its fingers to the right.

@@ -50,6 +50,8 @@ move according to what their agents are doing.
   on rewind, jittering under a blinking `◀◀`.
 - **Shuffles.** When an agent rebases its branch, its creature shuffles a deck of cards in
   front of itself, twice.
+- **Packages.** When an agent pulls or fast-forwards its branch, a package drops in from
+  above and lands in front of its creature.
 - **Smoke.** With [the same hooks](#failed-commands), a command an agent runs that fails
   makes its creature cough, and a puff of black smoke goes up from its face.
 - **Test results.** With [the same hooks](#test-results), tests that pass get a thumbs up
@@ -238,7 +240,17 @@ and riffles back together one card at a time, the halves taking turns. It does t
 holds a moment and fades, about three seconds in all. A rebase writes a line to git's log
 for each commit it replays, but the drawer reads them together, so one rebase is one
 shuffle; a long rebase the drawer catches partway can shuffle again. A rebase lands on the
-same agents as a commit. A `git pull --rebase` counts as a pull, not a rebase.
+same agents as a commit. A `git pull --rebase` counts as a pull, not a rebase: it drops a
+[package](#packages).
+
+## Packages
+
+A `git pull` in an agent's repository drops a package in front of its creature, with no
+setup, and so does a `git merge` that fast-forwards. A cardboard box falls from the top of
+the cell, bounces once as it lands with a puff of dust either side, rests a moment and
+fades, under three seconds in all. A `git pull --rebase` drops one package however many
+commits it replays, and shuffles no deck. A pull that makes a merge commit drops a package
+too, and is no stamp. A pull lands on the same agents as a commit.
 
 ## Failed commands
 
