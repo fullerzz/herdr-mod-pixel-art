@@ -17,7 +17,9 @@
 //
 // A commit made in an agent's repository is a stamp of approval: a rubber stamp slams down
 // on its sprite, the cell dips under the blow, and the stamp lifts away to leave a check
-// mark that holds a moment before it fades.
+// mark that holds a moment before it fades. The other agents in that repository, the ones the
+// stamp does not land on, clap: a pair of white gloves claps three times in front of each, with
+// gold sparks at each clap.
 //
 // A checkout in an agent's repository flips a signpost by its sprite: it shows pointing the
 // way HEAD came from, turns edge-on, and points the other way before it fades. A reset rewinds
@@ -75,6 +77,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Hit | null} hit The hit it is taking, if any.
  * @property {Combo | null} combo The combo its hits make, once it has COMBO_MIN of them.
  * @property {Stamp | null} stamp The stamp it is getting, if any.
+ * @property {Clap | null} clap The clap it gives for a commit another agent in its repository made, if any.
  * @property {Shot | null} move The one-shot for the last move of HEAD that landed on it, while it plays.
  * @property {Trick | null} trick The trick it arrives by, if it is new.
  * @property {Exit | null} exit The trick it leaves by, if it is gone.
@@ -95,6 +98,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @typedef {{ n: number, step: Step }} Show
  */
 /** @typedef {Show<"drop" | "press" | "lift" | "fade">} Stamp A commit's stamp. */
+/** @typedef {Show<"clap" | "fade">} Clap The other agents' applause for a commit. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "reveal">} Trick A new agent's arrival. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "clear">} Exit An agent's departure: the trick in reverse. */
 /** @typedef {Show<"cloud" | "clear">} Puff Smoke where a new bee comes out. */
@@ -185,6 +189,10 @@ const STAMP_SLAM = 340; // ms from dropped to down
 const STAMP_DIP = 3; // px the cell dips when the tool lands
 /** @type {[ms: number, step: Stamp["step"] | null][]} When each step starts; null: gone. */
 const STAMP_STEPS = [[30, "press"], [900, "lift"], [2700, "fade"], [3800, null]];
+const CLAP_BEAT = 240; // ms from one clap to the next: the hands meet and part again
+const CLAPS = 3;
+/** @type {[ms: number, step: Clap["step"] | null][]} After "clap": the hands clap CLAPS times, then fade. */
+const CLAP_STEPS = [[CLAPS * CLAP_BEAT, "fade"], [CLAPS * CLAP_BEAT + 300, null]];
 /** @type {[ms: number, step: Trick["step"] | null][]} After "wand": the wand taps, smoke goes up, the creature shows. */
 const TRICK_STEPS = [[240, "tap"], [440, "poof"], [760, "reveal"], [1500, null]];
 /** @type {[ms: number, step: Exit["step"] | null][]} After "wand": the wand taps, smoke goes up as the creature goes, and clears. */
@@ -259,6 +267,8 @@ export default class Drawer {
   launching = false;
   /** @type {Map<string, Stamp>} By agent address. */
   stamps = new Map();
+  /** @type {Map<string, Clap>} By agent address. */
+  claps = new Map();
   /** @type {Set<string> | null} The agents drawn last time; null before the first draw. */
   seen = null;
   /** @type {Map<string, Trick>} By agent address. */
@@ -345,12 +355,21 @@ export default class Drawer {
   }
 
   /**
-   * The agents news from a repository lands on: those working in it, else every agent in it.
+   * The agents in a repository: those whose folder is in it.
    * @param {string} root
    * @returns {string[]} Addresses.
    */
-  agentsIn(root) {
-    const here = [...folders()].filter(([, dir]) => this.edits.rootOf(dir) === root).map(([address]) => address);
+  agentsOf(root) {
+    return [...folders()].filter(([, dir]) => this.edits.rootOf(dir) === root).map(([address]) => address);
+  }
+
+  /**
+   * The agents news from a repository lands on: those working in it, else every agent in it.
+   * @param {string} root
+   * @param {string[]} [here] The agents in it (`agentsOf`).
+   * @returns {string[]} Addresses.
+   */
+  agentsIn(root, here = this.agentsOf(root)) {
     const working = here.filter((address) => agents().find((a) => a.address === address)?.status === "working");
     return working.length ? working : here;
   }
@@ -382,12 +401,18 @@ export default class Drawer {
   }
 
   /**
-   * A commit was made in a repository: a stamp on its agents. A new stamp replaces the last.
+   * A commit was made in a repository: a stamp on its agents, and a clap from the others in
+   * it, the ones the stamp does not land on. A new stamp or clap replaces the last.
    * @param {string} root
    * @param {AsyncContext} cx
    */
   stamp(root, cx) {
-    for (const address of this.agentsIn(root)) this.play(this.stamps, address, "drop", STAMP_STEPS, cx);
+    const here = this.agentsOf(root);
+    const stamped = new Set(this.agentsIn(root, here));
+    for (const address of here) {
+      if (stamped.has(address)) this.play(this.stamps, address, "drop", STAMP_STEPS, cx);
+      else this.play(this.claps, address, "clap", CLAP_STEPS, cx);
+    }
     cx.notify();
   }
 
@@ -640,6 +665,7 @@ export default class Drawer {
         hit: this.hits.get(a.address) ?? null,
         combo: combo && combo.count >= COMBO_MIN ? combo : null,
         stamp: this.stamps.get(a.address) ?? null,
+        clap: this.claps.get(a.address) ?? null,
         move: this.moves.get(a.address) ?? null,
         trick,
         exit: /** @type {Exit | null} */ (null),
@@ -659,7 +685,7 @@ export default class Drawer {
       const ghost = this.ghosts.get(old.a.address);
       const exit = this.exits.get(old.a.address);
       if (!ghost || !exit) continue;
-      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, stamp: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: [] });
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: [] });
     }
     this.drawn = items;
 
@@ -888,6 +914,54 @@ function stampElement(t, address, stamp) {
     .transition("opacity", down ? { duration: 60 } : { duration: 400, easing: "ease-in" })
     .children(pixels(TOOL_RUNS, (c) => (c === "i" ? t.done : TOOL_PAINT[c]), [[1, 1]]));
   return div().id(`pp-stamp-${address}-${n}`).absolute().left(0).top(0).size_full().child(mark).child(tool);
+}
+
+// A clap's glove, 3 by 4 cells of the stamp's size: g the glove, c its cuff.
+const GLOVE = [
+  ".g.",
+  "ggg",
+  "ggg",
+  ".c.",
+];
+const GLOVE_RUNS = runsOf(GLOVE);
+const GLOVE_W = GLOVE[0].length * STAMP_PX;
+/** @type {Record<string, Color>} White gloves, outlined dark, read on any creature. */
+const GLOVE_PAINT = { g: "#ffffff", c: "#d9d9e3" };
+const CLAP_X = CELL / 2; // px: where the hands meet, in front of the creature
+const CLAP_Y = 22; // px: the hands' top
+const CLAP_GAP = 5; // px each hand stands off the middle when apart
+/** @type {[dx: number, dy: number][]} Gold sparks around where the hands meet, 2 px each. */
+const CLAP_SPARKS = [[-12, 0], [-1, -4], [10, 0]];
+
+// A clap in front of the sprite. Two gloves meet in the middle and part again, once a beat,
+// and gold sparks flash where they meet. Both loop on the same beat, so a spark shows as the
+// hands come together, with no timer per clap. The gloves fade at the end.
+/**
+ * @param {string} address
+ * @param {Clap} clap
+ * @returns {Element}
+ */
+function clapElement(address, { n, step }) {
+  const id = `pp-clap-${address}-${n}`;
+  /** @type {(side: string, apart: number, together: number) => Element} */
+  const glove = (side, apart, together) =>
+    div().id(`${id}-${side}`).absolute().left(apart).top(CLAP_Y).w(GLOVE_W).h(GLOVE.length * STAMP_PX)
+      .loop("left", { from: apart, to: together, period: CLAP_BEAT })
+      .children(pixels(GLOVE_RUNS, (c) => GLOVE_PAINT[c], OUTLINE));
+  const sparks = CLAP_SPARKS.map(([dx, dy], i) =>
+    div().id(`${id}-spark-${i}`).absolute().left(CLAP_X + dx).top(CLAP_Y + dy).size(2).bg("#ffd447")
+      .loop("opacity", { from: 0, to: 1, period: CLAP_BEAT }));
+  return div()
+    .id(id)
+    .absolute()
+    .left(0)
+    .top(0)
+    .size_full()
+    .opacity(step === "fade" ? 0 : 1)
+    .transition("opacity", { duration: 250, easing: "ease-in" })
+    .child(glove("left", CLAP_X - GLOVE_W - CLAP_GAP, CLAP_X - GLOVE_W))
+    .child(glove("right", CLAP_X + CLAP_GAP, CLAP_X))
+    .children(sparks);
 }
 
 // A puff of smoke: round clouds over a spot with sparkles around them, in cells of `u` px.
@@ -1232,9 +1306,9 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 
 // The sprite and its cue in a box, and under the box the lanes of its bees. `side` is where
 // the stripe goes: "left", "right" or "bottom". The sprite draws its own "!" when blocked,
-// so the box adds only the tint. A hit's numbers, a combo's counter, a stamp and a move's
-// one-shot go over the sprite, in the box, so a closed drawer shows them too. The box dips as
-// the stamp lands and rises after. A trick hides the sprite until it reveals it, an exit hides it under its
+// so the box adds only the tint. A hit's numbers, a combo's counter, a stamp, a clap and a
+// move's one-shot go over the sprite, in the box, so a closed drawer shows them too. The box dips
+// as the stamp lands and rises after. A trick hides the sprite until it reveals it, an exit hides it under its
 // smoke, a one-shot that draws the creature itself hides it while it plays, and a new bee's
 // puff goes over its middle. A failed command's black smoke goes over its face and up, while
 // the sprite lurches with the cough; the box's own top is the stamp's. How tests came out
@@ -1246,7 +1320,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {Facing | null} face The way the creature faces: toward the open side while hovered.
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, combo, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
+function cell(t, { a, seed, hit, combo, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1289,6 +1363,7 @@ function cell(t, { a, seed, hit, combo, stamp, move, trick, exit, puff, soot, ve
     .when(Boolean(verdict), (el) => el.child(verdictElement(t, a.address, verdict)))
     .when(Boolean(shot), (el) => el.child(shot.draw(t, a.address, move)))
     .when(Boolean(combo), (el) => el.child(comboElement(a.address, combo)))
+    .when(Boolean(clap), (el) => el.child(clapElement(a.address, clap)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
       .top(stamp.step === "press" ? STAMP_DIP : 0)

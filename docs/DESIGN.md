@@ -46,6 +46,8 @@ picker lets the person choose another creature for an agent.
   slams down on its sprite, the cell dips under the blow, and the stamp lifts away to leave a
   check that holds a moment, then fades. The check is in the "done" color and says
   "approved" by its shape: red is the "Needs you" cue, so the stamp never relies on it.
+- **Claps.** The other agents in the repository of a commit, the ones its stamp does not
+  land on, clap: two white gloves clap three times in front of each sprite, then fade.
 - **Signposts.** A checkout or switch in an agent's repository flips a signpost by its
   sprite: it shows pointing back the way HEAD came from, turns edge-on, and points the
   other way, then fades. A reset rewinds the sprite: it spins backwards three times, its rows
@@ -519,6 +521,16 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   bold check, 8 by 6 cells in `theme().done`, outlined dark so it reads on any creature. The
   mark holds, fades over 1 s from 2.7 s, and is gone at 3.8 s. Each step is slow enough to
   follow by eye. A new stamp on the same agent replaces the last, with new ids.
+- The same commit makes the other agents in the repository clap: those whose folder is in
+  it (`agentsOf`) and the stamp does not land on (`agentsIn`), whatever their status. With
+  no agent working the stamp lands on all of them, and none claps. A clap is two gloves in
+  the box over the sprite, each 3 by 4 cells of 3 px, white with a grey cuff and outlined
+  dark, 22 px down the box. They stand 5 px off its middle and `.loop("left")` in to meet
+  there and back out, every 240 ms; three gold 2 px sparks around where they meet
+  `.loop("opacity")` from 0 to 1 on the same beat, so they flash as the hands meet. No
+  timer runs per clap. After three claps, at 720 ms, the gloves fade over 250 ms, and they
+  are gone at 1,020 ms. A clap plays with `play` into `claps`, so a new one replaces the
+  last, with new ids.
 - A move of HEAD that is no commit lands on the same agents a hit or a stamp would, as the
   one-shot for its kind: one entry per kind in `ONE_SHOTS` (its first step, its steps'
   times, how a step draws in the box over the sprite, and `hides` when it draws the
@@ -559,7 +571,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - An agent drawn the time before and gone now leaves by an exit, the trick in reverse. Its
   row stays as it was last drawn, a ghost, in its place, with the seed it was drawn with,
   so its creature stays the same though its terminal and label are gone. A ghost shows
-  only its creature and the exit: no hit, combo, stamp, arrival or bees, and it is out of the
+  only its creature and the exit: no hit, combo, stamp, clap, arrival or bees, and it is out of the
   status changes, the clocks and the current agent. It does nothing when clicked or right
   clicked. The wand shows over the creature and taps at 240 ms; at 440 ms it fades, the
   puff goes up, and the sprite fades out under it over 360 ms; at 760 ms the puff clears
@@ -568,7 +580,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   stops leaving and arrives again, in one row.
 - A new bee comes out of the same puff at 2 px cells over the middle of the sprite. It
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
-  get none. Stamps, tricks, exits, puffs and moves' one-shots share one timeline helper
+  get none. Stamps, claps, tricks, exits, puffs and moves' one-shots share one timeline helper
   (`play`): each step is one render, and a new one on the same agent replaces the last, with
   new ids. A status change's one-shot, its turn, plays through it too.
 - Each status change plays the first of `TURNS` whose `from` and `to` match it, on the draw

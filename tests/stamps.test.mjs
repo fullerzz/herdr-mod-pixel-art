@@ -78,6 +78,7 @@ const draw = (drawer, cx) => {
   return tree;
 };
 const stampOf = (tree, address) => walk(tree).find((n) => n.id?.startsWith(`pp-stamp-${address}-`)) ?? null;
+const clapOf = (tree, address) => walk(tree).find((n) => /^pp-clap-[^-]+-\d+$/.test(n.id ?? "") && n.id.startsWith(`pp-clap-${address}-`)) ?? null;
 const last = (node, name) => calls(node, name).at(-1)?.[0];
 
 beforeEach(() => {
@@ -368,4 +369,77 @@ test("every edge renders a stamp with unique ids", async () => {
     mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
     assert.ok(stampOf(draw(drawer, cx), "t1"), String(edge));
   }
+});
+
+test("a commit that stamps one agent makes the others in its repository clap: two gloves meet and part, sparks flash, then they fade", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.agent("t3", { status: "blocked" });
+  mock.agent("t4", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo/lib" }, { pane: "p-t3", cwd: "/repo" }, { pane: "p-t4", cwd: "/other" }];
+  const { drawer, cx } = await start();
+  let tree = draw(drawer, cx);
+  assert.ok(!["t1", "t2", "t3", "t4"].some((a) => clapOf(tree, a)), "the commit from before the drawer is no clap");
+
+  await move("b", "commit: land it");
+  tree = draw(drawer, cx);
+  assert.ok(stampOf(tree, "t1") && !clapOf(tree, "t1"), "the committer is stamped, and does not clap");
+  assert.ok(clapOf(tree, "t2") && clapOf(tree, "t3"), "the others in the repository clap, whatever their status");
+  assert.ok(!stampOf(tree, "t2") && !stampOf(tree, "t3"));
+  assert.equal(clapOf(tree, "t4"), null, "an agent in no repository does not");
+
+  const clap = clapOf(tree, "t2");
+  const left = find(tree, `${clap.id}-left`);
+  const right = find(tree, `${clap.id}-right`);
+  const [, swing] = calls(left, "loop").find(([p]) => p === "left");
+  const [, back] = calls(right, "loop").find(([p]) => p === "left");
+  assert.ok(swing.from < swing.to && back.from > back.to, "the hands swing toward each other");
+  assert.equal(swing.to + last(left, "w"), back.to, "and meet");
+  assert.equal(swing.period, back.period, "on one beat");
+  const sparks = walk(clap).filter((node) => node.id?.startsWith(`${clap.id}-spark-`));
+  assert.ok(sparks.length > 0);
+  for (const spark of sparks) assert.deepEqual(calls(spark, "loop").find(([p]) => p === "opacity")[1], { from: 0, to: 1, period: swing.period }, "a spark flashes on each clap");
+  assert.equal(last(clap, "opacity"), 1);
+
+  cx.run(720);
+  tree = draw(drawer, cx);
+  assert.equal(clapOf(tree, "t2").id, clap.id, "the same clap, so the fade is animated");
+  assert.equal(last(clapOf(tree, "t2"), "opacity"), 0, "the gloves fade after three claps");
+  cx.run(1100);
+  tree = draw(drawer, cx);
+  assert.equal(clapOf(tree, "t2"), null, "and are gone");
+  assert.ok(stampOf(tree, "t1"), "while the stamp plays on");
+});
+
+test("with no agent working the commit stamps them all, and no one claps; a checkout or reset is no clap", async () => {
+  mock.agent("t1", { status: "idle" });
+  mock.agent("t2", { status: "done" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await move("b", "commit: x");
+  let tree = draw(drawer, cx);
+  assert.ok(stampOf(tree, "t1") && stampOf(tree, "t2"));
+  assert.ok(!clapOf(tree, "t1") && !clapOf(tree, "t2"));
+  mock.state.agents.find((a) => a.address === "t1").status = "working";
+  await move("c", "checkout: moving from main to x");
+  await move("d", "reset: moving to HEAD~1");
+  tree = draw(drawer, cx);
+  assert.ok(!clapOf(tree, "t2"), "only a commit");
+});
+
+test("an agent that leaves mid-clap leaves with no clap, and every edge renders a clap with unique ids", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  draw(drawer, cx);
+  await move("b", "commit: x");
+  for (const edge of ["top", "right", "bottom", "left", null]) {
+    mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
+    assert.ok(clapOf(draw(drawer, cx), "t2"), String(edge));
+  }
+  mock.state.agents = mock.state.agents.filter((a) => a.address !== "t2");
+  const tree = draw(drawer, cx);
+  assert.ok(find(tree, "pp-box-t2"), "its ghost is drawn");
+  assert.equal(clapOf(tree, "t2"), null, "with only its creature and exit");
 });

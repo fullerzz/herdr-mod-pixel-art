@@ -32,6 +32,8 @@ move according to what their agents are doing.
 - **Stamps.** When an agent makes a git commit, a rubber stamp slams down on its creature
   and lifts away to leave a green check: a stamp of approval on finished work. The check
   holds a moment, then fades.
+- **Claps.** When an agent commits, the other agents in the same repository clap for it:
+  a pair of white gloves claps three times in front of each creature.
 - **Signposts.** When an agent checks out or switches to another branch, a signpost by its
   creature flips from pointing back to pointing the other way.
 - **Rewinds.** When an agent resets its branch, its creature spins backwards like a tape
@@ -155,6 +157,14 @@ makes) and the first commit of a new repository included, even one made with `gi
 where the agent already is. A checkout, reset, rebase, pull or cherry-pick moves the branch
 too, but is no stamp. Commits in a linked worktree count as well, and a commit still counts
 when other git commands follow it right away.
+
+## Claps
+
+When a commit stamps an agent, the other agents in that repository clap, with no setup. A
+pair of white gloves claps three times in front of each of their creatures, with a flash of
+gold sparks each time the hands meet, then fades: about a second in all. The clap goes to
+the agents in the repository the stamp does not land on, so with no agent working there,
+every agent is stamped and none claps. Only a commit gets a clap.
 
 ## Signposts
 
