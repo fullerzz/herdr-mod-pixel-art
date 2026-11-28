@@ -8,14 +8,15 @@ move according to what their agents are doing.
   each agent's name and what it is doing, and the creatures turn to look that way. Click a
   row to go to that agent. The current agent's creature wears a small gold crown, so even
   a closed drawer shows which agent the keys act on.
-- **Motion.** A sprite works while its agent works, catches fire and asks for attention
-  when the agent is blocked, burning hotter the longer it waits, celebrates when it
-  finished, and rests when it is idle, gathering dust the longer it sleeps. When an agent
-  becomes blocked, its creature jumps as if startled before the fire catches. When a
-  blocked agent goes on, water puts its fire out before it goes back to work. When a
-  working agent finishes, one burst of confetti goes up before the creature settles into
-  its happy done hop. When an idle or finished agent starts work, its creature wakes up
-  first: it yawns, stretches and pops its eyes open.
+- **Motion.** A sprite works while its agent works, sweating and reaching for coffee the
+  longer it works, catches fire and asks for attention when the agent is blocked, burning
+  hotter the longer it waits, celebrates when it finished, and rests when it is idle,
+  gathering dust the longer it sleeps. When an agent becomes blocked, its creature jumps
+  as if startled before the fire catches. When a blocked agent goes on, water puts its
+  fire out before it goes back to work. When a working agent finishes, one burst of
+  confetti goes up before the creature settles into its happy done hop. When an idle or
+  finished agent starts work, its creature wakes up first: it yawns, stretches and pops
+  its eyes open.
 - **Party.** When the last agent finishes and every agent is done, an `ALL DONE` banner
   drops over the drawer's first creature, and once the last one's confetti has fallen,
   every creature jumps twice, all together, before it settles into its done hop.
@@ -390,6 +391,19 @@ leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
 hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the thirteen ways, or walk
 hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 ```
+
+## Long work
+
+A creature tires when its agent works for a long time, whatever way it is working. After
+ten minutes sweat drips down both sides of its face. After thirty minutes a cup of coffee
+with steam rising from it stands by it as well: at its lower right, or in its top right
+corner when its keyboard, book, box, clipboard or test tube fills that side. Neither
+covers its eyes or the props of its work: the sweat stays on its face, and anything it
+holds passes in front of the drops. The drawer counts the work from when it saw the
+agent start working. An agent alone in its tab takes the time from the tab instead. Any
+other agent that is already working when the drawer opens stays fresh until its status
+next changes. A new tool does not rest it: only a block, a finish or an idle does, and the
+next stretch of work starts fresh.
 
 ## Long idles
 

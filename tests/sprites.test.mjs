@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { theme } from "herdr";
 import { div } from "gpui-kit";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { CONFETTI, DOUSE, DUST, FIDGETS, FIRE, HIT, SMOKE, STAGES, TURNS, WORKS, faceRects, ownFidget, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { CONFETTI, DOUSE, DUST, FATIGUE, FIDGETS, FIRE, HIT, SMOKE, STAGES, TURNS, WORKS, faceRects, ownFidget, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -262,7 +262,7 @@ test("a long block burns hotter: small flames, bigger after a minute, smoke and 
   }
 });
 
-test("a fire's smoke and an idle's dust have their own colors, and stage changes no other status", () => {
+test("a fire's smoke, an idle's dust and a long work's sweat and coffee have their own colors, and stage changes no other status", () => {
   const taken = new Set([...Object.values(HIT), ...Object.values(FIRE), ...Object.values(DOUSE), ...Object.values(CONFETTI), theme().blocked, theme().done, theme().idle, theme().working].map((c) => c.toLowerCase()));
   for (const color of Object.values(SMOKE)) {
     assert.match(color, HEX);
@@ -272,8 +272,12 @@ test("a fire's smoke and an idle's dust have their own colors, and stage changes
     assert.match(color, HEX);
     assert.ok(!taken.has(color) && !Object.values(SMOKE).includes(color), `${color} means something else`);
   }
+  for (const color of Object.values(FATIGUE)) {
+    assert.match(color, HEX);
+    assert.ok(!taken.has(color) && ![...Object.values(SMOKE), ...Object.values(DUST)].includes(color), `${color} means something else`);
+  }
   const sprite = makeSprite("t1");
-  for (const status of STATUSES.filter((s) => s !== "blocked" && s !== "idle")) {
+  for (const status of STATUSES.filter((s) => s !== "blocked" && s !== "idle" && s !== "working")) {
     assert.equal(tree(spriteElement(sprite, { id: "s", status, stage: 2 })), tree(spriteElement(sprite, { id: "s", status })), `${status} at stage 2`);
   }
 });
@@ -344,13 +348,13 @@ function values(node, props) {
   return out.length ? out : [0];
 }
 
-/** Where each drawn rectangle reaches over its whole motion, in px from the sprite's corner. */
+/** Where each drawn rectangle reaches over its whole motion, in px from the sprite's corner, and its color. */
 function reach(node, x0 = [0, 0], y0 = [0, 0], out = []) {
   const ls = values(node, ["left"]);
   const ts = values(node, ["top"]);
   const x = [x0[0] + Math.min(...ls), x0[1] + Math.max(...ls)];
   const y = [y0[0] + Math.min(...ts), y0[1] + Math.max(...ts)];
-  if (calls(node, "bg").length) out.push({ x: [x[0], x[1] + Math.max(...values(node, ["w", "width"]))], y: [y[0], y[1] + Math.max(...values(node, ["h", "height"]))] });
+  if (calls(node, "bg").length) out.push({ x: [x[0], x[1] + Math.max(...values(node, ["w", "width"]))], y: [y[0], y[1] + Math.max(...values(node, ["h", "height"]))], color: last(node, "bg") });
   for (const child of node.children) if (nodeOf(child)) reach(nodeOf(child), x, y, out);
   return out;
 }
@@ -679,35 +683,38 @@ test("only a working creature shows its way of working", () => {
   }
 });
 
+/** The still frame at `px`, a board of GRID * px square of colors, cut to the box. */
+function painting(el, px) {
+  const size = GRID * px;
+  const out = Array.from({ length: size }, () => Array(size).fill(null));
+  const paint = (child, ox, oy) => {
+    const node = nodeOf(child);
+    if (!node) return;
+    const x = ox + (last(node, "left") ?? 0);
+    const y = oy + (last(node, "top") ?? 0);
+    const bg = last(node, "bg");
+    if (bg) {
+      const w = last(node, "w") ?? last(node, "size");
+      const h = last(node, "h") ?? last(node, "size");
+      for (let j = Math.max(0, y); j < Math.min(size, y + h); j++) for (let i = Math.max(0, x); i < Math.min(size, x + w); i++) out[j][i] = bg;
+    }
+    for (const c of node.children) paint(c, x, y);
+  };
+  for (const c of nodeOf(el).children) paint(c, 0, 0);
+  return out;
+}
+
 test("no way of working hides the creature's eyes, whichever way it faces: a prop over a low face draws them again, bobbing with it", () => {
   const px = 3;
-  /** The still frame at `px`, a board of GRID * px square of colors. */
-  const board = (el) => {
-    const size = GRID * px;
-    const out = Array.from({ length: size }, () => Array(size).fill(null));
-    const paint = (child, ox, oy) => {
-      const node = nodeOf(child);
-      if (!node) return;
-      const x = ox + (last(node, "left") ?? 0);
-      const y = oy + (last(node, "top") ?? 0);
-      const bg = last(node, "bg");
-      if (bg) {
-        const w = last(node, "w") ?? last(node, "size");
-        const h = last(node, "h") ?? last(node, "size");
-        for (let j = Math.max(0, y); j < Math.min(size, y + h); j++) for (let i = Math.max(0, x); i < Math.min(size, x + w); i++) out[j][i] = bg;
-      }
-      for (const c of node.children) paint(c, x, y);
-    };
-    for (const c of nodeOf(el).children) paint(c, 0, 0);
-    return out;
-  };
+  const board = (el) => painting(el, px);
   let low = 0;
   for (let i = 0; i < 300; i++) {
     const sprite = makeSprite(`t${i}`);
     for (const work of WORKS) {
       // Facing a way, the whole drawing steps a cell inside one layer, and the eyes look that way.
-      for (const [face, [dx, dy]] of [[null, [0, 0]], ...Object.entries(FACES)]) {
-        const el = spriteElement(sprite, { id: "s", px, status: "working", work, face });
+      // Tired too: sweat and a cup of coffee hide no eye either.
+      for (const [face, [dx, dy]] of [[null, [0, 0]], ...Object.entries(FACES)]) for (const stage of [0, 2]) {
+        const el = spriteElement(sprite, { id: "s", px, status: "working", work, face, stage });
         const root = face ? nodeOf(nodeOf(el).children[0]) : nodeOf(el);
         // The eyes this way draws: the torso's eye layer, its last child.
         const torso = nodeOf(root.children.find((c) => nodeOf(c).children.length === 3)).children[2];
@@ -716,7 +723,7 @@ test("no way of working hides the creature's eyes, whichever way it faces: a pro
         for (const e of eyes) {
           const [x, y, w, h, color] = ["left", "top", "w", "h", "bg"].map((k) => last(e, k));
           for (let j = y; j < y + h; j++) {
-            for (let k = x; k < x + w; k++) assert.equal(b[j + dy * px][k + dx * px], color, `${work} facing ${face} hides an eye of t${i} (${sprite.kind}) at ${k},${j}`);
+            for (let k = x; k < x + w; k++) assert.equal(b[j + dy * px][k + dx * px], color, `${work} facing ${face} at stage ${stage} hides an eye of t${i} (${sprite.kind}) at ${k},${j}`);
           }
         }
       }
@@ -731,6 +738,102 @@ test("no way of working hides the creature's eyes, whichever way it faces: a pro
     }
   }
   assert.ok(low > 0, "some creatures have eyes low enough to test");
+});
+
+test("a long work tires the creature: sweat after ten minutes, then a cup of coffee after thirty, on top of any way", () => {
+  assert.deepEqual(STAGES.working, [600_000, 1_800_000]);
+  const ours = new Set(Object.values(FATIGUE));
+  const cup = new Set([FATIGUE.mug, FATIGUE.coffee, FATIGUE.steam]);
+  const count = (board, colors) => board.flat().filter((c) => colors.has(c)).length;
+  for (const sprite of [...KINDS, ...Array.from({ length: 200 }, (_, i) => makeSprite(`t${i}`))]) {
+    for (const work of WORKS) {
+      const tired = (stage, px = 3) => spriteElement(sprite, { id: "s", px, status: "working", work, stage });
+      const [fresh, sweaty, spent] = [0, 1, 2].map((stage) => painting(tired(stage), 3));
+      const name = `${work} on ${sprite.seed} (${sprite.kind})`;
+      assert.equal(count(fresh, ours), 0, `${name}: fresh to work, it is not tired`);
+      // Each stage shows in a single frame, whatever the way's props cover.
+      assert.ok(count(sweaty, new Set([FATIGUE.sweat])) > 0, `${name}: ten minutes in, no sweat shows`);
+      assert.equal(count(sweaty, cup), 0, `${name}: no coffee before thirty minutes`);
+      assert.ok(count(spent, new Set([FATIGUE.sweat])) > 0, `${name}: the sweat stays`);
+      for (const color of cup) assert.ok(count(spent, new Set([color])) > 0, `${name}: thirty minutes in, the cup shows no ${color}`);
+      assert.equal(tree(tired(0)), tree(working(sprite, work)), "stage 0 is the plain way");
+      assert.equal(tree(tired(7)), tree(tired(2)), "past the last stage, as tired as the last");
+      for (const junk of [-1, NaN, 0.5]) assert.equal(tree(tired(junk)), tree(tired(0)), `stage ${junk} is not tired`);
+    }
+  }
+  // The cup stands clear of every prop of its way, through all their motion, at any size, and
+  // fatigue keeps the ways' rules: in the box, its own colors, one loop per property.
+  const taken = new Set([...Object.values(HIT), ...Object.values(FIRE), theme().blocked, theme().done, theme().idle].map((c) => c.toLowerCase()));
+  const overlap = (a, b) => a.x[0] < b.x[1] && b.x[0] < a.x[1] && a.y[0] < b.y[1] && b.y[0] < a.y[1];
+  for (const sprite of KINDS) {
+    const { body, feet, eyes } = sprite.parts;
+    const art = new Set([...body, ...feet[0], ...feet[1], ...Object.values(eyes).flat()].map((r) => r.color));
+    for (const work of WORKS) {
+      const tired = (stage, px) => spriteElement(sprite, { id: "s", px, status: "working", work, stage });
+      for (const px of [1, 2, 3, 4, 8]) {
+        const props = reach(nodeOf(tired(0, px))).filter((r) => !art.has(r.color));
+        const mug = reach(nodeOf(tired(2, px))).filter((r) => cup.has(r.color));
+        assert.ok(mug.length > 0);
+        for (const m of mug) for (const p of props) assert.ok(!overlap(m, p), `${work} on a ${sprite.kind} at ${px} px: the cup at x ${m.x}, y ${m.y} meets a prop at x ${p.x}, y ${p.y}`);
+        for (const stage of [1, 2]) {
+          for (const r of reach(nodeOf(tired(stage, px)))) {
+            assert.ok(r.x[0] >= 0 && r.y[0] >= 0 && r.x[1] <= GRID * px && r.y[1] <= GRID * px, `${work} at stage ${stage} at ${px} px reaches x ${r.x}, y ${r.y}`);
+          }
+        }
+      }
+      for (const node of check(tired(2, 3))) {
+        for (const [color] of calls(node, "bg")) assert.ok(!taken.has(color), `${work} tired uses ${color}, which means something else`);
+        const looped = calls(node, "loop").map(([property]) => property);
+        assert.equal(new Set(looped).size, looped.length, `${work} tired: one element loops ${looped}`);
+      }
+    }
+  }
+});
+
+test("sweat fits beside a way's props: it stays on the body, under whatever the creature holds, so it covers no prop", () => {
+  // Blobs whose drop columns have only two cells of body, so the drip has to stop short.
+  const short = ["p130", "p179", "p244", "p293"].map(makeSprite);
+  const sprites = [...KINDS, ...short, ...Array.from({ length: 200 }, (_, i) => makeSprite(`t${i}`))];
+  const tired = (sprite, work, stage, px, face = null) => spriteElement(sprite, { id: "s", px, status: "working", work, stage, face });
+  for (const sprite of sprites) {
+    const { body, feet, eyes } = sprite.parts;
+    const art = new Set([...body, ...feet[0], ...feet[1], ...Object.values(eyes).flat()].map((r) => r.color));
+    const skin = (x, y) => body.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+    const sizes = KINDS.includes(sprite) || short.includes(sprite) ? [1, 2, 3, 4, 8] : [3];
+    for (const work of WORKS) {
+      for (const px of sizes) {
+        const name = `${work} on ${sprite.seed} (${sprite.kind}) at ${px} px`;
+        // The still frame, from every side: sweat replaces only the creature's own art.
+        for (const face of [null, ...Object.keys(FACES)]) {
+          const fresh = painting(tired(sprite, work, 0, px, face), px);
+          const sweaty = painting(tired(sprite, work, 1, px, face), px);
+          for (let y = 0; y < fresh.length; y++) {
+            for (let x = 0; x < fresh.length; x++) {
+              const was = fresh[y][x];
+              if (was && !art.has(was)) assert.equal(sweaty[y][x], was, `${name} facing ${face}: the sweat covers a prop's ${was} at ${x},${y}`);
+            }
+          }
+        }
+        // Through all its motion: the drops go into the torso before the way's own children,
+        // so a held prop passes in front of them, and every drop, its shadow and its drip stay
+        // on body cells, where a prop behind the creature never shows.
+        const figure = (el) => nodeOf(nodeOf(el).children.find((c) => nodeOf(c).children.length === 3));
+        const torso = (el) => nodeOf(figure(el).children[2]);
+        const plain = torso(tired(sprite, work, 0, px)).children;
+        const kids = torso(tired(sprite, work, 1, px)).children;
+        const drops = kids.slice(2, 2 + kids.length - plain.length);
+        assert.ok(drops.length > 0, `${name}: no drop`);
+        assert.equal(tree(div().children([...kids.slice(0, 2), ...kids.slice(2 + drops.length)])), tree(div().children(plain)), `${name}: the drops go after the body and eyes, before the way's props`);
+        for (const drop of drops) {
+          for (const r of reach(nodeOf(drop))) {
+            for (let j = r.y[0]; j < r.y[1]; j++) {
+              for (let i = r.x[0]; i < r.x[1]; i++) assert.ok(skin(Math.floor(i / px), Math.floor(j / px)), `${name}: a drop reaches ${i},${j}, off the body`);
+            }
+          }
+        }
+      }
+    }
+  }
 });
 
 test("a thought bubble's tail leads to the head: a short one, beside the art, clear of it and of the cell's edges", () => {

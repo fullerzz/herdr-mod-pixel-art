@@ -8,7 +8,10 @@
 //
 //   null     open eyes, still
 //   working  what its agent is doing, when the agent's hooks say (`work`), else the
-//            creature's own way of working, picked by its seed. See WORK below.
+//            creature's own way of working, picked by its seed. See WORK below. The
+//            longer the work holds, the more tired it gets: after ten minutes sweat drips
+//            down both sides of its face, and after thirty a cup of coffee stands by it,
+//            on top of any way (`stage`, see STAGES and `fatigue`).
 //   blocked  open eyes, still, on fire: a bed of flames at its feet, tongues licking up its
 //            sides, and a blinking "!" badge in the top right corner. The longer the block
 //            holds, the hotter it burns: small flames at first, tall ones after a minute,
@@ -89,10 +92,11 @@ const mark = (cells, color, u) => layer(cells.map(([x, y, w = 1, h = 1]) => ({ x
  * clock of each agent's status and redraws when the next one is reached. A look that
  * changes with time adds its times here. Blocked burns hotter after a minute and again
  * after five (see `fire`); idle snores after five minutes and gathers dust after thirty
- * (see `sleep`). The other statuses have no stage yet.
+ * (see `sleep`); working sweats after ten minutes and takes a coffee after thirty (see
+ * `fatigue`). Done has no stage yet.
  * @type {Record<Status, number[]>}
  */
-export const STAGES = { working: [], blocked: [60_000, 300_000], done: [], idle: [300_000, 1_800_000] };
+export const STAGES = { working: [600_000, 1_800_000], blocked: [60_000, 300_000], done: [], idle: [300_000, 1_800_000] };
 
 /** The colors of hits: added lines heal, removed lines hurt. */
 export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" });
@@ -489,11 +493,88 @@ function tail(sprite) {
  */
 
 /**
- * One way of working: its eyes, and what it moves and draws.
+ * One way of working: its eyes, what it moves and draws, and where a tired creature's cup
+ * stands beside its props.
  * @typedef {object} Work
  * @property {Mood} eyes
  * @property {(parts: Parts) => { behind: Element[], front: Element[] }} build
+ * @property {keyof typeof CUP} cup
  */
+
+/**
+ * The colors of a tired creature's sweat and coffee: a pale blue drop with a shine, and a
+ * white mug of dark coffee. Their own: never DOUSE's, SMOKE's, DUST's, FIRE's, HIT's or a
+ * status cue's.
+ */
+export const FATIGUE = /** @type {const} */ ({ sweat: "#7cc9f2", shine: "#effaff", mug: "#f6f3ee", coffee: "#5c3a21", steam: "#dde5ee" });
+
+/**
+ * Where a tired creature's cup stands, as the top left cell of its 3 by 3 box: a wisp of
+ * steam in its top row over a 2 by 2 mug, its handle in the left column, toward the
+ * creature. `floor` is the lower right, rows 9 to 11 and columns 8 to 10, clear of the edge
+ * column. `top` is the top right corner, rows 0 to 2, where no kind has an eye: for a way
+ * whose props fill the floor or the right edge.
+ */
+const CUP = /** @type {const} */ ({ floor: [8, 9], top: [9, 0] });
+
+/**
+ * A working creature's fatigue, as tired as its stage: from stage 1, a drop of sweat on each
+ * side of its face drips and fades; from stage 2, a cup of coffee stands where its way
+ * leaves room. The drops go just outside the eyes, in columns no eye the ways draw reaches,
+ * whichever way the creature faces, on the body from a row over the eyes' top down. They
+ * ride in the torso, so they bob with the body, under any prop it holds. The cup is a front
+ * mark. Every part starts shown, so a single frame has it.
+ * @param {Parts} parts
+ * @param {keyof typeof CUP} spot Where the way leaves room for the cup.
+ * @param {number} stage How long the work has held: 0, 1, or 2 and above.
+ * @returns {{ sweat: Element[], cup: Element[] }}
+ */
+function fatigue({ u, nudge, size, sprite }, spot, stage) {
+  if (!(stage >= 1)) return { sweat: [], cup: [] };
+  // Every gaze a way can draw: open, look, and look mirrored for a creature facing the other way.
+  const { body, eyes: { open, look } } = sprite.parts;
+  const eyes = [...open, ...look, ...mirrored(look)];
+  const over = Math.min(...eyes.map((r) => r.y)) - 1;
+  /** @type {(x: number, y: number) => boolean} Whether the body covers a cell. */
+  const skin = (x, y) => body.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+  /**
+   * A drop over its shadow, dripping as it fades, on the first stretch of body at least two
+   * cells tall in its column from a row over the eyes' top down. The drop, its shadow and
+   * its drip stay on that stretch, so it only ever covers the body: never a prop held behind
+   * the creature, which shows only beside it. No such stretch, no drop.
+   * @type {(x: number, period: number) => Element | null}
+   */
+  const drop = (x, period) => {
+    for (let y = Math.max(0, over); y < GRID - 1; y++) {
+      if (!skin(x, y) || !skin(x, y + 1)) continue;
+      let end = y + 2;
+      while (end < GRID && skin(x, end)) end++;
+      // A cell, or as far as the shadow, a nudge under the drop, can go and stay on the body.
+      const fall = Math.min(u, (end - y - 1) * u - nudge);
+      const bead = full(size)
+        .child(full(size)
+          .child(rect(x * u, y * u + nudge, u, u, PROP.shadow))
+          .child(rect(x * u, y * u, u, u, FATIGUE.sweat))
+          .child(rect(x * u, y * u, nudge, nudge, FATIGUE.shine))
+          .loop("opacity", { from: 1, to: 0.3, period }));
+      return fall > 0 ? bead.loop("top", { from: 0, to: fall, period, easing: "ease-in" }) : bead;
+    }
+    return null;
+  };
+  const sweat = [drop(Math.min(...eyes.map((r) => r.x)) - 1, 1400), drop(Math.max(...eyes.map((r) => r.x + r.w)), 1900)].filter((d) => d !== null);
+  if (!(stage >= 2)) return { sweat, cup: [] };
+  const [x, top] = CUP[spot];
+  /** @type {(col: number, from: number, to: number) => Element} A thin wisp of steam over a column of the mug. */
+  const wisp = (col, from, to) => rect(col * u + Math.floor((u - nudge) / 2), top * u, nudge, Math.max(1, u - nudge), FATIGUE.steam).loop("opacity", { from, to, period: 1800 });
+  const cup = [
+    mark([[x + 1, top + 1, 2, 2]], FATIGUE.mug, u),
+    rect((x + 1) * u, (top + 1) * u, 2 * u, nudge, FATIGUE.coffee),
+    rect(x * u + nudge, (top + 1) * u + nudge, u - nudge, u - nudge, FATIGUE.mug),
+    wisp(x + 1, 0.9, 0.2),
+    wisp(x + 2, 0.2, 0.9),
+  ];
+  return { sweat, cup };
+}
 
 /**
  * The ways a creature works, by what its agent is doing. The props sit over the lower body,
@@ -505,6 +586,7 @@ const WORK = {
   // Anything. Feet in turn: swapped from/to puts them half a stride apart.
   walk: {
     eyes: "look",
+    cup: "floor",
     build({ u, nudge, t, left, right, torso }) {
       left.loop("top", { from: 0, to: -u, period: 480 });
       right.loop("top", { from: -u, to: 0, period: 480 });
@@ -517,6 +599,7 @@ const WORK = {
   // the body bobbing once a keystroke.
   typing: {
     eyes: "open",
+    cup: "top",
     build({ u, nudge, size, t, gaze, torso }) {
       // Keys a cell apart, with a sub-cell gap of case between them.
       /** @type {(x: number, y: number, w: number, color: Color) => Element} */
@@ -548,6 +631,7 @@ const WORK = {
   // highlight runs along a line, while the body sways slowly.
   reading: {
     eyes: "look",
+    cup: "top",
     build({ u, nudge, size, t, gaze, torso }) {
       // Three lines of text a page, the last one short, a quarter of the page apart: inside it at any size.
       /** @type {(x: number) => Element[]} */
@@ -576,6 +660,7 @@ const WORK = {
   // anvil, sparks flick at each blow, and the body dips with it.
   hammering: {
     eyes: "open",
+    cup: "floor",
     build({ u, size, nudge, t, gaze, torso }) {
       // One blow a period. Ease-in hangs the hammer up high, then slams it down.
       const blow = { period: 720, easing: /** @type {const} */ ("ease-in") };
@@ -600,6 +685,7 @@ const WORK = {
   // glass, and a glint twinkles on it.
   searching: {
     eyes: "look",
+    cup: "floor",
     build({ u, size, nudge, t, gaze, torso }) {
       // A round rim around a 2 by 2 glass, its handle off the lower right.
       /** @type {Cells} */
@@ -623,6 +709,7 @@ const WORK = {
   // while the creature leans slowly.
   thinking: {
     eyes: "open",
+    cup: "floor",
     build({ u, nudge, t, sprite, torso }) {
       torso.loop("left", { from: 0, to: -nudge, period: 2400 });
       const dot = Math.round((2 * u) / 3);
@@ -648,6 +735,7 @@ const WORK = {
   // its tip in turn.
   signal: {
     eyes: "look",
+    cup: "floor",
     build({ u, nudge, size, t, torso }) {
       torso.loop("top", { from: 0, to: -nudge, period: 1200 });
       // Strokes of two thirds of a cell, so the arcs stay round at 3 px a cell. They go in
@@ -676,6 +764,7 @@ const WORK = {
   // up and out of it, which the creature watches. Without the tube, it only watches.
   testing: {
     eyes: "look",
+    cup: "top",
     build({ u, nudge, t, torso, tube: held }) {
       torso.loop("top", { from: 0, to: -nudge, period: 900 });
       if (!held) return { behind: [], front: [] };
@@ -692,6 +781,7 @@ const WORK = {
   // reeling in as it goes up.
   building: {
     eyes: "open",
+    cup: "floor",
     build({ u, nudge, size, t, torso }) {
       torso.loop("top", { from: 0, to: -nudge, period: 800 });
       const p = Math.round((2 * u) / 3);
@@ -713,6 +803,7 @@ const WORK = {
   // popping up out of it and back.
   installing: {
     eyes: "open",
+    cup: "top",
     build({ u, nudge, size, t, gaze, torso }) {
       const bob = { from: 0, to: -nudge, period: 1200 };
       torso.loop("top", bob);
@@ -732,6 +823,7 @@ const WORK = {
   // new branch leafing out a cell at a time.
   git: {
     eyes: "open",
+    cup: "floor",
     build({ u, nudge, t, torso }) {
       torso.loop("top", { from: 0, to: -nudge, period: 1600 });
       // The stem in the two columns at the left edge, the branch in the rows over any eye.
@@ -755,6 +847,7 @@ const WORK = {
   // it a cell into its feet, then lifts.
   compacting: {
     eyes: "open",
+    cup: "floor",
     build({ u, size, t, sprite, torso }) {
       // Ease-in: the press comes down slowly, then slams; it lifts fast, then slows.
       const press = { period: 1600, easing: /** @type {const} */ ("ease-in") };
@@ -775,6 +868,7 @@ const WORK = {
   // pulsing out of its bell toward the right edge while the body bobs with each shout.
   delegating: {
     eyes: "open",
+    cup: "floor",
     build({ u, nudge, size, t, torso }) {
       const call = { period: 900 };
       torso.loop("top", { from: 0, to: -nudge, ...call, easing: "ease-out" });
@@ -798,6 +892,7 @@ const WORK = {
   // sheet ticked off one after the other while the body bobs.
   planning: {
     eyes: "open",
+    cup: "top",
     build({ u, nudge, size, t, gaze, torso }) {
       const tick = { period: 1200 };
       const bob = { from: 0, to: -nudge, ...tick };
@@ -1067,7 +1162,8 @@ function accents(status, u, stage) {
  *   takes the status's place: no status look, motion or way of working is drawn.
  * @param {number} [options.stage] How long the status has held, as the number of its
  *   STAGES reached (default 0, also when its start is unknown). Blocked, it sets how hot
- *   the fire burns; idle, how deep the creature sleeps. No other look uses it yet.
+ *   the fire burns; idle, how deep the creature sleeps; working, how tired it gets. Done
+ *   does not use it yet.
  * @param {boolean} [options.tube] Whether a testing creature holds its test tube (default
  *   true). The drawer takes it away while it shows how the tests came out.
  * @param {string | null} [options.daytime] The part of the day (`daytimeOf`): a done or idle
@@ -1106,7 +1202,13 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   // Working, the way of working moves the parts and draws its own marks; a turn, the same.
   /** @type {Parts} */
   const parts = { u, size, nudge, t: /** @type {Theme} */ (theme()), sprite, gaze, left, right, torso, tube };
+  // A long work tires the creature, beside its way: sweat in the torso over the body, before
+  // the way builds, so any prop it holds passes in front of it, and a cup beneath the way's
+  // own marks, so eyes a prop draws again stay on top.
+  const tired = how ? fatigue(parts, how.cup, stage) : null;
+  for (const drop of tired?.sweat ?? []) torso.child(drop);
   const worked = shot ? shot.build({ ...parts, id: `${id}-${turn.kind}-${turn.n}`, step: turn.step }) : how?.build(parts);
+  if (tired && worked) worked.front.unshift(...tired.cup);
   if (look === "done") {
     figure.loop("top", { from: 0, to: -u, period: 700, easing: "ease-out" });
   } else if (look === "idle") {

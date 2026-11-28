@@ -17,6 +17,8 @@ picker lets the person choose another creature for an agent.
   is idle.
 - **Hotter fire.** A long block burns hotter: small flames at first, bigger ones after a
   minute, and smoke and embers after five.
+- **Fatigue.** A long work tires the creature: sweat drips down its face after ten minutes,
+  and a cup of coffee stands by it after thirty, beside whatever it is working with.
 - **Dust.** A long idle sleeps deeper: a "z" at first, a snore bubble after five minutes,
   and a cobweb, dust and a greyer body after thirty.
 - **Fidgets.** An idle creature fidgets in its own way, at its own rhythm, both picked by
@@ -186,12 +188,13 @@ export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze
 export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
 export const SMOKE: { dark: "#6e655c", light: "#a89d92" };
 export const DUST: { web: "#cdc8bd", dust: "#8a8478" };
+export const FATIGUE: { sweat: "#7cc9f2", shine: "#effaff", mug: "#f6f3ee", coffee: "#5c3a21", steam: "#dde5ee" };
 export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch, and the drawer's party
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting delegating planning
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
 export function ownFidget(sprite): { fidget: string, period: number };  // one of FIDGETS and its rhythm in ms, the same for the same seed
-export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; blocked: 60000 300000, idle: 300000 1800000
+export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; blocked: 60000 300000, idle: 300000 1800000, working: 600000 1800000
 export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // the creature still from one side, in px
 export function daytimeOf(hour): "night" | "morning" | null;  // the part of the day of a local hour, 0 to 23
 ```
@@ -273,6 +276,32 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   dim, canvas and accent, never `HIT`, `FIRE` or the blocked, done and idle cues. Every way
   stays inside the box through all its motion at any `px`, and loops each property of an
   element once: a part that moves two ways nests a layer.
+- A working creature tires as `stage` grows, on top of any way, by the same rules: no eye
+  hidden, in the box, one loop per property. Each part starts shown, so a single frame has
+  it. A `stage` that is negative, below 1 or `NaN` is 0:
+  - 0 (the work's first ten minutes, or a start not known): the way alone.
+  - 1 (from ten minutes): sweat. A drop on each side of the face, in the column just
+    outside every eye the ways draw (open, look and look mirrored), so it covers no eye
+    whichever way the creature faces. Each is a cell of `FATIGUE.sweat` with a shine in its
+    corner, over a `PROP.shadow` peeking out under it; it drips, easing in, and fades to
+    0.3, at 1.4 s and 1.9 s. It sits on the first stretch of body at least two cells tall
+    in its column, from a row over the eyes' top down, and drips a cell, or less where the
+    stretch is short, so the drop and its shadow stay on the body: it never shows over a
+    prop behind the creature. A column with no such stretch has no drop. They ride in the
+    torso, after the body and eyes and before anything the way puts there, so they bob
+    with the body and a prop it holds passes in front of them, as a prop in front does.
+    The still frame shows at least one.
+  - 2 and up (from thirty minutes): the sweat, plus a cup of coffee in `FATIGUE`'s colors:
+    a 2 by 2 mug with coffee along its top, a handle toward the creature and two wisps of
+    steam over it fading in turn, a 3 by 3 box in all. Each way names where it stands
+    (`cup` in `WORK`), clear of the way's props through all their motion: on the floor at
+    the lower right (rows 9 to 11, columns 8 to 10, off the edge column), or for typing,
+    reading, installing, planning and testing, whose props fill the floor or the right
+    edge, in the top right corner (rows 0 to 2, columns 9 to 11), where no kind has an
+    eye. It goes under the way's own marks, so eyes a prop draws again stay on top.
+  `FATIGUE`'s colors are their own: never `DOUSE`'s, `SMOKE`'s, `DUST`'s, `FIRE`'s,
+  `HIT`'s, `CONFETTI`'s or a status cue's. A turn shows no fatigue: it takes the status's
+  place.
 - Idle, the creature has closed eyes, is dimmed, breathes slowly, and a "z" fades behind
   it. Now and then it fidgets its own way, `ownFidget(sprite)`: a hash of its seed with a
   salt of its own, apart from the art's and the way of working's, so a seed's creature
@@ -361,8 +390,8 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
   adds its times to `STAGES` and reads `stage`. Blocked has two, at 1 and 5 minutes, for
-  its fire. Idle has two, at 5 and 30 minutes, for its sleep. Every other list is empty,
-  and `stage` changes nothing in those statuses.
+  its fire. Idle has two, at 5 and 30 minutes, for its sleep. Working has two, at 10 and
+  30 minutes, for its fatigue. Done's list is empty, and `stage` changes nothing there.
 - `faceRects` is the creature still, seen from one side, for a caller that turns it: `face`
   is `"front"` (its open eyes), `"back"` (no eyes), or `"left"` or `"right"`, turned that
   way edge-on: a third as wide, centered, with only the eye on that side. The two turned

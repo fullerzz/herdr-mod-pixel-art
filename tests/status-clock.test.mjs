@@ -1,13 +1,13 @@
 // The status clock: each draw knows since when every agent has had its status, and how many
 // of that status's stages it has held for. The drawer wakes itself when the next is due.
-// A look that changes the longer a status holds reads it: a blocked fire burns hotter, and
-// a long idle gathers dust.
+// A look that changes the longer a status holds reads it: a blocked fire burns hotter, a
+// long idle gathers dust, and a long work tires the creature.
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { mock } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { DUST, FIRE, SMOKE, STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
+import { DUST, FATIGUE, FIRE, SMOKE, STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, walk } from "./mocks/gpui.mjs";
 
 const draw = (drawer, cx) => check(drawer.render(cx));
@@ -29,10 +29,40 @@ afterEach(() => {
   for (const [status, marks] of Object.entries(saved)) STAGES[status].splice(0, Infinity, ...marks);
 });
 
-test("blocked ships with stages at one and five minutes, idle at five and thirty; no other status has any yet", () => {
+test("blocked ships with stages at one and five minutes, idle at five and thirty, working at ten and thirty; done has none yet", () => {
   assert.deepEqual(saved.blocked, [1 * MIN, 5 * MIN]);
   assert.deepEqual(saved.idle, [5 * MIN, 30 * MIN]);
-  for (const status of ["working", "done"]) assert.deepEqual(saved[status], [], status);
+  assert.deepEqual(saved.working, [10 * MIN, 30 * MIN]);
+  assert.deepEqual(saved.done, []);
+});
+
+test("a working agent sweats after ten minutes and takes a coffee after thirty, as the drawer wakes", (t) => {
+  // Working since the drawer opened, from its own tab: no change, so no turn plays first.
+  t.mock.timers.enable({ apis: ["Date"], now: 10 * MIN });
+  mock.agent("t1", { status: "working", tab: "tb1" });
+  mock.state.spaces = [space(tab("tb1", { changed_at: 10 * MIN, working_since: 10 * MIN }))];
+  const drawer = new Drawer();
+  const cx = context();
+  /** How many rectangles of the sprite are in each of fatigue's colors. */
+  const tiredness = () => {
+    const nodes = walk(find(drawer.render(cx), "pp-spr-t1"));
+    const of = (color) => nodes.filter((n) => calls(n, "bg").some(([c]) => c === color)).length;
+    return { sweat: of(FATIGUE.sweat), mug: of(FATIGUE.mug) };
+  };
+
+  assert.deepEqual(tiredness(), { sweat: 0, mug: 0 }, "fresh to work, it is not tired");
+  assert.deepEqual(cx.timers.map((timer) => timer.ms), [10 * MIN]);
+  t.mock.timers.tick(10 * MIN);
+  cx.run(10 * MIN);
+  const sweaty = tiredness();
+  assert.ok(sweaty.sweat > 0, "ten minutes in, it sweats");
+  assert.equal(sweaty.mug, 0);
+
+  t.mock.timers.tick(20 * MIN);
+  cx.run(20 * MIN);
+  const spent = tiredness();
+  assert.ok(spent.sweat > 0 && spent.mug > 0, "thirty minutes in, a cup of coffee stands by it");
+  assert.equal(cx.timers.length, 0, "the last stage wakes nothing");
 });
 
 test("an idle agent snores after five minutes and gathers dust after thirty, as the drawer wakes", (t) => {
