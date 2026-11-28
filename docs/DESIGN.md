@@ -17,6 +17,8 @@ picker lets the person choose another creature for an agent.
   is idle.
 - **Hotter fire.** A long block burns hotter: small flames at first, bigger ones after a
   minute, and smoke and embers after five.
+- **Dust.** A long idle sleeps deeper: a "z" at first, a snore bubble after five minutes,
+  and a cobweb, dust and a greyer body after thirty.
 - **Fidgets.** An idle creature fidgets in its own way, at its own rhythm, both picked by
   its seed: a blink, a glance aside, or a scratch at its side. A fidget shows only for a
   moment of its rhythm, so almost every frame of an idle creature has its eyes shut.
@@ -177,12 +179,13 @@ export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
 export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
 export const SMOKE: { dark: "#6e655c", light: "#a89d92" };
+export const DUST: { web: "#cdc8bd", dust: "#8a8478" };
 export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting delegating
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
 export function ownFidget(sprite): { fidget: string, period: number };  // one of FIDGETS and its rhythm in ms, the same for the same seed
-export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; blocked: 60000 300000
+export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; blocked: 60000 300000, idle: 300000 1800000
 export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // the creature still from one side, in px
 export function daytimeOf(hour): "night" | "morning" | null;  // the part of the day of a local hour, 0 to 23
 ```
@@ -273,6 +276,21 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   - `look`: the same, with the eyes glancing right.
   - `scratch`: the eyes stay shut; two strokes in the theme's foreground jiggle in the
     empty column at its left edge, clear of the time of day's props at the right.
+
+  The idle sleeps as deep as `stage`. Every stage keeps the closed eyes, the breath, the
+  fidget, the time of day's prop and a mark in the theme's idle color at the top right, so
+  it reads as idle in one frame. Its marks go behind the art and start shown. A `stage`
+  that is negative, below 1 or `NaN` is 0:
+  - 0 (the idle's first five minutes, or a start not known): the "z", fading from 1 to 0.3
+    over 2.6 s, and the figure at opacity 0.75.
+  - 1 (from five minutes): a snore bubble in the z's place, in the theme's idle color: a
+    small 2 by 2 cell blob and a 4 by 4 ring over the same corner, fading in turn over the
+    breath's 2.6 s, so it swells and shrinks as the creature breathes.
+  - 2 and up (from thirty minutes): the bubble, plus a cobweb in the top left corner and
+    dust on the floor row from column 1 to 7, both still, in `DUST`'s colors, and the figure
+    at opacity 0.5, greyer. The dust is clear of the scratch's column and the props'
+    corner. `DUST`'s colors are their own: never `SMOKE`'s, `FIRE`'s, `DOUSE`'s, `HIT`'s,
+    `CONFETTI`'s or a status cue's.
 - `hit` is `{ n, damage, live, size? } | null`. It adds a flash of the creature's silhouette
   in `HIT.removed` (`damage`) or `HIT.added`, and a knock: sideways for damage, up
   otherwise. `live` draws it at full strength; settled, both ease back with `.transition`.
@@ -323,7 +341,8 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
   adds its times to `STAGES` and reads `stage`. Blocked has two, at 1 and 5 minutes, for
-  its fire. Every other list is empty, and `stage` changes nothing in those statuses.
+  its fire. Idle has two, at 5 and 30 minutes, for its sleep. Every other list is empty,
+  and `stage` changes nothing in those statuses.
 - `faceRects` is the creature still, seen from one side, for a caller that turns it: `face`
   is `"front"` (its open eyes), `"back"` (no eyes), or `"left"` or `"right"`, turned that
   way edge-on: a third as wide, centered, with only the eye on that side. The two turned

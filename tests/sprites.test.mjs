@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { theme } from "herdr";
 import { div } from "gpui-kit";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { CONFETTI, DOUSE, FIDGETS, FIRE, HIT, SMOKE, STAGES, TURNS, WORKS, faceRects, ownFidget, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { CONFETTI, DOUSE, DUST, FIDGETS, FIRE, HIT, SMOKE, STAGES, TURNS, WORKS, faceRects, ownFidget, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -262,15 +262,63 @@ test("a long block burns hotter: small flames, bigger after a minute, smoke and 
   }
 });
 
-test("a fire's smoke has its own colors, and stage changes no other status", () => {
+test("a fire's smoke and an idle's dust have their own colors, and stage changes no other status", () => {
   const taken = new Set([...Object.values(HIT), ...Object.values(FIRE), ...Object.values(DOUSE), ...Object.values(CONFETTI), theme().blocked, theme().done, theme().idle, theme().working].map((c) => c.toLowerCase()));
   for (const color of Object.values(SMOKE)) {
     assert.match(color, HEX);
     assert.ok(!taken.has(color), `${color} means something else`);
   }
+  for (const color of Object.values(DUST)) {
+    assert.match(color, HEX);
+    assert.ok(!taken.has(color) && !Object.values(SMOKE).includes(color), `${color} means something else`);
+  }
   const sprite = makeSprite("t1");
-  for (const status of STATUSES.filter((s) => s !== "blocked")) {
+  for (const status of STATUSES.filter((s) => s !== "blocked" && s !== "idle")) {
     assert.equal(tree(spriteElement(sprite, { id: "s", status, stage: 2 })), tree(spriteElement(sprite, { id: "s", status })), `${status} at stage 2`);
+  }
+});
+
+test("a long idle sleeps deeper: a z, a snore bubble after five minutes, dust and a greyer body after thirty", () => {
+  assert.deepEqual(STAGES.idle, [300_000, 1_800_000]);
+  const ash = new Set(Object.values(DUST));
+  const count = (board, colors) => board.flat().filter((c) => colors.has(c)).length;
+  /** The figure's dim: the opacity of the one layer that holds both feet and the torso. */
+  const dimOf = (el) => calls(walk(el).find((n) => n.children.length === 3 && calls(n, "opacity").length), "opacity").at(-1)[0];
+  for (const seed of SEEDS.slice(0, 20)) {
+    const sprite = makeSprite(seed);
+    const idling = (stage, px = 1, daytime = null) => spriteElement(sprite, { id: "s", px, status: "idle", stage, daytime });
+    const [z, snore, dusty] = [0, 1, 2].map((stage) => raster(idling(stage)));
+    const lids = cellsOf(sprite.parts.eyes.closed);
+    for (const [stage, board] of [z, snore, dusty].entries()) {
+      // Every stage is idle in a single frame: the eyes shut and the theme's idle cue.
+      for (const { x, y, color } of lids) assert.equal(board[y][x], color, `seed ${seed}, stage ${stage}: eyes open at ${x},${y}`);
+      assert.ok(board.slice(0, 4).flat().includes(theme().idle), `seed ${seed}, stage ${stage}: no idle cue at the top right`);
+      assert.ok(raster(idling(stage), { peak: true }).slice(0, 4).flat().includes(theme().idle), `seed ${seed}, stage ${stage}: the cue fades out`);
+      for (const px of [1, 3, 8]) {
+        for (const daytime of [null, "night", "morning"]) {
+          for (const r of reach(nodeOf(idling(stage, px, daytime)))) {
+            assert.ok(r.x[0] >= 0 && r.y[0] >= 0 && r.x[1] <= GRID * px && r.y[1] <= GRID * px, `stage ${stage} at ${px} px reaches x ${r.x}, y ${r.y}`);
+          }
+        }
+      }
+      for (const node of check(idling(stage, 3, "night"))) {
+        const looped = calls(node, "loop").map(([property]) => property);
+        assert.equal(new Set(looped).size, looped.length);
+      }
+      // The fidget still comes round, and the lantern still stands in its corner, clear of the dust.
+      assert.equal(fidgetIn(idling(stage, 3)).layers[0].period, ownFidget(sprite).period, `seed ${seed}, stage ${stage}: no fidget`);
+      const lit = raster(idling(stage, 1, "night"));
+      assert.ok(lit.slice(9).flatMap((row) => row.slice(10)).every((c) => c && !ash.has(c)), `seed ${seed}, stage ${stage}: the lantern is covered`);
+    }
+    assert.notDeepEqual(snore, z, `seed ${seed}: five minutes in, the z becomes a bubble`);
+    assert.equal(count(z, ash) + count(snore, ash), 0, "no dust before thirty minutes");
+    assert.ok(count(dusty, ash) > 0, `seed ${seed}: thirty minutes in, dust shows in a single frame`);
+    assert.deepEqual(dusty.slice(0, 4).map((row) => row.slice(8)), snore.slice(0, 4).map((row) => row.slice(8)), "the bubble stays");
+    assert.equal(dimOf(idling(0)), 0.75);
+    assert.equal(dimOf(idling(1)), 0.75);
+    assert.ok(dimOf(idling(2)) < 0.75, `seed ${seed}: thirty minutes in, the creature fades`);
+    assert.equal(tree(idling(7)), tree(idling(2)), "past the last stage, as deep as the last");
+    for (const junk of [-1, NaN, 0.5]) assert.equal(tree(idling(junk)), tree(idling(0)), `stage ${junk} is a plain z`);
   }
 });
 

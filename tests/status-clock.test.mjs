@@ -1,12 +1,13 @@
 // The status clock: each draw knows since when every agent has had its status, and how many
 // of that status's stages it has held for. The drawer wakes itself when the next is due.
-// A look that changes the longer a status holds reads it: a blocked fire burns hotter.
+// A look that changes the longer a status holds reads it: a blocked fire burns hotter, and
+// a long idle gathers dust.
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { mock } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { FIRE, SMOKE, STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
+import { DUST, FIRE, SMOKE, STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, walk } from "./mocks/gpui.mjs";
 
 const draw = (drawer, cx) => check(drawer.render(cx));
@@ -20,7 +21,7 @@ const space = (...tabs) => ({ id: "sp1", index: 1, name: "repo", named: false, f
 
 beforeEach(() => {
   mock.reset();
-  // Blocked ships with these; idle gets some too, to test two statuses at once.
+  // Blocked ships with these; idle gets one of its own, to test two statuses at once.
   STAGES.blocked.splice(0, Infinity, 1 * MIN, 5 * MIN);
   STAGES.idle.splice(0, Infinity, 10 * MIN);
 });
@@ -28,9 +29,46 @@ afterEach(() => {
   for (const [status, marks] of Object.entries(saved)) STAGES[status].splice(0, Infinity, ...marks);
 });
 
-test("blocked ships with stages at one and five minutes; no other status has any yet", () => {
+test("blocked ships with stages at one and five minutes, idle at five and thirty; no other status has any yet", () => {
   assert.deepEqual(saved.blocked, [1 * MIN, 5 * MIN]);
-  for (const status of ["working", "done", "idle"]) assert.deepEqual(saved[status], [], status);
+  assert.deepEqual(saved.idle, [5 * MIN, 30 * MIN]);
+  for (const status of ["working", "done"]) assert.deepEqual(saved[status], [], status);
+});
+
+test("an idle agent snores after five minutes and gathers dust after thirty, as the drawer wakes", (t) => {
+  STAGES.idle.splice(0, Infinity, ...saved.idle);
+  // Idle since the drawer opened, from its own tab: no change, so no turn plays first.
+  t.mock.timers.enable({ apis: ["Date"], now: 10 * MIN });
+  mock.agent("t1", { status: "idle", tab: "tb1" });
+  mock.state.spaces = [space(tab("tb1", { changed_at: 10 * MIN }))];
+  const drawer = new Drawer();
+  const cx = context();
+  /** The sprite's look: its drawing as text, how many rectangles of dust, and its dim. */
+  const look = () => {
+    const sprite = find(drawer.render(cx), "pp-spr-t1");
+    const nodes = walk(sprite);
+    return {
+      tree: JSON.stringify(nodes.map((n) => n.calls.filter(([name]) => name !== "child" && name !== "children"))),
+      dust: nodes.filter((n) => calls(n, "bg").some(([c]) => Object.values(DUST).includes(c))).length,
+      dim: nodes.flatMap((n) => calls(n, "opacity").map(([o]) => o)),
+    };
+  };
+
+  const z = look();
+  assert.equal(z.dust, 0, "a fresh idle has no dust");
+  t.mock.timers.tick(5 * MIN);
+  cx.run(5 * MIN);
+  const snore = look();
+  assert.notEqual(snore.tree, z.tree, "five minutes in, the z becomes a snore bubble");
+  assert.equal(snore.dust, 0);
+  assert.deepEqual(snore.dim, z.dim);
+
+  t.mock.timers.tick(25 * MIN);
+  cx.run(25 * MIN);
+  const dusty = look();
+  assert.ok(dusty.dust > 0, "thirty minutes in, dust gathers");
+  assert.ok(Math.min(...dusty.dim) < Math.min(...snore.dim), "and the creature fades greyer");
+  assert.equal(cx.timers.length, 0, "the deepest sleep wakes nothing");
 });
 
 test("a blocked agent's fire grows after a minute and smokes after five, as the drawer wakes", (t) => {

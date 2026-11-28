@@ -10,11 +10,11 @@ move according to what their agents are doing.
   a closed drawer shows which agent the keys act on.
 - **Motion.** A sprite works while its agent works, catches fire and asks for attention
   when the agent is blocked, burning hotter the longer it waits, celebrates when it
-  finished, and rests when it is idle. When an agent becomes blocked, its creature jumps
-  as if startled before the fire catches. When a blocked agent goes on, water puts its fire
-  out before it goes back to work. When a working agent finishes, one burst of confetti
-  goes up before the creature settles into its happy done hop. When an idle or finished
-  agent starts work, its creature wakes up
+  finished, and rests when it is idle, gathering dust the longer it sleeps. When an agent
+  becomes blocked, its creature jumps as if startled before the fire catches. When a
+  blocked agent goes on, water puts its fire out before it goes back to work. When a
+  working agent finishes, one burst of confetti goes up before the creature settles into
+  its happy done hop. When an idle or finished agent starts work, its creature wakes up
   first: it yawns, stretches and pops its eyes open.
 - **Fidgets.** An idle creature fidgets now and then in its own way, at its own rhythm:
   it blinks, glances aside, or scratches its side. Each fidget lasts a moment, so an
@@ -372,6 +372,18 @@ leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
 hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the twelve ways, or walk
 hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 ```
+
+## Long idles
+
+An idle creature sleeps: its eyes are shut, it is dimmed, it breathes slowly, and a `z`
+fades in and out over its head. The longer the agent stays idle, the deeper it sleeps.
+After five minutes the `z` becomes a snore bubble that swells and shrinks with its breath.
+After thirty minutes a cobweb hangs in its top left corner, dust lies on the floor at its
+feet, and the creature fades greyer. It still has its eyes shut and its fidgets, and its
+lantern or coffee stays at the lower right. The drawer counts the idle from when it saw
+the agent go idle. An agent alone in its tab takes the time from the tab instead. Any
+other agent that is already idle when the drawer opens keeps its `z` until its status next
+changes.
 
 ## Time of day
 

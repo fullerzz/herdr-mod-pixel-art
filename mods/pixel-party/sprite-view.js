@@ -16,6 +16,9 @@
 //   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn
 //   idle     closed eyes, dimmed, breathes slowly, a fading "z", and now and then a brief
 //            fidget of its own at its own rhythm, picked by its seed. See FIDGET below.
+//            The longer the idle holds, the deeper the sleep: after five minutes the "z"
+//            becomes a snore bubble, and after thirty dust gathers and the creature fades
+//            greyer (`stage`, see STAGES).
 //
 // A creature at rest (done or idle) also keeps a prop for the time of day at its lower
 // right: a lantern at night, a cup of coffee in the morning. See DAYTIME below.
@@ -83,10 +86,11 @@ const mark = (cells, color, u) => layer(cells.map(([x, y, w = 1, h = 1]) => ({ x
  * ascending, per status. Stage 0 is before the first; the drawer counts the stage from its
  * clock of each agent's status and redraws when the next one is reached. A look that
  * changes with time adds its times here. Blocked burns hotter after a minute and again
- * after five (see `fire`); the other statuses have no stage yet.
+ * after five (see `fire`); idle snores after five minutes and gathers dust after thirty
+ * (see `sleep`). The other statuses have no stage yet.
  * @type {Record<Status, number[]>}
  */
-export const STAGES = { working: [], blocked: [60_000, 300_000], done: [], idle: [] };
+export const STAGES = { working: [], blocked: [60_000, 300_000], done: [], idle: [300_000, 1_800_000] };
 
 /** The colors of hits: added lines heal, removed lines hurt. */
 export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" });
@@ -873,6 +877,35 @@ const EYES = { done: "happy", idle: "closed" };
  */
 export const daytimeOf = (hour) => (hour >= 20 || hour < 6 ? "night" : hour < 11 ? "morning" : null);
 
+/**
+ * The colors of a long idle's dust: a pale cobweb and a dull dust. Their own: never SMOKE's,
+ * DOUSE's, FIRE's or a status cue's.
+ */
+export const DUST = /** @type {const} */ ({ web: "#cdc8bd", dust: "#8a8478" });
+
+/**
+ * An idle creature's marks, as deep as its sleep's stage, all behind the creature, so they
+ * show only where the art leaves room. At stage 0 a "z" fades in and out at the top right.
+ * From stage 1 a snore bubble takes its place there, swelling and shrinking with the breath.
+ * From stage 2 a cobweb hangs in the top left corner and dust lies on the floor at the
+ * left, clear of the time of day's props at the lower right and the scratch at the left.
+ * Every mark starts shown, so a single frame has it, and every stage keeps the theme's
+ * idle cue.
+ * @param {number} u
+ * @param {number} stage How long the idle has held: 0, 1, or 2 and above.
+ * @param {Theme} t
+ * @returns {Element[]}
+ */
+function sleep(u, stage, t) {
+  if (!(stage >= 1)) return [mark([[8, 0, 4, 1], [10, 1], [9, 2], [8, 3, 4, 1]], t.idle, u).loop("opacity", { from: 1, to: 0.3, period: 2600 })];
+  const bubble = [
+    mark([[9, 2, 2, 2]], t.idle, u).loop("opacity", { from: 1, to: 0.2, period: 2600 }),
+    mark([[9, 0, 2, 1], [8, 1, 1, 2], [11, 1, 1, 2], [9, 3, 2, 1]], t.idle, u).loop("opacity", { from: 0.2, to: 1, period: 2600 }),
+  ];
+  if (!(stage >= 2)) return bubble;
+  return [mark([[0, 0, 3, 1], [0, 1, 1, 2], [1, 1]], DUST.web, u), mark([[1, 11, 2, 1], [4, 11], [6, 11, 2, 1]], DUST.dust, u), ...bubble];
+}
+
 /** The colors of the time of day's props. Their own, like the sprite's art. */
 const DAY = /** @type {const} */ ({
   iron: "#3b3f4c",
@@ -941,7 +974,8 @@ function glance(eyes) {
  * The status's marks, drawn behind or in front of the creature.
  * @param {Status | null} status
  * @param {number} u
- * @param {number} stage How long the status has held (`STAGES`): how hot a fire burns.
+ * @param {number} stage How long the status has held (`STAGES`): how hot a fire burns, how
+ *   deep an idle sleeps.
  * @returns {{ behind: Element[], front: Element[] }}
  */
 function accents(status, u, stage) {
@@ -963,11 +997,8 @@ function accents(status, u, stage) {
       const b = mark(plus(10, 3), t.done, u).loop("opacity", { from: 0.15, to: 1, period: 900 });
       return { behind: [a, b], front: [] };
     }
-    case "idle": {
-      // Behind the creature, so it shows only where the art leaves room.
-      const z = mark([[8, 0, 4, 1], [10, 1], [9, 2], [8, 3, 4, 1]], t.idle, u);
-      return { behind: [z.loop("opacity", { from: 1, to: 0.3, period: 2600 })], front: [] };
-    }
+    case "idle":
+      return { behind: sleep(u, stage, t), front: [] };
     default:
       return { behind: [], front: [] };
   }
@@ -987,7 +1018,7 @@ function accents(status, u, stage) {
  *   takes the status's place: no status look, motion or way of working is drawn.
  * @param {number} [options.stage] How long the status has held, as the number of its
  *   STAGES reached (default 0, also when its start is unknown). Blocked, it sets how hot
- *   the fire burns; no other look uses it yet.
+ *   the fire burns; idle, how deep the creature sleeps. No other look uses it yet.
  * @param {boolean} [options.tube] Whether a testing creature holds its test tube (default
  *   true). The drawer takes it away while it shows how the tests came out.
  * @param {string | null} [options.daytime] The part of the day (`daytimeOf`): a done or idle
@@ -1032,7 +1063,8 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   } else if (look === "idle") {
     // The fidget rides in the torso, so it breathes and dims with the body.
     torso.loop("top", { from: 0, to: nudge, period: 2600 }).child(fidgeting(sprite, parts));
-    figure.opacity(0.75);
+    // Dimmed, and greyer still once the dust gathers.
+    figure.opacity(stage >= 2 ? 0.5 : 0.75);
   }
   figure.child(left).child(right).child(torso);
 
