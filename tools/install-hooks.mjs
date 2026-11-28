@@ -40,6 +40,7 @@ export const EVENTS = /** @type {const} */ ({
   SessionStart: "clear",
   PreToolUse: "tool",
   UserPromptSubmit: "think",
+  PreCompact: "compact",
 });
 
 /** Claude Code's events beyond those. Codex (0.172) has no event for a failed tool. */

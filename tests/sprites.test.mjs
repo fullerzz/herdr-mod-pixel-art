@@ -266,8 +266,8 @@ const working = (sprite, work, px = 3) => spriteElement(sprite, { id: "s", px, s
 /** An element's whole tree as text: every node's kind and calls, children aside. */
 const tree = (el) => JSON.stringify(walk(el).map((node) => [node.kind, node.calls.filter(([name]) => name !== "child" && name !== "children")]));
 
-test("there are eleven ways of working, walk among them, and the test covers every kind", () => {
-  assert.deepEqual([...WORKS].sort(), ["building", "git", "hammering", "installing", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
+test("there are twelve ways of working, walk among them, and the test covers every kind", () => {
+  assert.deepEqual([...WORKS].sort(), ["building", "compacting", "git", "hammering", "installing", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
   assert.equal(KINDS.length, 10);
 });
 
@@ -357,6 +357,34 @@ test("the ways for kinds of command move their props: bubbles light in turn, the
     const grow = loops(working(sprite, "git")).filter((l) => l.property === "opacity");
     assert.deepEqual(grow.map((l) => l.easing), ["ease-out", "linear", "ease-in"], "the branch grows a cell at a time");
     assert.equal(grow.at(-1).color, t.working, "its leaf comes last");
+  }
+});
+
+test("compacting, a press comes down on the creature's head and squishes it a cell into its feet, in step", () => {
+  const t = theme();
+  for (const sprite of KINDS) {
+    for (const px of [1, 3, 8]) {
+      const root = nodeOf(working(sprite, "compacting", px));
+      const figure = nodeOf(root.children.find((c) => nodeOf(c).children.length === 3));
+      const [left, right, torso] = figure.children.map(nodeOf);
+      assert.deepEqual([calls(left, "loop"), calls(right, "loop")], [[], []], "the feet stay put");
+      const [[property, sink]] = calls(torso, "loop");
+      assert.deepEqual([property, sink.from, sink.to], ["top", 0, px], "the body sinks one cell");
+
+      // The plate: a layer that moves with the body, holding one bar across the box.
+      const plate = root.children.map(nodeOf).find((n) => calls(n, "loop").some(([p]) => p === "top"));
+      assert.deepEqual(calls(plate, "loop"), [["top", sink]], "the plate comes down with the head, in step");
+      const bar = nodeOf(plate.children[0]);
+      assert.equal(last(bar, "bg"), t.foreground);
+      const head = Math.min(...sprite.parts.body.map((r) => r.y)) * px;
+      assert.equal(last(bar, "top") + last(bar, "h"), head, "it rests on the head, clear of the art");
+      const rod = root.children.map(nodeOf).find((n) => calls(n, "loop").some(([p]) => p === "height"));
+      const [[, reel]] = calls(rod, "loop");
+      assert.ok(reel.to - reel.from === px && reel.period === sink.period && reel.easing === sink.easing, "the rod reels out with it");
+    }
+    // The press and its rails show in a single frame, at the edges and over the head.
+    const board = raster(working(sprite, "compacting", 1));
+    assert.ok(board.every((row) => row[0] === t.dim && row[GRID - 1] === t.dim), `${sprite.kind}: rails at both edges`);
   }
 });
 

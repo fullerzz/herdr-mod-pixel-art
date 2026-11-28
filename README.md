@@ -14,8 +14,9 @@ move according to what their agents are doing.
   bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,
   unpacks a box while it installs, grows a branching twig while it uses git, hammers
   while it runs other commands, sweeps a lens while it searches, holds up an antenna
-  while it fetches from the web, and thinks when a prompt comes in. Without the hook,
-  each creature works its own way, the same every time.
+  while it fetches from the web, thinks when a prompt comes in, and is squished in a
+  press while it compacts its context. Without the hook, each creature works its own way,
+  the same every time.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
   over its sprite like hits in a fighting game: green `+12` for added lines, red `−3` for
   removed ones, with a flash and a knock. The bigger the change, the harder it hits: a
@@ -178,9 +179,9 @@ trick arrives again.
 
 ![One creature recorded in the drawer working each of the first seven ways, side by side: walking, typing, reading, hammering, searching, thinking and signalling](docs/ways-of-working.gif)
 
-The recording is older than the four ways for kinds of command: testing, building,
-installing and git. A working creature shows what its agent is doing, when the agent's
-hooks say:
+The recording is older than the four ways for kinds of command (testing, building,
+installing and git) and than compacting. A working creature shows what its agent is doing,
+when the agent's hooks say:
 
 | Way | The agent | Claude Code's tools |
 |---|---|---|
@@ -194,6 +195,7 @@ hooks say:
 | searching | searches code | Grep, Glob |
 | signal | fetches from the web | WebFetch, WebSearch |
 | thinking | has a new prompt to think about | none: a prompt came in |
+| compacting | compacts its context | none: a compaction began |
 
 The hook tells a command by the first program in it that it knows: `cd app && npm test`
 is testing, and `git commit -m "fix build"` is git. For a tool that does many things, such
@@ -202,7 +204,9 @@ name. It reads only the first 512 bytes of the tool's input, so a long script sa
 its start says.
 
 The way holds until the next tool or prompt, not only while the tool runs: a read is over
-in a moment, and the creature would never be seen reading. Any other tool takes the way
+in a moment, and the creature would never be seen reading. Compacting is the one way that
+ends by itself: a press comes down on the creature's head and squishes it into its feet
+until the compaction is done. Any other tool takes the way
 away, and the creature works its own way again: one of the six before the kinds of
 command, or a walk, picked by its seed. A creature without the hooks always works its own
 way.
@@ -210,13 +214,15 @@ way.
 Codex reads and searches through its shell, which its hooks name `Bash`, so a Codex agent
 mostly hammers; its tests, builds, installs and git show as they do for Claude Code, if
 its hooks give the command as Claude Code's do, which is not yet checked. The hook also takes `apply_patch`, `shell` and `web_search` for Codex's
-patches, shell and searches, names not yet checked against a running Codex. The same `just hooks` that installs the bee hooks below installs these two:
-`tools/bee-hook.sh tool` before each tool and `tools/bee-hook.sh think` on each prompt.
+patches, shell and searches, names not yet checked against a running Codex. The same `just hooks` that installs the bee hooks below installs three more:
+`tools/bee-hook.sh tool` before each tool, `tools/bee-hook.sh think` on each prompt and
+`tools/bee-hook.sh compact` before a compaction. The compaction's own session start ends
+it. Codex has a `PreCompact` hook too, but what it sends is not yet checked.
 They keep a `pixel.work` label on the agent's terminal. The hooks of a sub-agent's tools
 leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
 
 ```sh
-hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the ten ways, or walk
+hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the eleven ways, or walk
 hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 ```
 
@@ -243,7 +249,7 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
   just hooks             # both, or `just hooks claude` / `just hooks codex`
   ```
 
-  It adds six hooks to `~/.claude/settings.json` and five to `~/.codex/hooks.json` (Codex
+  It adds seven hooks to `~/.claude/settings.json` and six to `~/.codex/hooks.json` (Codex
   has no event for a failed command) after the ones already there, keeps the file as it was beside it (`.bak-pixel-party-<time>`), and
   is safe to run again. It never changes a hook that is already there: if one of yours
   also runs a `bee-hook.sh` (even this one, under a matcher that limits it to some tools),
@@ -262,7 +268,8 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
       "SessionStart": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh clear", "timeout": 5 }] }],
       "PreToolUse": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh tool", "timeout": 5 }] }],
       "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh think", "timeout": 5 }] }],
-      "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh fail", "timeout": 5 }] }]
+      "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh fail", "timeout": 5 }] }],
+      "PreCompact": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh compact", "timeout": 5 }] }]
     }
   }
   ```

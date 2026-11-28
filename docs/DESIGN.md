@@ -20,8 +20,9 @@ picker lets the person choose another creature for an agent.
   test tube while it runs tests, lifts bricks with a crane while it builds, unpacks a box
   while it installs, grows a branching twig while it uses git, hammers while it runs other
   commands, sweeps a lens while it searches, holds up an antenna while it fetches from the
-  web, and thinks when a prompt comes in. Otherwise it works its own way, picked by its
-  seed: a walk, or one of the six ways from before the four for kinds of command.
+  web, thinks when a prompt comes in, and is squished in a press while it compacts its
+  context. Otherwise it works its own way, picked by its seed: a walk, or one of the six
+  ways from before the four for kinds of command.
 - **Identity.** An agent's seed is the `pixel.avatar` label on its terminal in herdr-core.
   Without the label the seed is the terminal's address, so every agent has a stable sprite
   from the start. A label survives an agent restart in the same terminal, is seen by every
@@ -79,6 +80,7 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | A Bash command that exits other than 0 fires Claude Code's `PostToolUseFailure`, not `PostToolUse`. Its JSON is `session_id`, ..., `agent_id` and `agent_type` for a sub-agent's, `hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt`, `duration_ms`. The exit code is only text at the start of `error` (`"Exit code 2\n..."`), which also holds the output, cut to about 10 KB: a failed `seq 1 200000` was 13 KB in all. `PostToolUse` has no exit code at all, and a 1.2 MB output made it 37 KB. A failed Edit (no match) fired neither. (Claude Code 2.1.332, measured with `claude -p`.) Codex 0.172's hook events include no failure event. | A failed command is the `PostToolUseFailure` hook for a shell tool, with no parsing of the error. Codex gets no hook for it. |
 | `hc label` on the caller's own terminal takes about 10 ms; the whole tool hook about 30 ms. A `PreToolUse` JSON holds the tool's whole input (a Write's content: megabytes), after `tool_name` and `agent_id`. | Before a tool or a prompt, the hook parses only up to `"tool_input"`, at most 8 KiB, and reads the rest to throw it away unparsed. A 2 MB Write costs it about 20 ms, not the 530 ms of parsing it all. A shell tool's command is the one exception, with a budget of its own: the first 512 bytes after `"tool_input"`, within those 8 KiB. |
 | `.loop` plays its return leg as the forward leg backwards, easing included: an 8 s ease-in `top` loop is symmetric about its far end, slow to leave home and slow to come back. `.loop("width")` runs too. | Two loops of one period with ease-out and ease-in light in one order and go out in the reverse, as the previews in Chrome (CSS `alternate`) showed. |
+| Claude Code runs `PreCompact` (`trigger`, `custom_instructions`, no `tool_input`) when a compaction starts, then `SessionStart` with `source` `"compact"` when its summary is written, about 4 s later, then `PostCompact`. `/compact` sends no `UserPromptSubmit`. (Claude Code 2.1.332, `/compact` in `claude -p`: `trigger` `"manual"`; an automatic compaction is not measured.) | `compact` on `PreCompact` sets the way, and `clear` on the compaction's session start ends it: no hook of its own. |
 | A Claude Code hook's parent process is `claude` itself (measured for SessionStart, SubagentStart and SubagentStop). A `claude -p` run from an agent's tool inherits `HC_TERMINAL_ID` and starts a session of its own. | `clear` tells the owner's own new session from a nested program's session by pid. |
 | Herdr clips a floating mod to its frame: a child placed outside it is not drawn. | Bees get room inside the drawer, in lanes under the sprite. |
 | A `Context` in `render` has the same `timer` as an `AsyncContext`. | A new bee's second render is scheduled from `render`. |
@@ -141,7 +143,7 @@ export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
 export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse
-export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git
+export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
 ```
@@ -160,8 +162,8 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
 - Working, the creature works the way `work` names, one of `WORKS`. Any other value (null,
   a name it doesn't know, `"__proto__"`) is the creature's own way, `ownWork(sprite)`: a
   hash of its seed, apart from the art's, so a seed's creature looks as it always did. It
-  picks from the first seven only: the four ways for kinds of command came later, and a
-  seed keeps the own way it had. `work` changes nothing in any other status.
+  picks from the first seven only: the four ways for kinds of command and compacting came
+  later, and a seed keeps the own way it had. `work` changes nothing in any other status.
   - `walk`: eyes glance right, feet step in turn, body bobs, speed lines behind.
   - `typing`: open eyes, a keyboard under the face, keys lighting in the theme's working
     color in an uneven rhythm, the body bobbing once a keystroke.
@@ -186,6 +188,10 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
     corners, and a package in the theme's accent popping up out of it to row 8 and back.
   - `git`: open eyes, a twig up the left edge with a leaf on its tip, branching over the
     head, where its branch grows out a cell at a time to a leaf in the theme's working color.
+  - `compacting`: open eyes, a press: two dim rails in the edge columns and a plate in the
+    theme's foreground resting on the head, hung from a dim rod. The plate comes down a cell
+    with the body, slowly and then with a slam, and lifts again: the body sinks over the
+    feet, which stay, so the creature is a cell shorter, squished.
 - A way of working draws its props over the lower body, in the top left corner, in the two
   columns at each edge or in empty cells, where no kind has an eye. A prop that crosses the face (the hammer, the lens) draws a second copy
   of the eyes over itself. A prop under the face (the keyboard, the book, the package) covers row 8 down,
@@ -303,7 +309,7 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
 - `beeElement` draws the figure of its `kind`. It is `BEE_W * px` by `BEE_H * px`, lifts
   by up to `px` while it works, and uses no ids and no timers. `flip` mirrors it to face
   left. Blocked, a bee's wings or a sheep's fleece take the theme's blocked color.
-- `tools/bee-hook.sh tool|think` keeps `pixel.work` from the same hooks: `tool` on
+- `tools/bee-hook.sh tool|think|compact` keeps `pixel.work` from the same hooks: `tool` on
   `PreToolUse` sets the way the tool names (Read is reading; Edit, MultiEdit, Write,
   NotebookEdit and apply_patch are typing; Bash and shell run a command; Grep and Glob are
   searching; WebFetch, WebSearch and web_search are signal) and removes the label for any
@@ -311,12 +317,15 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
   matchers; `apply_patch`, `shell` and `web_search` are unverified guesses at Codex's.
   `tool` and `think` look for the hook's own fields only in the JSON before the tool's own
   input, at most 8 KiB, so keys inside the input are never taken for the hook's; Claude Code puts `agent_id` and
-  `tool_name` there, after short fields only. `start`, `stop` and `clear` are rare and
-  parse all of it, since no order of their fields is promised. `think` on `UserPromptSubmit` sets
-  thinking. Both leave the label alone for a sub-agent's event (`agent_id`). The way holds
+  `tool_name` there, after short fields only. `start`, `stop`, `clear` and `compact` are rare
+  and parse all of it, since no order of their fields is promised. `think` on `UserPromptSubmit` sets
+  thinking. `compact` on `PreCompact` sets compacting, and the compaction's session start
+  takes it away; Codex's `PreCompact` is in its binary's list of events, unmeasured. All
+  three leave the label alone for a sub-agent's event (`agent_id`). The way holds
   until the next tool or prompt: a read or an edit is over in a moment, so a label held
   only while the tool runs would never be seen. A killed agent's label stays until the
-  terminal's next hooked session start, but shows only while the agent works.
+  terminal's next hooked session start, but shows only while the agent works. A
+  compaction that never finishes leaves compacting until the next tool or prompt.
 - A command's way is its first command's, split at `;`, `&`, `|`, `(`, `)`, a backtick and
   a newline, that runs a program the hook knows. Its program is the first word after
   settings (`FOO=1`) and wrappers (`sudo`, `env`, `npx`, ...), without its path; a program
@@ -339,11 +348,12 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
   on a pipe and would leave `tail` nothing. A 4 MB one takes about 0.2 s.
 - `tools/bee-hook.sh start|stop|clear` writes the labels from an agent's hooks. It never
   fails or stalls its agent: each `hc` call is killed after 2 seconds. It does nothing
-  outside an `hc` terminal. `clear` leaves the labels alone on a compaction, in a
-  sub-agent's own session start, and while another live program owns them: `pixel.hive`
-  holds the pid of the owning program, the hook's parent process, and `clear` takes
-  ownership when that program has died. `clear` removes `pixel.work` and `pixel.result` too.
-- `tools/install-hooks.mjs` (`just hooks`) adds the five hooks to Claude Code's
+  outside an `hc` terminal. On a compaction's session start `clear` removes `pixel.work`
+  only: the sub-agents outlive a compaction. It leaves the labels alone in a sub-agent's own
+  session start, and while another live program owns them: `pixel.hive` holds the pid of
+  the owning program, the hook's parent process, and `clear` takes ownership when that
+  program has died. `clear` removes `pixel.work` and `pixel.result` too.
+- `tools/install-hooks.mjs` (`just hooks`) adds the six hooks to Claude Code's
   `settings.json` and Codex's `hooks.json`, which share one shape, and `PostToolUseFailure`
   to Claude Code's only (`CLAUDE_EVENTS`): Codex has no such event. It appends, because
   Codex keys a hook's trust by its place in its list, and never changes a hook already

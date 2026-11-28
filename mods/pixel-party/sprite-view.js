@@ -561,6 +561,26 @@ const WORK = {
       };
     },
   },
+  // Compacting its context: a press between two rails comes down on its head and squishes
+  // it a cell into its feet, then lifts.
+  compacting: {
+    eyes: "open",
+    build({ u, size, t, sprite, torso }) {
+      // Ease-in: the press comes down slowly, then slams; it lifts fast, then slows.
+      const press = { period: 1600, easing: /** @type {const} */ ("ease-in") };
+      // The body sinks a cell over its feet: drawn after them, it hides them as it goes.
+      torso.loop("top", { from: 0, to: u, ...press });
+      const p = Math.round((2 * u) / 3);
+      // At rest the plate sits just over the head, where no art is, and it moves with the
+      // head, so it never covers the creature. The rod above it reels out as it comes down.
+      const head = Math.min(...sprite.parts.body.map((r) => r.y)) * u;
+      const rod = rect(size / 2 - p, 0, 2 * p, head - p, t.dim).loop("height", { from: head - p, to: head - p + u, ...press });
+      const plate = full(size).child(rect(p, head - p, size - 2 * p, p, t.foreground)).loop("top", { from: 0, to: u, ...press });
+      // The rails, in the empty columns at each edge.
+      const rails = [rect(0, 0, p, size, t.dim), rect(size - p, 0, p, size, t.dim)];
+      return { behind: [], front: [...rails, rod, plate] };
+    },
+  },
 };
 
 /** Every way of working, by name. `walk` was the only one before the agents' hooks told more. */

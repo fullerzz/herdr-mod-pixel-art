@@ -14,6 +14,8 @@
 #                       A shell command says more: testing, building, installing or git.
 #   bee-hook.sh think   a prompt came in: it thinks               (Claude Code: UserPromptSubmit)
 #   bee-hook.sh fail    a tool failed: a failed command coughs smoke (Claude Code: PostToolUseFailure)
+#   bee-hook.sh compact the context is about to be compacted        (Claude Code: PreCompact)
+#                       It ends at the compaction's session start: `clear` takes the way away.
 #
 # What a tool does holds until the next tool or prompt, not only while the tool runs: a
 # read or an edit is over in a moment, and the creature would never be seen doing it.
@@ -204,10 +206,19 @@ case "$action" in
       Bash | shell | local_shell | exec_command) hc2 label "$HC_TERMINAL_ID" "pixel.result=failed.$$" ;;
     esac
     ;;
-  clear)
-    # A sub-agent's own session start, or a compaction its sub-agents outlive: nothing is stale.
+  compact)
     [ -z "$id" ] || exit 0
-    [ "$(field source)" != "compact" ] || exit 0
+    hc2 label "$HC_TERMINAL_ID" "pixel.work=compacting"
+    ;;
+  clear)
+    # A sub-agent's own session start: nothing is stale.
+    [ -z "$id" ] || exit 0
+    # A compaction's own session start, when it is done: its sub-agents outlive it, but the
+    # compacting way ends.
+    if [ "$(field source)" = "compact" ]; then
+      hc2 label "$HC_TERMINAL_ID" "pixel.work="
+      exit 0
+    fi
     # `pixel.hive` holds the pid of the agent program whose sub-agents the labels are. The
     # hook's parent is that program. A second live program on this terminal (an agent's
     # `claude -p`) starts a session too: its owner's labels are not stale.

@@ -95,13 +95,46 @@ test("a sub-agent's start and stop read all of the hook's JSON: its id can come 
   assert.deepEqual(labels(), []);
 });
 
-test("outside an hc terminal, a sub-agent's own start, and a compaction change nothing", async () => {
+test("outside an hc terminal, and a sub-agent's own start, change nothing", async () => {
   seed(["pixel.bee.a1=1"]);
   ok(await hook("start", { agent_id: "a2" }, { HC_TERMINAL_ID: "" }));
   ok(await hook("clear", { ...session(), agent_id: "a2" }));
-  ok(await hook("clear", session("compact")));
+  ok(await hook("clear", session("compact"), { HC_TERMINAL_ID: "" }));
   assert.deepEqual(calls(), []);
   assert.deepEqual(labels(), ["pixel.bee.a1=1"]);
+});
+
+// PreCompact's JSON as Claude Code 2.1.332 sends it for `/compact` in `claude -p`. Its
+// SessionStart with source "compact" follows when the summary is written, before PostCompact.
+const preCompact = (more = {}) => ({
+  session_id: "s",
+  transcript_path: "/tmp/s.jsonl",
+  cwd: "/tmp",
+  prompt_id: "p",
+  hook_event_name: "PreCompact",
+  trigger: "manual",
+  custom_instructions: null,
+  ...more,
+});
+
+test("a compaction squishes the creature until its session start, which keeps the bees and their owner", async () => {
+  seed(["pixel.avatar=knight7", "pixel.bee.a1=1", "pixel.hive=99999999", "pixel.work=reading"]);
+  ok(await hook("compact", preCompact()));
+  assert.deepEqual(labels(), ["pixel.avatar=knight7", "pixel.bee.a1=1", "pixel.hive=99999999", "pixel.work=compacting"]);
+  ok(await hook("clear", session("compact")));
+  assert.deepEqual(labels(), ["pixel.avatar=knight7", "pixel.bee.a1=1", "pixel.hive=99999999"]);
+  assert.deepEqual(calls(), ["label t9 pixel.work=compacting", "label t9 pixel.work="]);
+});
+
+test("a compaction reads all of its JSON, and a sub-agent's leaves the label alone", async () => {
+  ok(await hook("compact", preCompact({ custom_instructions: "x".repeat(20_000), trigger: "auto" })));
+  assert.deepEqual(labels(), ["pixel.work=compacting"]);
+  seed(["pixel.work=reading"]);
+  rmSync(join(dir, "calls"), { force: true });
+  ok(await hook("compact", preCompact({ agent_id: "a1" })));
+  ok(await hook("compact", preCompact(), { HC_TERMINAL_ID: "" }));
+  assert.deepEqual(calls(), []);
+  assert.deepEqual(labels(), ["pixel.work=reading"]);
 });
 
 test("a second program's session on the same terminal leaves the live owner's bees", async () => {
@@ -322,6 +355,8 @@ test("a stalled hc gives up within the hook's 5 s timeout, quietly, on every act
     hook("tool", { tool_name: "Read" }, { FAKE_STALL: "1" }),
     hook("think", {}, { FAKE_STALL: "1" }),
     hook("fail", failure(), { FAKE_STALL: "1" }),
+    hook("compact", preCompact(), { FAKE_STALL: "1" }),
+    hook("clear", session("compact"), { FAKE_STALL: "1" }),
   ]);
   for (const r of runs) {
     ok(r);
