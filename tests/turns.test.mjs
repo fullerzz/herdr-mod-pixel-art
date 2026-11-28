@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { mock, theme } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { CONFETTI, FIRE, TURNS } from "../mods/pixel-party/sprite-view.js";
+import { CONFETTI, FIRE, STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, walk } from "./mocks/gpui.mjs";
 
 const draw = (drawer, cx) => {
@@ -165,9 +165,9 @@ test("an agent that finishes cheers once, on that draw: confetti bursts and fall
   assert.ok(!colored(sprite, Object.values(CONFETTI)), "the confetti is gone for good");
   assert.ok(colored(sprite, [theme().done]), "and the done pose's sparkles are there");
   const notified = cx.notified;
-  cx.run(5000);
+  cx.run(STAGES.done[0]);
   tree = draw(drawer, cx);
-  assert.equal(cx.notified, notified, "nothing more wakes it");
+  assert.equal(cx.notified, notified + 1, "only its calming down wakes it");
   assert.equal(cheerOf(tree, "t1"), null, "no second burst");
 });
 

@@ -1,11 +1,11 @@
 // The status clock: each draw knows since when every agent has had its status, and how many
 // of that status's stages it has held for. The drawer wakes itself when the next is due.
 // A look that changes the longer a status holds reads it: a blocked fire burns hotter, a
-// long idle gathers dust, and a long work tires the creature.
+// long idle gathers dust, a long work tires the creature, and a done one calms down.
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { mock } from "herdr";
+import { mock, theme } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
 import { DUST, FATIGUE, FIRE, SMOKE, STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, walk } from "./mocks/gpui.mjs";
@@ -29,11 +29,78 @@ afterEach(() => {
   for (const [status, marks] of Object.entries(saved)) STAGES[status].splice(0, Infinity, ...marks);
 });
 
-test("blocked ships with stages at one and five minutes, idle at five and thirty, working at ten and thirty; done has none yet", () => {
+test("blocked ships with stages at one and five minutes, idle at five and thirty, working at ten and thirty, done at five seconds", () => {
   assert.deepEqual(saved.blocked, [1 * MIN, 5 * MIN]);
   assert.deepEqual(saved.idle, [5 * MIN, 30 * MIN]);
   assert.deepEqual(saved.working, [10 * MIN, 30 * MIN]);
-  assert.deepEqual(saved.done, []);
+  assert.deepEqual(saved.done, [5_000]);
+});
+
+test("a finished agent cheers, hops, and calms down five seconds after it finished, as the drawer wakes", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const t1 = mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "working" }); // still at work, so no party follows the cheer
+  const drawer = new Drawer();
+  const cx = context();
+  draw(drawer, cx);
+  /** The sprite's moves up and down, and whether its sparkles show. */
+  const look = () => {
+    const nodes = walk(find(drawer.render(cx), "pp-spr-t1"));
+    return {
+      hops: nodes.flatMap((n) => calls(n, "loop")).filter(([property]) => property === "top").length,
+      sparkles: nodes.some((n) => calls(n, "bg").some(([c]) => c === theme().done)),
+    };
+  };
+  const pending = () => cx.timers.filter((timer) => !timer.every).map((timer) => timer.ms);
+
+  t1.status = "done";
+  draw(drawer, cx);
+  assert.equal(drawer.turnOf("t1").kind, "cheer");
+  assert.ok(pending().includes(STAGES.done[0]), "the drawer will wake when it calms down");
+  const cheer = TURNS.cheer.steps.at(-1)[0];
+  t.mock.timers.tick(cheer);
+  cx.run(cheer);
+  const hopping = look();
+  assert.equal(drawer.turnOf("t1"), null, "the cheer plays out in full");
+  assert.equal(drawer.stages.get("t1"), 0);
+  assert.ok(hopping.hops > 0 && hopping.sparkles, "then it hops under its sparkles");
+  assert.deepEqual(pending(), [STAGES.done[0]], "and nothing but the calm-down is left to wake it");
+
+  t.mock.timers.tick(STAGES.done[0] - cheer);
+  const notified = cx.notified;
+  cx.run(STAGES.done[0]);
+  assert.equal(cx.notified, notified + 1, "the timer wakes the drawer");
+  const calm = look();
+  assert.equal(drawer.stages.get("t1"), 1);
+  assert.equal(calm.hops, hopping.hops - 1, "five seconds in, it stops hopping");
+  assert.ok(calm.sparkles, "and is still done in one frame");
+  assert.deepEqual(pending(), [], "the calm pose wakes nothing");
+});
+
+test("a done agent with no known start counts from the draw that first shows it, so a reopened drawer calms down too", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 10 * MIN });
+  mock.agent("t1", { status: "done" });
+  mock.agent("t2", { status: "done", tab: "tb2" });
+  mock.state.spaces = [space(tab("tb2", { changed_at: 2 * MIN }))];
+  let drawer = new Drawer();
+  const cx = context();
+  draw(drawer, cx);
+  assert.equal(drawer.since.get("t1"), 10 * MIN, "done when first seen: it starts now");
+  assert.equal(drawer.stages.get("t1"), 0);
+  assert.equal(drawer.since.get("t2"), 2 * MIN, "its own tab's time still comes first");
+  assert.equal(drawer.stages.get("t2"), 1, "done for eight minutes: calm at once");
+  assert.deepEqual(cx.timers.map((timer) => timer.ms), [STAGES.done[0]]);
+
+  t.mock.timers.tick(STAGES.done[0]);
+  cx.run(STAGES.done[0]);
+  draw(drawer, cx);
+  assert.equal(drawer.stages.get("t1"), 1, "a few seconds later, it calms down");
+  assert.equal(cx.timers.length, 0);
+
+  drawer = new Drawer();
+  draw(drawer, context());
+  assert.equal(drawer.since.get("t1"), 10 * MIN + STAGES.done[0], "a reopened drawer starts its clock over");
+  assert.equal(drawer.stages.get("t1"), 0);
 });
 
 test("a working agent sweats after ten minutes and takes a coffee after thirty, as the drawer wakes", (t) => {

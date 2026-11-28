@@ -34,6 +34,9 @@ picker lets the person choose another creature for an agent.
   party, once: an "ALL DONE" banner drops over the first cell while the last one cheers,
   then every creature jumps twice, all together, and settles into its done pose as the
   banner fades.
+- **Calm finish.** A done creature hops under its sparkles for five seconds, then calms
+  down: it stands still and its sparkles twinkle slowly, so a drawer of finished agents
+  is quiet. Its happy eyes and sparkles still say done in one frame.
 - **Ways of working.** A working sprite shows what its agent is doing, when the agent's
   hooks say: it types while the agent edits files, reads a book while it reads, bubbles a
   test tube while it runs tests, lifts bricks with a crane while it builds, unpacks a box
@@ -198,7 +201,7 @@ export const WORKS: readonly string[];          // walk typing reading hammering
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
 export function ownFidget(sprite): { fidget: string, period: number };  // one of FIDGETS and its rhythm in ms, the same for the same seed
-export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; blocked: 60000 300000, idle: 300000 1800000, working: 600000 1800000
+export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; blocked: 60000 300000, idle: 300000 1800000, working: 600000 1800000, done: 5000
 export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // the creature still from one side, in px
 export function daytimeOf(hour): "night" | "morning" | null;  // the part of the day of a local hour, 0 to 23
 ```
@@ -386,7 +389,7 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
     the body; `burst` throws them out to the top rows and the edge columns over 420 ms,
     easing out; `fall` drops them three cells over 900 ms, easing in, as they fade. They are
     in `CONFETTI`'s colors, never `HIT`'s, `FIRE`'s, `DOUSE`'s or a status cue's. It is over
-    within 2 s, before any later done look that waits a few seconds (`STAGES`) would start.
+    within 2 s, before the done look calms down at 5 s (`STAGES`).
   - `stretch`, from any other status to working (it comes after `douse`, so blocked to
     working stays the douse): `yawn` shuts the eyes, slumps the body over the feet by a
     sub-cell move and opens a mouth in the art's ink two rows under the eyes' top, across the
@@ -407,7 +410,12 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
   adds its times to `STAGES` and reads `stage`. Blocked has two, at 1 and 5 minutes, for
   its fire. Idle has two, at 5 and 30 minutes, for its sleep. Working has two, at 10 and
-  30 minutes, for its fatigue. Done's list is empty, and `stage` changes nothing there.
+  30 minutes, for its fatigue. Done has one, at 5 seconds: from stage 1 the creature
+  calms down. It no longer hops, and its two sparkles twinkle at a third of the speed
+  (2.7 s a period, not 0.9 s), with the same happy eyes and sparkles, so one frame still
+  reads done. It adds no colors, and the time of day's prop stays as it was.
+  It comes after the cheer (1.6 s) and the last finisher's party (over at 2.7 s), and a
+  turn knows no stage, so neither is cut short.
 - `faceRects` is the creature still, seen from one side, for a caller that turns it: `face`
   is `"front"` (its open eyes), `"back"` (no eyes), or `"left"` or `"right"`, turned that
   way edge-on: a third as wide, centered, with only the eye on that side. The two turned
@@ -870,8 +878,8 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   drawer shows it. It hangs while the last agent's cheer plays, which the party does not
   cut short; at the cheer's end (1.6 s) every agent's sprite plays the `party` turn, on
   the same step at every draw, since one show steps them all: they jump together, the
-  last finisher included. When the turn is over, at 2.7 s, they take their done pose and
-  the banner fades over 500 ms; it is gone at 3.2 s. A redraw keeps the same party. A
+  last finisher included. When the turn is over, at 2.7 s, they take their done pose, calm
+  for one done five seconds or more, and the banner fades over 500 ms; it is gone at 3.2 s. A redraw keeps the same party. A
   status change that leaves an agent not done, a new agent that is not, or every agent
   leaving ends it at once for everyone, banner and all, and its steps wake nothing. The first row's box holds
   the banner; a ghost's never does.
@@ -882,7 +890,9 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   reopens) takes its start from its tab when it is the only agent in it: the tab's
   `working_since` while it works, else the tab's `changed_at`. Those are per tab, and
   `terminals()` has no times, so an agent that shares its tab, or whose tab has no time,
-  has no known start until its next change. The tab fields' meaning is as
+  has no known start until its next change. A done agent is the exception: with no known
+  start its clock starts at that draw, so a drawer that opens on finished agents calms them
+  down five seconds later; a guess there only shortens a hop. The tab fields' meaning is as
   `types/herdr.d.ts` documents it, not measured. Each draw turns the clock into the
   sprite's `stage` (`stages`). Sprite motion has no timers, so the drawer sets one for the
   nearest next stage of any agent and redraws then. One is pending at a time: a redraw

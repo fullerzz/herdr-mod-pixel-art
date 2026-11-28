@@ -14,12 +14,13 @@ move according to what their agents are doing.
   gathering dust the longer it sleeps. When an agent becomes blocked, its creature jumps
   as if startled before the fire catches. When a blocked agent goes on, water puts its
   fire out before it goes back to work. When a working agent finishes, one burst of
-  confetti goes up before the creature settles into its happy done hop. When an idle or
+  confetti goes up before the creature settles into its happy done hop, and a few seconds
+  later it calms down, so a drawer of finished agents stays quiet. When an idle or
   finished agent starts work, its creature wakes up first: it yawns, stretches and pops
   its eyes open.
 - **Party.** When the last agent finishes and every agent is done, an `ALL DONE` banner
   drops over the drawer's first creature, and once the last one's confetti has fallen,
-  every creature jumps twice, all together, before it settles into its done hop.
+  every creature jumps twice, all together, before it settles into its done pose.
 - **Fidgets.** An idle creature fidgets now and then in its own way, at its own rhythm:
   it blinks, glances aside, or scratches its side. Each fidget lasts a moment, so an
   idle creature almost always has its eyes shut.
@@ -419,6 +420,17 @@ lantern or coffee stays at the lower right. The drawer counts the idle from when
 the agent go idle. An agent alone in its tab takes the time from the tab instead. Any
 other agent that is already idle when the drawer opens keeps its `z` until its status next
 changes.
+
+## Calm finish
+
+A finished creature celebrates for a few seconds: it hops with happy eyes while two
+sparkles twinkle by it. Five seconds after its agent finished, it calms down: it stands
+still, and the sparkles twinkle at a third of the speed. Its happy eyes and sparkles stay,
+so it still reads as done at a glance. The cheer and the party both end before then, so
+neither is cut short. The drawer counts from when it saw the agent finish. An agent alone
+in its tab takes the time from the tab instead, so one finished long ago is calm at once.
+Any other agent that is already done when the drawer opens hops for five seconds from
+then, and calms down.
 
 ## Time of day
 

@@ -277,7 +277,7 @@ test("a fire's smoke, an idle's dust and a long work's sweat and coffee have the
     assert.ok(!taken.has(color) && ![...Object.values(SMOKE), ...Object.values(DUST)].includes(color), `${color} means something else`);
   }
   const sprite = makeSprite("t1");
-  for (const status of STATUSES.filter((s) => s !== "blocked" && s !== "idle" && s !== "working")) {
+  for (const status of STATUSES.filter((s) => s !== "blocked" && s !== "idle" && s !== "working" && s !== "done")) {
     assert.equal(tree(spriteElement(sprite, { id: "s", status, stage: 2 })), tree(spriteElement(sprite, { id: "s", status })), `${status} at stage 2`);
   }
 });
@@ -323,6 +323,45 @@ test("a long idle sleeps deeper: a z, a snore bubble after five minutes, dust an
     assert.ok(dimOf(idling(2)) < 0.75, `seed ${seed}: thirty minutes in, the creature fades`);
     assert.equal(tree(idling(7)), tree(idling(2)), "past the last stage, as deep as the last");
     for (const junk of [-1, NaN, 0.5]) assert.equal(tree(idling(junk)), tree(idling(0)), `stage ${junk} is a plain z`);
+  }
+});
+
+test("a done creature calms down after five seconds: it stops hopping and its sparkles twinkle slowly, still done in one frame", () => {
+  assert.deepEqual(STAGES.done, [5_000]);
+  for (const seed of SEEDS.slice(0, 20)) {
+    const sprite = makeSprite(seed);
+    const done = (stage, px = 1, daytime = null) => spriteElement(sprite, { id: "s", px, status: "done", stage, daytime });
+    const loops = (el, property) => walk(el).flatMap((n) => calls(n, "loop")).filter(([p]) => p === property).map(([, policy]) => policy);
+    assert.equal(loops(done(0), "top").length, 1, `seed ${seed}: fresh, it hops`);
+    assert.deepEqual(loops(done(1), "top"), [], `seed ${seed}: calm, it stands still`);
+    const twinkle = (stage) => loops(done(stage), "opacity").map((policy) => policy.period);
+    assert.equal(twinkle(1).length, twinkle(0).length, "the same sparkles");
+    assert.ok(Math.min(...twinkle(1)) > Math.max(...twinkle(0)), `seed ${seed}: they twinkle slower`);
+    const happy = cellsOf(sprite.parts.eyes.happy);
+    for (const stage of [0, 1]) {
+      // Both read as done in a single frame, whichever end of the twinkle it is at.
+      for (const peak of [false, true]) {
+        const board = raster(done(stage), { peak });
+        for (const { x, y, color } of happy) assert.equal(board[y][x], color, `seed ${seed}, stage ${stage}: no happy eye at ${x},${y}`);
+        assert.ok(board.flat().includes(theme().done), `seed ${seed}, stage ${stage}: no sparkle`);
+      }
+      for (const px of [1, 3, 8]) {
+        for (const daytime of [null, "night", "morning"]) {
+          for (const r of reach(nodeOf(done(stage, px, daytime)))) {
+            assert.ok(r.x[0] >= 0 && r.y[0] >= 0 && r.x[1] <= GRID * px && r.y[1] <= GRID * px, `stage ${stage} at ${px} px reaches x ${r.x}, y ${r.y}`);
+          }
+        }
+      }
+    }
+    // The time of day's prop keeps its corner, as it was.
+    for (const daytime of ["night", "morning"]) {
+      const corner = (stage) => raster(done(stage, 1, daytime)).slice(9).map((row) => row.slice(9));
+      assert.deepEqual(corner(1), corner(0), `seed ${seed}: the ${daytime} prop is covered`);
+    }
+    const calm = JSON.stringify(raster(done(1)));
+    for (const status of STATUSES.filter((s) => s !== "done")) assert.notEqual(calm, JSON.stringify(still(seed, status)), `seed ${seed}: calm done looks ${status}`);
+    assert.equal(tree(done(7)), tree(done(1)), "past the last stage, as calm as the last");
+    for (const junk of [-1, NaN, 0.5]) assert.equal(tree(done(junk)), tree(done(0)), `stage ${junk} still hops`);
   }
 });
 
@@ -1315,6 +1354,18 @@ test("a party: the creature crouches, jumps a cell twice with happy eyes, and la
     }
   }
   assert.ok(walk(partied(makeSprite("t1"), "hop", { n: 7 })).some((n) => n.id === "s-party-7-body"), "a new party has new ids");
+});
+
+test("calming down cuts no cheer or party short: a turn draws the same at any stage, and both are over before it", () => {
+  const sprite = makeSprite("t1");
+  for (const [kind, steps] of [["cheer", CHEER_STEPS], ["party", PARTY_STEPS]]) {
+    for (const step of steps) {
+      const at = (stage) => tree(spriteElement(sprite, { id: "s", status: "done", stage, turn: { kind, n: 1, step } }));
+      assert.equal(at(1), at(0), `${kind} ${step}`);
+    }
+  }
+  // The last finisher's party starts when its cheer ends, and the calm-down counts from the finish.
+  assert.ok(STAGES.done[0] > TURNS.cheer.steps.at(-1)[0] + TURNS.party.steps.at(-1)[0], "the party is over before the calm-down");
 });
 
 // ---- facing a way ----

@@ -16,7 +16,9 @@
 //            sides, and a blinking "!" badge in the top right corner. The longer the block
 //            holds, the hotter it burns: small flames at first, tall ones after a minute,
 //            and smoke and embers after five (`stage`, see STAGES).
-//   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn
+//   done     happy ^ ^ eyes, hops, two sparkles twinkle in turn. After a few seconds it
+//            calms down: it stops hopping and the sparkles twinkle slowly, so a drawer of
+//            finished agents is quiet (`stage`, see STAGES).
 //   idle     closed eyes, dimmed, breathes slowly, a fading "z", and now and then a brief
 //            fidget of its own at its own rhythm, picked by its seed. See FIDGET below.
 //            The longer the idle holds, the deeper the sleep: after five minutes the "z"
@@ -93,10 +95,11 @@ const mark = (cells, color, u) => layer(cells.map(([x, y, w = 1, h = 1]) => ({ x
  * changes with time adds its times here. Blocked burns hotter after a minute and again
  * after five (see `fire`); idle snores after five minutes and gathers dust after thirty
  * (see `sleep`); working sweats after ten minutes and takes a coffee after thirty (see
- * `fatigue`). Done has no stage yet.
+ * `fatigue`); done calms down after five seconds, once any cheer and party are over (see
+ * `accents` and the hop in `spriteElement`).
  * @type {Record<Status, number[]>}
  */
-export const STAGES = { working: [600_000, 1_800_000], blocked: [60_000, 300_000], done: [], idle: [300_000, 1_800_000] };
+export const STAGES = { working: [600_000, 1_800_000], blocked: [60_000, 300_000], done: [5_000], idle: [300_000, 1_800_000] };
 
 /** The colors of hits: added lines heal, removed lines hurt. */
 export const HIT = /** @type {const} */ ({ added: "#3ddc6a", removed: "#ff4d5e" });
@@ -370,7 +373,7 @@ export const TURNS = {
   // The only turn to blocked, from any status. Short: the agent is waiting on its person.
   jolt: { from: null, to: "blocked", first: "jump", steps: [[200, "land"], [400, "catch"], [900, null]], eyes: "open", build: jolt },
   douse: { from: "blocked", to: "working", first: "pour", steps: [[40, "splash"], [700, "steam"], [1800, null]], eyes: "open", build: douse },
-  // Over well before a done look that calms down after a few seconds would start (STAGES).
+  // Over well before the done look calms down after a few seconds (STAGES).
   cheer: { from: "working", to: "done", first: "pop", steps: [[40, "burst"], [600, "fall"], [1600, null]], eyes: "happy", build: cheer },
   // After douse: blocked to working matches it first, so this one plays from idle or done.
   stretch: { from: null, to: "working", first: "yawn", steps: [[500, "stretch"], [1000, "wake"], [1500, null]], eyes: { yawn: "closed", stretch: "closed", wake: "open" }, build: stretch },
@@ -1163,7 +1166,7 @@ function glance(eyes) {
  * @param {Status | null} status
  * @param {number} u
  * @param {number} stage How long the status has held (`STAGES`): how hot a fire burns, how
- *   deep an idle sleeps.
+ *   deep an idle sleeps, how fast a done creature's sparkles twinkle.
  * @returns {{ behind: Element[], front: Element[] }}
  */
 function accents(status, u, stage) {
@@ -1181,8 +1184,10 @@ function accents(status, u, stage) {
     case "done": {
       /** @type {(x: number, y: number) => Cells} A plus sign centered on x, y. */
       const plus = (x, y) => [[x - 1, y, 3, 1], [x, y - 1, 1, 3]];
-      const a = mark(plus(1, 1), t.done, u).loop("opacity", { from: 1, to: 0.15, period: 900 });
-      const b = mark(plus(10, 3), t.done, u).loop("opacity", { from: 0.15, to: 1, period: 900 });
+      // Calmed down, the same sparkles twinkle at a third of the speed.
+      const period = stage >= 1 ? 2700 : 900;
+      const a = mark(plus(1, 1), t.done, u).loop("opacity", { from: 1, to: 0.15, period });
+      const b = mark(plus(10, 3), t.done, u).loop("opacity", { from: 0.15, to: 1, period });
       return { behind: [a, b], front: [] };
     }
     case "idle":
@@ -1206,8 +1211,8 @@ function accents(status, u, stage) {
  *   takes the status's place: no status look, motion or way of working is drawn.
  * @param {number} [options.stage] How long the status has held, as the number of its
  *   STAGES reached (default 0, also when its start is unknown). Blocked, it sets how hot
- *   the fire burns; idle, how deep the creature sleeps; working, how tired it gets. Done
- *   does not use it yet.
+ *   the fire burns; idle, how deep the creature sleeps; working, how tired it gets; done,
+ *   whether it has calmed down: from stage 1 it stops hopping and twinkles slowly.
  * @param {boolean} [options.tube] Whether a testing creature holds its test tube (default
  *   true). The drawer takes it away while it shows how the tests came out.
  * @param {string | null} [options.daytime] The part of the day (`daytimeOf`): a done or idle
@@ -1253,7 +1258,8 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   for (const drop of tired?.sweat ?? []) torso.child(drop);
   const worked = shot ? shot.build({ ...parts, id: `${id}-${turn.kind}-${turn.n}`, step: turn.step }) : how?.build(parts);
   if (tired && worked) worked.front.unshift(...tired.cup);
-  if (look === "done") {
+  if (look === "done" && !(stage >= 1)) {
+    // The hop, until it calms down; then it stands still on its feet.
     figure.loop("top", { from: 0, to: -u, period: 700, easing: "ease-out" });
   } else if (look === "idle") {
     // The fidget rides in the torso, so it breathes and dims with the body.

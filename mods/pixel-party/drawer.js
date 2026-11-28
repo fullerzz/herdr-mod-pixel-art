@@ -590,8 +590,10 @@ export default class Drawer {
    *
    * It also keeps each agent's status clock: a change starts it at this draw. An agent not
    * drawn last time takes its start from its tab when it has the tab to itself, since a
-   * tab's times are the tab's, and else has no known start. A status that flips and flips
-   * back between two draws is no change, so its clock keeps running.
+   * tab's times are the tab's, and else has no known start; done, it then starts at this
+   * draw, so a drawer that opens on finished agents calms down a few seconds later. A
+   * status that flips and flips back between two draws is no change, so its clock keeps
+   * running.
    * @param {AgentInfo[]} list
    * @param {number} now ms since the epoch.
    */
@@ -605,7 +607,7 @@ export default class Drawer {
     for (const a of list) {
       const from = this.statuses.get(a.address);
       if (from && from !== a.status) changes.push({ address: a.address, from, to: a.status });
-      if (!from) since.set(a.address, startOf(a, (solo ??= soloTabs(list)).get(a.tab)));
+      if (!from) since.set(a.address, startOf(a, (solo ??= soloTabs(list)).get(a.tab)) ?? (a.status === "done" ? now : null));
       else since.set(a.address, from === a.status ? this.since.get(a.address) ?? null : now);
     }
     this.since = since;

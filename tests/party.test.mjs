@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { mock, theme } from "herdr";
 import Drawer from "../mods/pixel-party/drawer.js";
-import { TURNS } from "../mods/pixel-party/sprite-view.js";
+import { STAGES, TURNS } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, context, find, text, walk } from "./mocks/gpui.mjs";
 
 const draw = (drawer, cx) => {
@@ -99,9 +99,11 @@ test("the last agent to finish cheers while a banner drops over the first cell, 
   tree = draw(drawer, cx);
   assert.equal(bannerOf(tree), null, "the banner is gone");
   const notified = cx.notified;
-  cx.run(60_000);
-  draw(drawer, cx);
-  assert.equal(cx.notified, notified, "nothing more wakes it: it plays once");
+  cx.run(STAGES.done[0]);
+  tree = draw(drawer, cx);
+  assert.equal(cx.notified, notified + 1, "only the last one's calming down wakes it: it plays once");
+  assert.equal(bannerOf(tree), null);
+  assert.equal(danceOf(tree, "t2"), null);
 });
 
 test("a redraw keeps the same party, and a lone agent that finishes has one too", () => {
