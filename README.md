@@ -466,7 +466,8 @@ runs, a honey bee for a sub-agent. It moves while the helper works (a bee flies,
 hops), blinks when the helper is blocked, and rests when the helper is idle. When the helper
 ends, a bee flies back into the creature and fades, and a sheep hops off to the side; then
 the ones after it move up a place. An agent that leaves sends its figures off first. Past six
-helpers, the last place counts the rest. While any of an agent's helpers is blocked, its
+helpers, the last place holds a small swarm, up to four tiny figures that grow with the
+rest, behind a count of them. While any of an agent's helpers is blocked, its
 creature worries: it looks down at its figures, a drop of sweat trickles by its head, and it
 goes on working, resting or burning as its own status says. Only an `hc` helper can be
 blocked: a sub-agent's hook says only that it is running. The recording above is older than the sheep: it

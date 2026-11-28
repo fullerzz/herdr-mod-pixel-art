@@ -851,8 +851,11 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - Bees sit under the sprite's box, and under its XP bar when it shows, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees
-  the sixth place shows a count of the rest. They can't leave the drawer: Herdr clips a
-  floating mod to its frame. A bee not seen before is drawn first in the
+  the sixth place shows the rest as a swarm: one figure per bee there, its own kind and
+  status, at 1 px cells (7 by 5 px), up to four, so two to four fill the place's 14 by 10
+  px, and over it the count of the rest, `+N`, as before. The swarm and the count both
+  take every bee from the sixth on, leaving ones too, and neither adds a lane. They can't
+  leave the drawer: Herdr clips a floating mod to its frame. A bee not seen before is drawn first in the
   middle of the sprite, unseen, and 40 ms later at its place: it flies there over 450 ms.
 - A bee drawn the time before and missing from `beesOf` now has left: its helper ended. It
   stays drawn in its place, with its lane, for its exit, under the same id, so it moves
@@ -866,7 +869,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   inside the drawer. Most places land over the next place in the lane; only the place
   nearest that side leaves the cell. Then the bees after it glide up a place.
   A helper that comes back while its bee leaves stops the exit, and its bee flies out again.
-- An agent with a blocked bee in `beesOf` (one drawn, or one in the count), not leaving, is
+- An agent with a blocked bee in `beesOf` (one drawn, or one in the count or swarm), not leaving, is
   worried. Only a sheep can be: a label's bee always works. A worried creature keeps its
   status, work, stage and turn, and faces `"down"`, at its lanes, unless hover turns it,
   which wins, since then every creature turns the same way. It also sweats: a drop 3 by 4

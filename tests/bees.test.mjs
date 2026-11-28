@@ -442,3 +442,77 @@ test("more helpers than places: the last place counts the rest", () => {
   const tops = new Set(beesIn(tree, "t1").map((n) => last(n, "top")));
   assert.equal(tops.size, 2, "two lanes, never more");
 });
+
+// The swarm in the last place, and its figures: a figure is the box beeElement draws.
+const swarmOf = (tree, address) => find(tree, `pp-swarm-${address}`);
+const minis = (swarm) => (swarm ? swarm.children.map(nodeOf) : []);
+
+test("past six helpers the last place holds a swarm, one small figure per helper there up to four, behind the count", () => {
+  mock.agent("t1");
+  for (let i = 0; i < 6; i++) helper(`t1${i}`, "t1");
+  const six = settled();
+  assert.equal(swarmOf(six, "t1"), null, "six fit: no swarm");
+  const height = last(cellOf(six, "t1"), "h");
+  const place = beesIn(six, "t1")[5];
+  const [x0, y0] = [last(place, "left"), last(place, "top")];
+
+  for (const [n, size, count] of [[7, 2, 2], [8, 3, 3], [9, 4, 4], [12, 4, 7]]) {
+    mock.reset();
+    mock.agent("t1");
+    for (let i = 0; i < n; i++) helper(`t1${String(i).padStart(2, "0")}`, "t1");
+    const tree = settled();
+    check(tree);
+    const swarm = swarmOf(tree, "t1");
+    assert.ok(swarm, `${n}: a swarm`);
+    assert.equal(minis(swarm).length, size, `${n}: it grows with the count`);
+    assert.match(text(find(tree, "pp-row-t1")), new RegExp(`\\+${count}\\b`), `${n}: and keeps the number`);
+    assert.equal(beesIn(tree, "t1").length, 5, `${n}: five full figures before it`);
+    assert.equal(last(cellOf(tree, "t1"), "h"), height, `${n}: no lane more`);
+    // Herdr clips the drawer at its frame: the swarm stays in the last place, in the lanes.
+    assert.deepEqual([last(swarm, "left"), last(swarm, "top"), last(swarm, "w"), last(swarm, "h")], [x0, y0, BEE_W * 2, BEE_H * 2], `${n}: in the last place`);
+    for (const mini of minis(swarm)) {
+      const [x, y] = [last(mini, "left"), last(mini, "top")];
+      const fig = nodeOf(mini.children[0]);
+      assert.deepEqual([last(fig, "w"), last(fig, "h")], [BEE_W, BEE_H], `${n}: half size`);
+      assert.ok(x >= 0 && x + BEE_W <= BEE_W * 2 && y >= 0 && y + BEE_H <= BEE_H * 2, `${n}: inside the place at ${x}, ${y}`);
+    }
+    // The count draws over it.
+    const parent = walk(tree).find((node) => node.children.some((c) => nodeOf(c) === swarm));
+    const order = parent.children.map(nodeOf);
+    assert.ok(order.indexOf(swarm) < order.findIndex((node) => node && /^\+\d+$/.test(text(node))), `${n}: behind the count`);
+  }
+});
+
+test("the swarm shows each counted helper's own kind and status", () => {
+  mock.agent("t1");
+  for (let i = 0; i < 5; i++) helper(`t1${i}`, "t1");
+  helper("t15", "t1", { status: "blocked" });
+  label("t1", "pixel.bee.a1");
+  const tree = settled();
+  const [sheep, bee] = minis(swarmOf(tree, "t1")).map((mini) => walk(mini).map((n) => last(n, "bg")).filter(Boolean));
+  assert.ok(sheep.includes(t.blocked), "a blocked sheep in the count takes the blocked color");
+  assert.ok(!bee.includes(t.blocked));
+  assert.ok(bee.includes("#f7b521") && !sheep.includes("#f7b521"), "the sub-agent is a honey bee, the hc helper a sheep");
+});
+
+test("the swarm holds while a bee before it leaves, and goes when six fit again", () => {
+  mock.agent("t1");
+  for (let i = 0; i < 7; i++) helper(`t1${i}`, "t1");
+  const drawer = new Drawer();
+  const cx = context();
+  drawer.render(cx);
+  cx.run(1000);
+  let tree = draw(drawer, cx);
+  assert.equal(minis(swarmOf(tree, "t1")).length, 2);
+
+  end("t10");
+  tree = draw(drawer, cx);
+  assert.equal(minis(swarmOf(tree, "t1")).length, 2, "it holds while the sheep hops off");
+  assert.match(text(find(tree, "pp-row-t1")), /\+2/);
+
+  cx.run(1000);
+  tree = draw(drawer, cx);
+  assert.equal(swarmOf(tree, "t1"), null, "six fit again: no swarm");
+  assert.doesNotMatch(text(find(tree, "pp-row-t1")), /\+\d/);
+  assert.equal(beesIn(tree, "t1").length, 6);
+});

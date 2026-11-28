@@ -68,6 +68,7 @@
 // Then a bee flies back into the creature and fades, and a sheep hops off to the side; the
 // others glide up a place when it has gone. Herdr clips a floating mod to its frame, so the
 // lane is inside the drawer: it is as wide as the sprite cell, and a closed drawer shows it.
+// Past six, the last place holds a small swarm of half-size figures behind a count of the rest.
 // A helper that is blocked worries its creature: it looks down at its bees and sweats, while
 // it goes on with what it is doing.
 //
@@ -214,7 +215,10 @@ const LEVEL_RISE = 8; // px it rises as it pops in, and again as it fades
  */
 const HIT_TEXT = { tick: { text: 10, row: 12, top: 12 }, hit: { text: 13, row: 15, top: 12 }, crit: { text: 16, row: 17, top: 10 } };
 const BEE_PX = 2; // a 14 by 10 px bee
-const BEE_MAX = 6; // bees drawn per agent; past that the last place holds a count
+const BEE_MAX = 6; // bees drawn per agent; past that the last place holds a swarm and a count
+const SWARM_PX = 1; // a 7 by 5 px figure: four fill a place
+/** @type {[x: number, y: number][]} Px into the last place, in the order the swarm grows: two, three, then four. */
+const SWARM = [[0, 1], [7, 5], [7, 0], [0, 4]];
 const BEE_HOLD = 40; // ms a new bee sits inside its sprite before it flies out
 const BEE_ROW = 3; // bees side by side under a sprite
 const BEE_STEP = 15; // px from one bee to the next: three fill the 48 px cell
@@ -1890,14 +1894,17 @@ function verdictElement(t, address, { n, step, passed }) {
 // the middle of the sprite. A leaving bee keeps its place until it has gone: a bee flies
 // back into the middle of the sprite and fades as it gets there; a sheep hops off to the
 // side, away from the edge the drawer is docked on (`side`), into its row, and fades as it
-// lands, facing the way it goes.
+// lands, facing the way it goes. Past six, the last place holds the rest: a swarm of one
+// half-size figure per helper there, up to four, each of its own kind and status, behind
+// the count, so the swarm grows with it and stays in the place.
 /**
+ * @param {string} address The agent's terminal.
  * @param {Flier[]} bees
  * @param {"left" | "right" | "bottom"} side
  * @param {number} below Px from the cell's top where the lanes start: under the box, and its XP bar.
  * @returns {Element[]}
  */
-function hive(bees, side, below) {
+function hive(address, bees, side, below) {
   /** @type {(i: number) => [number, number]} The i-th place: left and top in the cell. */
   const spot = (i) => [2 + (i % BEE_ROW) * BEE_STEP, below + BEE_LIFT + Math.floor(i / BEE_ROW) * BEE_LANE];
   const [w, h] = [BEE_W * BEE_PX, BEE_H * BEE_PX];
@@ -1930,6 +1937,10 @@ function hive(bees, side, below) {
   });
   if (more) {
     const [left, top] = spot(BEE_MAX - 1);
+    const rest = bees.slice(BEE_MAX - 1, BEE_MAX - 1 + SWARM.length);
+    out.push(div().id(`pp-swarm-${address}`).absolute().left(left).top(top).w(w).h(h).children(rest.map((bee, i) =>
+      div().absolute().left(SWARM[i][0]).top(SWARM[i][1])
+        .child(beeElement({ kind: bee.kind, status: bee.status, px: SWARM_PX, phase: BEE_MAX - 1 + i, flip: i % 2 === 1 })))));
     /** @type {(color: Color, d: number) => Element} */
     const count = (color, d) => div().absolute().left(left - 2 + d).top(top - 2 + d).w(w + 4).text_center().text_size(10).font_extrabold().text_color(color).child(`+${more}`);
     out.push(count("#000000c0", 1), count("#f7b521", 0));
@@ -2022,7 +2033,7 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
       .transition("top", stamp.step === "press" ? { duration: 60, delay: STAMP_SLAM - 40, easing: "ease-in" } : { duration: 500, easing: "ease-out" })
       .child(stampElement(t, a.address, stamp)));
   const below = CELL_H + (xp ? XP_H : 0);
-  return div().relative().w(CELL).h(below + lanes(bees.length)).flex_none().child(box).when(Boolean(xp), (el) => el.child(xpBar(a.address, xp))).children(hive(bees, side, below));
+  return div().relative().w(CELL).h(below + lanes(bees.length)).flex_none().child(box).when(Boolean(xp), (el) => el.child(xpBar(a.address, xp))).children(hive(a.address, bees, side, below));
 }
 
 /** @type {(address: string) => string | null} The machine of a remote address ("mini/t7"), else null. */
