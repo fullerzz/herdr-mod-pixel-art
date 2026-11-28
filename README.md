@@ -16,6 +16,9 @@ move according to what their agents are doing.
   working agent finishes, one burst of confetti goes up before the creature settles into
   its happy done hop. When an idle or finished agent starts work, its creature wakes up
   first: it yawns, stretches and pops its eyes open.
+- **Party.** When the last agent finishes and every agent is done, an `ALL DONE` banner
+  drops over the drawer's first creature, and once the last one's confetti has fallen,
+  every creature jumps twice, all together, before it settles into its done hop.
 - **Fidgets.** An idle creature fidgets now and then in its own way, at its own rhythm:
   it blinks, glances aside, or scratches its side. Each fidget lasts a moment, so an
   idle creature almost always has its eyes shut.

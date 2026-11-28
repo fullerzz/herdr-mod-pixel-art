@@ -56,6 +56,10 @@
 // yawns, stretches and pops its eyes open. Each such one-shot for a status change is one
 // of sprite-view's TURNS.
 //
+// When the last agent turns done and every agent is, the drawer throws a party, once: an
+// "ALL DONE" banner drops over the first cell while the last one's cheer plays, then every
+// creature jumps twice, all together, and settles into its done pose as the banner fades.
+//
 // Each helper an agent has running is a small figure (a sheep for an `hc` terminal it
 // started, a honey bee for a sub-agent; both are "bees" below) that flies out of its sprite
 // to a lane under it, out of a small puff of smoke, and stays there until the helper ends.
@@ -72,7 +76,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, focused, run, theme, placement } from "herdr";
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { GRID, makeSprite, randomSeed } from "./sprites.js";
-import { faceRects, spriteElement, daytimeOf, HIT, STAGES, TURNS } from "./sprite-view.js";
+import { faceRects, spriteElement, daytimeOf, CONFETTI, HIT, STAGES, TURNS } from "./sprite-view.js";
 import { EditWatcher, LEVEL_LINES, hitSize } from "./edits.js";
 import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
@@ -103,8 +107,9 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Flier[]} bees Its helpers, as bees.
  * @property {string | null} work What it is doing, as its hooks say (`pixel.work`), if they do.
  * @property {number} stage How many of its status's STAGES it has held for: 0 when its start is unknown.
- * @property {SpriteTurn | null} turn The turn its last status change plays, if any.
+ * @property {SpriteTurn | null} turn The turn its last status change plays, else the party's while every creature plays it, if any.
  * @property {Daytime | null} daytime The part of the day it was drawn in, for its prop at rest.
+ * @property {Party | null} banner The party whose banner hangs over its cell: the first row's only.
  */
 
 /**
@@ -127,6 +132,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @typedef {{ first: string, steps: [ms: number, step: string | null][], draw: (t: Theme, address: string, shot: Shot) => Element, hides?: boolean }} OneShot
  */
 /** @typedef {Show<"cough" | "rise">} Soot Black smoke from a failed command. */
+/** @typedef {Show<string>} Party The party when every agent is done: the banner's steps, and the party turn's between them. */
 /** @typedef {"raise" | "up" | "fade"} ThumbStep */
 /** @typedef {"hold" | "tip" | "fall" | "spill" | "fade"} DropStep */
 /**
@@ -251,6 +257,25 @@ const COUGH = 2; // px the creature lurches down as it coughs
 const THUMB_STEPS = [[30, "up"], [1400, "fade"], [2000, null]];
 /** @type {[ms: number, step: DropStep | null][]} After "hold": the tube tips, lands on its side, spills, and fades. */
 const DROP_STEPS = [[80, "tip"], [180, "fall"], [480, "spill"], [1700, "fade"], [2300, null]];
+/** The one key of `party`: there is one party, for the whole drawer. */
+const ALL = "all";
+/** ms the party waits, its banner up, while the last agent's cheer plays. */
+const PARTY_WAIT = TURNS.cheer.steps.at(-1)[0];
+const PARTY_FADE = 500; // ms the banner takes to fade
+/** The party turn's own steps: while the party is at one of them, every creature plays it. */
+const DANCE = new Set([TURNS.party.first, ...TURNS.party.steps.map(([, step]) => step).filter(Boolean)]);
+const DANCE_MS = TURNS.party.steps.at(-1)[0];
+/** @type {[ms: number, step: string | null][]} After "roll": the banner drops in, the creatures jump once the cheer is over, then the banner fades. */
+const PARTY_STEPS = [
+  [30, "hang"],
+  [PARTY_WAIT, TURNS.party.first],
+  .../** @type {[number, string][]} */ (TURNS.party.steps.filter(([, step]) => step).map(([ms, step]) => [PARTY_WAIT + ms, step])),
+  [PARTY_WAIT + DANCE_MS, "fade"],
+  [PARTY_WAIT + DANCE_MS + PARTY_FADE, null],
+];
+const BANNER_WORD = "ALL DONE";
+const BANNER_H = 11; // px: a ribbon at the box's top, over the creature's top rows
+const BANNER_TOP = 1; // px
 const TRICK_WORD = "Abracadabra!";
 const EXIT_WORD = "Poof!";
 /** The label an agent's hooks keep what it is doing in (`tools/bee-hook.sh`): one of sprite-view's WORKS. */
@@ -342,6 +367,8 @@ export default class Drawer {
   changes = [];
   /** Whether the last draw was the moment every agent was done. */
   allDone = false;
+  /** @type {Map<string, Party>} The party that moment throws, under ALL, while it plays. */
+  party = new Map();
   /** @type {Map<string, Shot>} The one-shot playing for the last move of HEAD, other than a commit, that landed on each agent, by address. */
   moves = new Map();
   /** @type {Map<string, string>} Each agent's `pixel.result` when it was last drawn ("" for none), by address. */
@@ -747,6 +774,10 @@ export default class Drawer {
     this.arrivals(list, cx);
     this.statusChanges(list, now);
     this.react(cx);
+    // The party starts on the moment, and ends as soon as an agent is anything but done, or
+    // none is left.
+    if (this.allDone) this.play(this.party, ALL, "roll", PARTY_STEPS, cx);
+    else if (!(list.length && list.every((a) => a.status === "done"))) this.party.delete(ALL);
     this.clock(list, now, cx);
     this.reported(list, byAddress);
     for (const { address, kind } of this.reports) {
@@ -775,8 +806,11 @@ export default class Drawer {
       const cash = this.cashes.get(address) ?? null;
       return lines || cash ? { lines, cash } : null;
     };
+    const party = this.party.get(ALL) ?? null;
+    /** @type {SpriteTurn | null} Every creature plays the same step of it, so they jump together. */
+    const dance = party && DANCE.has(party.step) ? { kind: "party", n: party.n, step: party.step } : null;
     /** @type {Item[]} */
-    const items = list.map((a) => {
+    const items = list.map((a, i) => {
       const trick = this.tricks.get(a.address) ?? null;
       const combo = this.combos.get(a.address);
       return {
@@ -798,8 +832,9 @@ export default class Drawer {
         bees: bees.get(a.address) ?? [],
         work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
         stage: this.stages.get(a.address) ?? 0,
-        turn: this.turnOf(a.address),
+        turn: this.turnOf(a.address) ?? dance,
         daytime,
+        banner: i === 0 ? party : null,
       };
     });
     // A ghost keeps its place, so its exit plays where its creature stood. It shows only the
@@ -808,7 +843,7 @@ export default class Drawer {
       const ghost = this.ghosts.get(old.a.address);
       const exit = this.exits.get(old.a.address);
       if (!ghost || !exit) continue;
-      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, xp: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: bees.get(old.a.address) ?? [] });
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, xp: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, banner: null, bees: bees.get(old.a.address) ?? [] });
     }
     this.drawn = items;
 
@@ -1007,6 +1042,31 @@ function levelElement(address, { n, step }) {
     .transition("opacity", step === "fade" ? { duration: 600, easing: "ease-in" } : { duration: 120, easing: "ease-out" })
     .child(glyphs("#000000c0", 1))
     .child(glyphs(XP_COLOR, 0));
+}
+
+// The party's banner over the first cell, so a closed drawer shows it: a ribbon across the
+// box's top in the confetti's pink, outlined dark, with "ALL DONE" on it in white. Rolled up,
+// it waits unseen above its place; it drops in, hangs while the creatures jump, and fades as
+// they settle. Its id carries the party's number, so the next party starts over.
+/**
+ * @param {Party} party
+ * @returns {Element}
+ */
+function bannerElement({ n, step }) {
+  const shown = step !== "roll" && step !== "fade";
+  return div()
+    .id(`pp-banner-${n}`)
+    .absolute()
+    .left(0)
+    .top(step === "roll" ? BANNER_TOP - BANNER_H : BANNER_TOP)
+    .w(CELL)
+    .h(BANNER_H)
+    .opacity(shown ? 1 : 0)
+    .transition("top", { duration: 220, easing: "ease-out" })
+    .transition("opacity", step === "fade" ? { duration: PARTY_FADE, easing: "ease-in" } : { duration: 120, easing: "ease-out" })
+    .child(div().absolute().left(0).top(0).w(CELL).h(BANNER_H).rounded(2).bg(STAMP_DARK))
+    .child(div().absolute().left(1).top(1).w(CELL - 2).h(BANNER_H - 2).rounded(2).bg(CONFETTI.pink))
+    .child(div().absolute().left(0).top(1).w(CELL).text_center().text_size(8).font_extrabold().text_color("#ffffff").child(BANNER_WORD));
 }
 
 // A stamp's mark, 8 by 6 cells: a bold check. It says "approved" by its shape, so it reads
@@ -1757,8 +1817,9 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // The sprite and its cue in a box, and under the box the lanes of its bees. `side` is where
 // the stripe goes: "left", "right" or "bottom". Between the box and the lanes, the XP bar
 // takes a strip of its own while it shows. The sprite draws its own "!" when blocked,
-// so the box adds only the tint. A hit's numbers, a combo's counter, a stamp, a clap and a
-// move's one-shot go over the sprite, in the box, so a closed drawer shows them too. The box dips
+// so the box adds only the tint. A hit's numbers, a combo's counter, a stamp, a clap, a
+// move's one-shot and, on the first row, the party's banner go over the sprite, in the box,
+// so a closed drawer shows them too. The box dips
 // as the stamp lands and rises after. A trick hides the sprite until it reveals it, an exit hides it under its
 // smoke, a one-shot that draws the creature itself hides it while it plays, and a new bee's
 // puff goes over its middle. A failed command's black smoke goes over its face and up, while
@@ -1772,7 +1833,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {Facing | null} face The way the creature faces: toward the open side while hovered.
  * @returns {Element}
  */
-function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
+function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime, banner }, side, face) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1818,6 +1879,7 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
     .when(Boolean(combo), (el) => el.child(comboElement(a.address, combo)))
     .when(Boolean(clap), (el) => el.child(clapElement(a.address, clap)))
     .when(Boolean(xp?.cash && xp.cash.lines - xp.cash.left >= LEVEL_LINES && xp.cash.step !== "hold"), (el) => el.child(levelElement(a.address, xp.cash)))
+    .when(Boolean(banner), (el) => el.child(bannerElement(banner)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
       .top(stamp.step === "press" ? STAMP_DIP : 0)

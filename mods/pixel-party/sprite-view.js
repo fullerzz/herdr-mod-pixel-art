@@ -42,6 +42,8 @@
 //            which hops with happy eyes, and drifts down as it fades
 //   stretch  any other change to working (idle or done): the creature yawns with its eyes
 //            shut, stretches up a cell, and drops back with its eyes popped open
+//   party    no change of its own: the drawer plays it on every creature at once when all
+//            its agents are done. Each crouches and jumps twice with happy eyes, together
 //
 // `faceRects` is the creature still from one side, front, back or turned edge-on, for a
 // caller that turns it.
@@ -312,6 +314,29 @@ function jolt({ id, step, u, size, t, left, right, torso }) {
 }
 
 /**
+ * A creature at the party when every agent is done, at one step of the turn. Crouched, the
+ * body dips over its planted feet; hopped and leapt, the whole creature, feet and all, jumps
+ * a cell, slowing as it rises; landed and settled, it drops back, faster as it falls. The
+ * drawer plays the same step on every creature at once, so they all jump together, and
+ * transitions rather than loops move them, so none is out of step for having turned done
+ * earlier. Each part keeps its id across the steps, so `.transition` eases between them.
+ * @param {TurnParts} parts Its step is "crouch", "hop", "land", "leap" or "settle".
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
+function party({ id, step, u, nudge, left, right, torso }) {
+  const up = step === "hop" || step === "leap";
+  /** @type {[string, Element][]} */
+  const moving = [["left", left], ["right", right], ["body", torso]];
+  for (const [name, part] of moving) {
+    part
+      .id(`${id}-${name}`)
+      .top(up ? -u : step === "crouch" && name === "body" ? nudge : 0)
+      .transition("top", up ? { duration: 200, easing: "ease-out" } : { duration: 140, easing: "ease-in" });
+  }
+  return { behind: [], front: [] };
+}
+
+/**
  * A one-shot a sprite plays when its agent's status changes: a turn.
  * @typedef {object} Turn
  * @property {Status | null} from The status it plays from; null for any.
@@ -345,6 +370,9 @@ export const TURNS = {
   cheer: { from: "working", to: "done", first: "pop", steps: [[40, "burst"], [600, "fall"], [1600, null]], eyes: "happy", build: cheer },
   // After douse: blocked to working matches it first, so this one plays from idle or done.
   stretch: { from: null, to: "working", first: "yawn", steps: [[500, "stretch"], [1000, "wake"], [1500, null]], eyes: { yawn: "closed", stretch: "closed", wake: "open" }, build: stretch },
+  // No change is from a status to itself, so no change plays it: the drawer plays it on every
+  // creature at once, when the last agent turns done and every one is.
+  party: { from: "done", to: "done", first: "crouch", steps: [[100, "hop"], [380, "land"], [560, "leap"], [840, "settle"], [1100, null]], eyes: "happy", build: party },
 };
 
 /**

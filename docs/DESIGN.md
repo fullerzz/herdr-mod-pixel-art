@@ -28,6 +28,10 @@ picker lets the person choose another creature for an agent.
   out, steam rises off the ashes, and the creature goes back to work.
 - **Cheer.** When a working agent finishes, its creature cheers once: a burst of confetti
   pops out from behind it and drifts down as it fades, then the done pose goes on as usual.
+- **Party.** When the last agent finishes and every agent is done, the drawer throws a
+  party, once: an "ALL DONE" banner drops over the first cell while the last one cheers,
+  then every creature jumps twice, all together, and settles into its done pose as the
+  banner fades.
 - **Ways of working.** A working sprite shows what its agent is doing, when the agent's
   hooks say: it types while the agent edits files, reads a book while it reads, bubbles a
   test tube while it runs tests, lifts bricks with a crane while it builds, unpacks a box
@@ -182,7 +186,7 @@ export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze
 export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
 export const SMOKE: { dark: "#6e655c", light: "#a89d92" };
 export const DUST: { web: "#cdc8bd", dust: "#8a8478" };
-export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch
+export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch, and the drawer's party
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting delegating planning
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
@@ -306,9 +310,10 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   knocks a third of a cell (at least a pixel). A crit flashes solid and fades over 700 ms;
   its knock is one cell too, since the art leaves only the outer ring empty.
 - `turn` is `{ kind, n, step } | null`: a one-shot being played because the agent's status
-  changed. A `Turn` in `TURNS` is `{ from, to, first, steps, eyes, build }`: the change it
-  plays on (null for any status), its first step, when each next step starts in ms from the
-  change (null: over), the creature's eyes (one mood, or a mood by step, open for a step
+  changed, or the drawer's party (`party`, below), which no status change plays. A `Turn`
+  in `TURNS` is `{ from, to, first, steps, eyes, build }`: the change it plays on (null for
+  any status), its first step, when each next step starts in ms from the change, or for
+  the party from its `crouch` (null: over), the creature's eyes (one mood, or a mood by step, open for a step
   it leaves out), and what it does at a step: `build` gets the
   same parts a way of working gets, plus the turn's `id` and `step`, moves them as it likes
   and returns its marks. While a turn of a known `kind` plays it takes the status's place:
@@ -344,6 +349,14 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
     a cell over 420 ms, slowing, while the feet stay; `wake` drops it back into place over
     160 ms with open eyes, and a tick in the theme's foreground pops out behind each top
     corner. Nothing loops: it is one move, and the creature works when it is over.
+  - `party`, from done to done, a change no status makes, so no change plays it: the drawer
+    plays it on every creature at once (Drawer behavior). Happy eyes throughout. `crouch`
+    dips the torso over the feet by a sub-cell move; `hop` and `leap` lift the feet and
+    torso a cell over 200 ms, easing out; `land` and `settle` drop them back over 140 ms,
+    easing in. Nothing loops, since a loop starts when it is drawn and would put creatures
+    that turned done at different times out of step: transitions between steps the drawer
+    plays on all of them at once keep them together. It draws no marks, and no done
+    sparkles until it is over.
 - `stage` is how long the status has held: the number of that status's `STAGES` times
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
@@ -792,6 +805,17 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   of the changes is to done and every agent is done; an all-done first draw, a redraw, or
   the last agent not done leaving is not. The changes are found before the items are
   built, so a one-shot started from them shows on that draw.
+- That moment throws a party, once, through `play` into `party`, one show for the whole
+  drawer. An "ALL DONE" banner, white on `CONFETTI.pink` in a dark outline, 48 by 11 px,
+  waits unseen above the first row's box and drops in at 30 ms over 220 ms, so a closed
+  drawer shows it. It hangs while the last agent's cheer plays, which the party does not
+  cut short; at the cheer's end (1.6 s) every agent's sprite plays the `party` turn, on
+  the same step at every draw, since one show steps them all: they jump together, the
+  last finisher included. When the turn is over, at 2.7 s, they take their done pose and
+  the banner fades over 500 ms; it is gone at 3.2 s. A redraw keeps the same party. A
+  status change that leaves an agent not done, a new agent that is not, or every agent
+  leaving ends it at once for everyone, banner and all, and its steps wake nothing. The first row's box holds
+  the banner; a ghost's never does.
 - The same draw keeps each agent's status clock (`since`): when its status began, in ms
   since the epoch, or null when unknown. A change starts it at that draw; a status that
   flips and flips back between two draws keeps it running. An agent not drawn the time

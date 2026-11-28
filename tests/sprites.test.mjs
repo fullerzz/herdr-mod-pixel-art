@@ -1095,6 +1095,68 @@ test("a cheer hops the creature with happy eyes, in confetti of its own colors, 
   assert.ok(walk(cheered(makeSprite("t1"), "pop", { n: 7 })).some((n) => n.id === "s-cheer-7-bit-0"), "a new cheer has new ids");
 });
 
+/** A creature at the party, at one step of it. */
+const partied = (sprite, step, { px = 3, n = 1 } = {}) => spriteElement(sprite, { id: "s", px, status: "done", turn: { kind: "party", n, step } });
+const PARTY_STEPS = ["crouch", "hop", "land", "leap", "settle"];
+
+test("the party is a turn no status change plays: the drawer plays it, in steps that end soon", () => {
+  const { from, to, first, steps, eyes } = TURNS.party;
+  assert.deepEqual([first, eyes], ["crouch", "happy"]);
+  assert.deepEqual(steps.map(([, step]) => step), ["hop", "land", "leap", "settle", null]);
+  assert.ok(steps.every(([ms], i) => i === 0 || ms > steps[i - 1][0]), "each step after the last");
+  assert.ok(steps.at(-1)[0] >= 800 && steps.at(-1)[0] <= 2000, "slow enough to see two jumps, short enough to be a moment");
+  // The drawer's rule for a change: the first turn whose from and to match it (null: any).
+  const statuses = ["working", "blocked", "done", "idle"];
+  for (const a of statuses) {
+    for (const b of statuses) {
+      if (a === b) continue;
+      const kind = Object.keys(TURNS).find((k) => (TURNS[k].from ?? a) === a && (TURNS[k].to ?? b) === b);
+      assert.notEqual(kind, "party", `${a} to ${b} is no party`);
+    }
+  }
+  assert.ok(from && to, "it names a status both ways, so no `null` matches any change");
+});
+
+test("a party: the creature crouches, jumps a cell twice with happy eyes, and lands, by transitions, not loops", () => {
+  for (const sprite of KINDS) {
+    const els = PARTY_STEPS.map((step) => partied(sprite, step));
+    for (const el of els) check(el);
+    const [crouch, hop, land, leap, settle] = els;
+    const part = (el, name) => walk(el).find((n) => n.id === `s-party-1-${name}`);
+    const moving = ["left", "right", "body"];
+
+    // Crouched: the body dips over its planted feet.
+    assert.ok(last(part(crouch, "body"), "top") > 0, `${sprite.kind}: it crouches`);
+    for (const name of ["left", "right"]) assert.equal(last(part(crouch, name), "top"), 0, "its feet stay");
+    // Up a cell, slowing as it rises; back down, faster as it falls.
+    for (const el of [hop, leap]) {
+      for (const name of moving) {
+        assert.equal(last(part(el, name), "top"), -3, `${sprite.kind}: the ${name} jumps a cell`);
+        assert.equal(Object.fromEntries(calls(part(el, name), "transition")).top.easing, "ease-out");
+      }
+    }
+    for (const el of [land, settle]) {
+      for (const name of moving) {
+        assert.equal(last(part(el, name), "top"), 0, `${sprite.kind}: the ${name} lands`);
+        assert.equal(Object.fromEntries(calls(part(el, name), "transition")).top.easing, "ease-in");
+      }
+    }
+
+    const happy = sprite.parts.eyes.happy.map((r) => [r.x, r.y, r.w, r.h, r.color]);
+    const rects = (node) => node.children.map((c) => nodeOf(c)).map((n) => [last(n, "left"), last(n, "top"), last(n, "w"), last(n, "h"), last(n, "bg")]);
+    for (const [i, step] of PARTY_STEPS.entries()) {
+      const nodes = walk(partied(sprite, step, { px: 1 }));
+      assert.ok(nodes.some((n) => n.children.length === happy.length && JSON.stringify(rects(n)) === JSON.stringify(happy)), `${step}: happy eyes`);
+      // No loop: a loop starts when it is drawn, which would put creatures out of step.
+      assert.ok(walk(els[i]).every((n) => calls(n, "loop").length === 0), `${sprite.kind} ${step}: nothing loops`);
+      for (const node of walk(els[i])) if (node.id !== null && node.id !== "s") assert.ok(node.id.startsWith("s-party-1-"), node.id);
+      // Every step stays in the box, a cell up too: `raster` fails on anything outside it.
+      raster(partied(sprite, step, { px: 1 }));
+    }
+  }
+  assert.ok(walk(partied(makeSprite("t1"), "hop", { n: 7 })).some((n) => n.id === "s-party-7-body"), "a new party has new ids");
+});
+
 // ---- facing a way ----
 
 const FACES = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
