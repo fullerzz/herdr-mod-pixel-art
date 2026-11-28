@@ -5,7 +5,8 @@ generated pixel creature. The creatures stand in a floating drawer at the window
 move according to what their agents are doing.
 
 - **Drawer.** One sprite per agent. On a side edge only the sprites show; hover slides out
-  each agent's name and what it is doing. Click a row to go to that agent.
+  each agent's name and what it is doing, and the creatures turn to look that way. Click a
+  row to go to that agent.
 - **Motion.** A sprite works while its agent works, catches fire and asks for attention
   when the agent is blocked, celebrates when it finished, and rests when it is idle. When
   a blocked agent goes on, water puts its fire out before it goes back to work. When a

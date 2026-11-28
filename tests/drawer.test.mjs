@@ -30,17 +30,19 @@ const addressOf = (node) => node.id.replace(/^pp-(row|tile)-/, "");
 
 // A tree as plain data, handlers dropped: two renders compare equal when they look the same.
 const SKIP = new Set(["child", "children", "when", "hover"]);
-const shape = (node) => ({
+const shape = (node, inside = true) => ({
   kind: node.kind,
   id: node.id,
   calls: JSON.stringify(node.calls.filter(([name]) => !SKIP.has(name) && !name.startsWith("on_"))),
-  children: node.children.map((c) => (nodeOf(c) ? shape(nodeOf(c)) : c)),
+  children: !inside && node.id?.startsWith("pp-spr-") ? [] : node.children.map((c) => (nodeOf(c) ? shape(nodeOf(c), inside) : c)),
 });
 const look = (tree) => shape(nodeOf(tree));
+// A tree's look with each sprite's insides left out: the layout around the creatures.
+const layoutOf = (tree) => shape(nodeOf(tree), false);
 
 // The sprite drawn for an agent, and the one spriteElement draws for a seed in its place.
 const spriteIn = (tree, address) => shape(find(tree, `pp-spr-${address}`));
-const spriteOf = (seed, address, status) => look(spriteElement(makeSprite(seed), { id: `pp-spr-${address}`, px: 3, status }));
+const spriteOf = (seed, address, status, face = null) => look(spriteElement(makeSprite(seed), { id: `pp-spr-${address}`, px: 3, status, face }));
 
 const bgs = (node) => below(node).flatMap((n) => calls(n, "bg").map(([c]) => c));
 const focusOn = (address, { agent = address } = {}) => {
@@ -232,21 +234,37 @@ test("the focused agent's row is marked, and only that one", () => {
   assert.ok(!calls(itemOf(tree, "t1"), "bg").some(([c]) => c === t.selected));
 });
 
-test("every edge, and docked with no placement, renders with unique ids; hover and drag change nothing", () => {
+test("every edge, and docked with no placement, renders with unique ids; hover moves only the creatures, and drag changes nothing", () => {
   STATUSES.forEach((status, i) => mock.agent(i % 2 ? `vps/t${i}` : `t${i}`, { status }));
   for (const edge of EDGES) {
-    const looks = [];
+    const trees = [];
     for (const [hovered, dragging] of [[false, false], [true, false], [true, true]]) {
       mock.state.placement = { edge, align: "center", vertical: edge === "left" || edge === "right", hovered, dragging };
       const tree = render();
       assert.equal(items(tree).length, STATUSES.length, edge);
-      looks.push(look(tree));
+      trees.push(tree);
     }
-    assert.deepEqual(looks[1], looks[0], `${edge}: hover changes nothing`);
-    assert.deepEqual(looks[2], looks[0], `${edge}: drag changes nothing`);
+    const [still, hovered, dragged] = trees;
+    assert.deepEqual(layoutOf(hovered), layoutOf(still), `${edge}: hover changes no layout`);
+    assert.notDeepEqual(look(hovered), look(still), `${edge}: hover moves the creatures`);
+    assert.deepEqual(look(dragged), look(still), `${edge}: drag changes nothing`);
   }
   mock.state.placement = null;
   assert.equal(items(render()).length, STATUSES.length);
+});
+
+test("on hover every creature turns toward the side the drawer opens to, away from its edge", () => {
+  STATUSES.forEach((status, i) => mock.agent(`t${i}`, { status }));
+  for (const [edge, face] of [["right", "left"], ["left", "right"], ["top", "down"], ["bottom", "up"]]) {
+    for (const hovered of [false, true]) {
+      mock.state.placement = { edge, align: "center", vertical: edge === "left" || edge === "right", hovered, dragging: false };
+      const tree = render();
+      STATUSES.forEach((status, i) => {
+        assert.deepEqual(spriteIn(tree, `t${i}`), spriteOf(`t${i}`, `t${i}`, status, hovered ? face : null), `${edge}, ${status}, hovered ${hovered}`);
+        if (hovered) assert.notDeepEqual(spriteIn(tree, `t${i}`), spriteOf(`t${i}`, `t${i}`, status), `${edge}, ${status}: turned`);
+      });
+    }
+  }
 });
 
 test("on a side edge the sprite cell is on the edge side, and is 48 px wide", () => {

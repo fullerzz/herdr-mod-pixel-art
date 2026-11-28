@@ -7,8 +7,9 @@ picker lets the person choose another creature for an agent.
 ## What the person gets
 
 - **Drawer.** One row per agent. Docked on a side edge it is a drawer: a strip of sprites
-  shows, and hovering slides out each agent's name and what it is doing. Clicking a row
-  goes to that agent. Right-clicking a row opens the picker.
+  shows, and hovering slides out each agent's name and what it is doing, while the
+  creatures turn toward the side it opens to. Clicking a row goes to that agent.
+  Right-clicking a row opens the picker.
 - **Sprites.** Each sprite is generated from a seed, so the same seed always draws the same
   creature. A sprite moves natively: it works while its agent works, catches fire and asks
   for attention when the agent is blocked, celebrates when it finished, and rests when it
@@ -151,7 +152,7 @@ these guarantees:
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
@@ -269,6 +270,15 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   follow the ways' rules for colors, the box and loops. Working, a way's own props fill that
   corner, and blocked, the fire does, so neither shows the prop; nor does the still pose.
   Any other value (a name it doesn't know, `"__proto__"`) adds none.
+- `face` is `"left" | "right" | "up" | "down" | null`. Facing a way, everything the
+  sprite draws (the creature, its props, its status marks, a turn and a hit) steps one
+  cell that way as one layer, so each prop keeps its place on the creature. The step
+  snaps, as a pixel creature turns round: no id and no transition. Facing left or right,
+  its open or glancing eyes look that way, and so does every copy a way of working draws:
+  they are `look` or `look` mirrored, whichever moves the pupils (the dark eye cells) that
+  way against `open`. Most `look` eyes glance right, but pip eyes glance left. Happy and
+  closed eyes are a status's cue and stay. The step is the one motion that may leave the box, by that cell; `null`
+  faces out, as before.
 
 ### Contract: `edits.js`
 
@@ -467,7 +477,13 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - `placement()` decides the shape. On the right edge the sprite cell is on the right. On
   the left edge, and docked in a layout block, it is on the left. On the top and bottom
   edges the sprites stand in a row with names under them.
-- The layout never changes on hover: the drawer slides, the content stays.
+- The layout never changes on hover: the drawer slides, the content stays. Only the
+  creatures move: while `placement().hovered` and not `dragging`, every creature turns
+  toward the side the drawer opens to, away from its edge: left on the right edge, right
+  on the left edge, down on the top edge and up on the bottom edge. Herdr gives no pointer
+  position, so they all turn the same way. Docked in a layout block there is no placement
+  and they never turn. Each draw reads `hovered`; that Herdr draws the mod again when it
+  changes is not measured, and `types/herdr.d.ts` does not say.
 - The text column names the agent and shows its status line: the agent's own message
   (`terminals()` entry's `report.msg`) when it has one.
 - A working agent's sprite works the way its terminal's `pixel.work` label names, else its

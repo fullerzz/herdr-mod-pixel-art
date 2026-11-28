@@ -5,7 +5,8 @@
 // the sprite's motion and status mark, a status stripe on the edge side, and a tint when it
 // is blocked.
 // The layout depends only on placement().edge, never on hover or drag: Herdr slides the
-// block, the content stays. Herdr draws the frame, so this draws content only.
+// block, the content stays. Herdr draws the frame, so this draws content only. On hover,
+// only the creatures move: they turn toward the side the drawer opens to.
 //
 // Lines an agent adds or removes are hits, as in a fighting game: the numbers ("+12" green,
 // "−3" red) pop over its sprite and curve away, up-left and up-right, while the sprite
@@ -62,7 +63,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @import { Bee } from "./bees.js" */
 /** @import { HitSize, Lines, Move, MoveKind } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status, TabInfo } from "herdr" */
-/** @import { Daytime, Face, SpriteTurn, Theme } from "./sprite-view.js" */
+/** @import { Daytime, Face, Facing, SpriteTurn, Theme } from "./sprite-view.js" */
 
 /**
  * One agent as the drawer shows it.
@@ -139,6 +140,12 @@ const CELL = 48; // the sprite with 6 px either side: the dock script peeks exac
 const CELL_H = 44;
 const TEXT_W = 168; // text column beside the cell on a side edge
 const TILE_W = 76; // one agent on a top or bottom edge
+/**
+ * The side a drawer on each edge opens to, where its creatures turn on hover: away from
+ * the edge. Herdr gives no pointer position, only that the pointer is on the drawer.
+ * @type {Record<"top" | "right" | "bottom" | "left", Facing>}
+ */
+const OPEN_SIDE = { top: "down", right: "left", bottom: "up", left: "right" };
 const HIT_HOLD = 90; // ms a hit stays still at full strength, a fighting game's hit stop
 const CRIT_HOLD = 240; // ms a crit stays still: a longer stop, so it lands harder
 const HIT_MS = 1400; // ms a hit shows in all
@@ -617,7 +624,9 @@ export default class Drawer {
     }
     const bees = this.swarm(list, cx, first);
     const t = /** @type {Theme} */ (theme());
-    const edge = placement()?.edge ?? null;
+    const where = placement();
+    const edge = where?.edge ?? null;
+    const face = where?.hovered && !where.dragging ? OPEN_SIDE[where.edge] : null;
     const shown = currentAgent(list);
     /** @type {Item[]} */
     const items = list.map((a) => {
@@ -655,10 +664,10 @@ export default class Drawer {
     this.drawn = items;
 
     if (edge === "top" || edge === "bottom") {
-      return h_flex().items_start().children(items.map((it) => tile(t, it)));
+      return h_flex().items_start().children(items.map((it) => tile(t, it, face)));
     }
     const right = edge === "right";
-    const col = v_flex().gap(2).children(items.map((it) => row(t, it, right)));
+    const col = v_flex().gap(2).children(items.map((it) => row(t, it, right, face)));
     // Docked in a layout block it has a fixed size: let a long party scroll.
     return edge === null ? col.id("pp-drawer").size_full().overflow_y_scrollbar() : col;
   }
@@ -1234,9 +1243,10 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {Theme} t
  * @param {Item} it
  * @param {"left" | "right" | "bottom"} side
+ * @param {Facing | null} face The way the creature faces: toward the open side while hovered.
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, combo, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side) {
+function cell(t, { a, seed, hit, combo, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1264,6 +1274,7 @@ function cell(t, { a, seed, hit, combo, stamp, move, trick, exit, puff, soot, ve
       turn,
       tube: !verdict,
       daytime,
+      face,
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
       .when(Boolean(shot?.hides), (el) => el.opacity(0))
@@ -1310,9 +1321,10 @@ const shell = (t, { a, on, exit }, el, id) =>
  * @param {Theme} t
  * @param {Item} it
  * @param {boolean} right Docked on the right edge: the cell goes on the right.
+ * @param {Facing | null} face
  * @returns {Element}
  */
-function row(t, it, right) {
+function row(t, it, right, face) {
   const { a, line } = it;
   const blocked = a.status === "blocked";
   const idle = a.status === "idle" && !it.on;
@@ -1331,7 +1343,7 @@ function row(t, it, right) {
     .when(blocked, (el) => el.font_semibold())
     .child(line);
   const text = v_flex().w(TEXT_W).min_w(0).gap(1).when(right, (el) => el.pl(10)).when(!right, (el) => el.pr(10)).child(name).child(status);
-  const parts = [cell(t, it, right ? "right" : "left"), text];
+  const parts = [cell(t, it, right ? "right" : "left", face), text];
   return shell(t, it, h_flex(), `pp-row-${a.address}`).items_center().children(right ? parts.reverse() : parts);
 }
 
@@ -1339,9 +1351,10 @@ function row(t, it, right) {
 /**
  * @param {Theme} t
  * @param {Item} it
+ * @param {Facing | null} face
  * @returns {Element}
  */
-function tile(t, it) {
+function tile(t, it, face) {
   const { a, line } = it;
   const blocked = a.status === "blocked";
   return shell(t, it, v_flex(), `pp-tile-${a.address}`)
@@ -1349,7 +1362,7 @@ function tile(t, it) {
     .pb(4)
     .items_center()
     .tooltip(`${nameOf(a)}: ${line}`)
-    .child(cell(t, it, "bottom"))
+    .child(cell(t, it, "bottom", face))
     .child(div().w(TILE_W - 8).truncate().text_center().text_size(11).font_medium().text_color(t.foreground).child(nameOf(a)))
     .child(div().w(TILE_W - 8).truncate().text_center().text_size(10).text_color(blocked ? t.blocked : t.dim).when(blocked, (el) => el.font_semibold()).child(line));
 }

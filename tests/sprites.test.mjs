@@ -415,7 +415,7 @@ test("only a working creature shows its way of working", () => {
   }
 });
 
-test("no way of working hides the creature's eyes: a prop over a low face draws them again, bobbing with it", () => {
+test("no way of working hides the creature's eyes, whichever way it faces: a prop over a low face draws them again, bobbing with it", () => {
   const px = 3;
   /** The still frame at `px`, a board of GRID * px square of colors. */
   const board = (el) => {
@@ -441,14 +441,20 @@ test("no way of working hides the creature's eyes: a prop over a low face draws 
   for (let i = 0; i < 300; i++) {
     const sprite = makeSprite(`t${i}`);
     for (const work of WORKS) {
-      const el = working(sprite, work, px);
-      // The eyes this way draws: the torso's eye layer, its last child.
-      const torso = nodeOf(nodeOf(el).children.find((c) => nodeOf(c).children.length === 3)).children[2];
-      const eyes = nodeOf(nodeOf(torso).children[1]).children.map((c) => nodeOf(c));
-      const b = board(el);
-      for (const e of eyes) {
-        const [x, y, w, h, color] = ["left", "top", "w", "h", "bg"].map((k) => last(e, k));
-        for (let j = y; j < y + h; j++) for (let k = x; k < x + w; k++) assert.equal(b[j][k], color, `${work} hides an eye of t${i} (${sprite.kind}) at ${k},${j}`);
+      // Facing a way, the whole drawing steps a cell inside one layer, and the eyes look that way.
+      for (const [face, [dx, dy]] of [[null, [0, 0]], ...Object.entries(FACES)]) {
+        const el = spriteElement(sprite, { id: "s", px, status: "working", work, face });
+        const root = face ? nodeOf(nodeOf(el).children[0]) : nodeOf(el);
+        // The eyes this way draws: the torso's eye layer, its last child.
+        const torso = nodeOf(root.children.find((c) => nodeOf(c).children.length === 3)).children[2];
+        const eyes = nodeOf(nodeOf(torso).children[1]).children.map((c) => nodeOf(c));
+        const b = board(el);
+        for (const e of eyes) {
+          const [x, y, w, h, color] = ["left", "top", "w", "h", "bg"].map((k) => last(e, k));
+          for (let j = y; j < y + h; j++) {
+            for (let k = x; k < x + w; k++) assert.equal(b[j + dy * px][k + dx * px], color, `${work} facing ${face} hides an eye of t${i} (${sprite.kind}) at ${k},${j}`);
+          }
+        }
       }
     }
     if (sprite.parts.eyes.look.some((r) => r.y + r.h > 8)) {
@@ -684,4 +690,109 @@ test("a cheer hops the creature with happy eyes, in confetti of its own colors, 
     }
   }
   assert.ok(walk(cheered(makeSprite("t1"), "pop", { n: 7 })).some((n) => n.id === "s-cheer-7-bit-0"), "a new cheer has new ids");
+});
+
+// ---- facing a way ----
+
+const FACES = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+/** The rectangles with left and right swapped: it glances the other way from them. */
+const mirror = (rects) => rects.map((r) => ({ ...r, x: GRID - r.x - r.w }));
+/**
+ * Where eyes' pupils sit against the open eyes' (moved by dx cells): above 0 to screen
+ * right, below 0 to left. The pupils are the dark cells; white ones fill round and big boxes.
+ */
+const glance = (rects, open, dx = 0) => {
+  const pupils = (rs) => rs.reduce((s, r) => (r.color === "#ffffff" ? s : s + (r.x + r.w / 2) * r.w * r.h), 0);
+  return pupils(rects) - pupils(open.map((r) => ({ ...r, x: r.x + dx })));
+};
+/** The glancing eyes that look toward dx: "look" or its mirror. Pip eyes' "look" glances left. */
+const toward = ({ open, look }, dx) => (Math.sign(glance(look, open)) === dx ? look : mirror(look));
+/** Rectangles painted on an empty GRID by GRID board, moved by (dx, dy) cells. */
+function painted(rects, dx = 0, dy = 0) {
+  const board = Array.from({ length: GRID }, () => Array(GRID).fill(null));
+  for (const r of rects) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) board[y + dy][x + dx] = r.color;
+  return board;
+}
+
+test("facing a way, a still creature steps a cell that way, and to a side its eyes look that way", () => {
+  for (const seed of SEEDS) {
+    const sprite = makeSprite(seed);
+    const { body, feet, eyes } = sprite.parts;
+    const gaze = { left: toward(eyes, -1), right: toward(eyes, 1), up: eyes.open, down: eyes.open };
+    for (const [face, [dx, dy]] of Object.entries(FACES)) {
+      const frame = raster(spriteElement(sprite, { id: "s", px: 1, face }));
+      assert.deepEqual(frame, painted([...body, ...feet[0], ...feet[1], ...gaze[face]], dx, dy), `${seed}: facing ${face}`);
+    }
+    assert.deepEqual(raster(spriteElement(sprite, { id: "s", px: 1, face: null })), still(seed), "null faces out");
+  }
+});
+
+test("facing a side, the eyes a creature draws look that way, pip eyes too", () => {
+  let pips = 0;
+  for (let i = 0; i < 64; i++) {
+    const sprite = makeSprite(`t${i}`);
+    const { open, look } = sprite.parts.eyes;
+    if (glance(look, open) < 0) pips++;
+    for (const status of [null, "blocked"]) {
+      for (const [face, dx] of [["left", -1], ["right", 1]]) {
+        // Step layer, figure, torso, then the torso's eye layer: its rectangles, in cells.
+        const step = nodeOf(nodeOf(spriteElement(sprite, { id: "s", px: 1, status, face })).children[0]);
+        const torso = nodeOf(step.children.find((c) => nodeOf(c).children.length === 3)).children[2];
+        const drawn = nodeOf(nodeOf(torso).children[1]).children.map((c) => {
+          const [x, y, w, h, color] = ["left", "top", "w", "h", "bg"].map((k) => last(nodeOf(c), k));
+          return { x: x + dx, y, w, h, color };
+        });
+        assert.equal(Math.sign(glance(drawn, open, dx)), dx, `t${i} (${status}) facing ${face}: its eyes look the other way`);
+      }
+    }
+  }
+  assert.ok(pips > 0, "some creatures' own glance is to the left");
+});
+
+test("facing a way, everything the sprite draws steps as one, and happy and closed eyes stay", () => {
+  for (const seed of SEEDS.slice(0, 20)) {
+    const sprite = makeSprite(seed);
+    for (const status of STATUSES) {
+      const out = nodeOf(spriteElement(sprite, { id: "s", status })).children;
+      for (const [face, [dx, dy]] of Object.entries(FACES)) {
+        const faced = nodeOf(spriteElement(sprite, { id: "s", status, face })).children;
+        assert.equal(faced.length, 1, `${status} facing ${face}: one step layer`);
+        const step = nodeOf(faced[0]);
+        assert.deepEqual([calls(step, "left"), calls(step, "top")], [[[dx * 3]], [[dy * 3]]], `${status} steps ${face}`);
+        assert.equal(step.children.length, out.length);
+        // Happy and closed eyes are the status's cue, and up or down no eyes change: the
+        // same drawing, a cell over.
+        if (status === "done" || status === "idle" || !dx) {
+          step.children.forEach((c, i) => assert.equal(tree(c), tree(out[i]), `${seed}: ${status} facing ${face}`));
+        }
+      }
+    }
+  }
+});
+
+test("a way of working facing a side has one gaze: every copy of the eyes looks that way", () => {
+  const px = 3;
+  /** A layer's rectangles in cells, as the view draws them. */
+  const rectsOf = (node) => node.children.map((c) => {
+    const [x, y, w, h, color] = ["left", "top", "w", "h", "bg"].map((k) => last(nodeOf(c), k));
+    return JSON.stringify({ x: x / px, y: y / px, w: w / px, h: h / px, color });
+  });
+  const set = (rects) => new Set(rects.map((r) => JSON.stringify({ x: r.x, y: r.y, w: r.w, h: r.h, color: r.color })));
+  let copies = 0;
+  for (let i = 0; i < 100; i++) {
+    const sprite = makeSprite(`t${i}`);
+    const { eyes } = sprite.parts;
+    const any = new Set([...set(eyes.open), ...set(eyes.look), ...set(mirror(eyes.look))]);
+    for (const [face, want] of [["left", set(toward(eyes, -1))], ["right", set(toward(eyes, 1))]]) {
+      for (const work of WORKS) {
+        const nodes = walk(spriteElement(sprite, { id: "s", px, status: "working", work, face }));
+        // A layer of eyes: rectangles all of which are eyes in some mood.
+        const layers = nodes.map(rectsOf).filter((rs) => rs.length && rs.every((r) => any.has(r)));
+        assert.ok(layers.length >= 1, `${work}: draws eyes`);
+        for (const rs of layers) for (const r of rs) assert.ok(want.has(r), `${work} on t${i} facing ${face}: an eye looks the other way at ${r}`);
+        copies += layers.length - 1;
+      }
+    }
+  }
+  assert.ok(copies > 0, "some ways draw the eyes again");
 });

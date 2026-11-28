@@ -35,6 +35,10 @@
 //
 // `faceRects` is the creature still from one side, front, back or turned edge-on, for a
 // caller that turns it.
+//
+// Facing a way (`face`), the creature, with its props and marks, steps a cell toward it, and
+// to a side its open or glancing eyes look that way. The drawer turns its creatures toward
+// its open side on hover.
 
 import { div } from "gpui-kit";
 import { theme } from "herdr";
@@ -348,6 +352,8 @@ function tail(sprite) {
  * @property {Element} right The right foot's layer.
  * @property {Element} torso The body and eyes, as one layer.
  * @property {boolean} tube Whether it holds its test tube when testing.
+ * @property {(mood: Mood) => Rect[]} gaze The eyes in a mood, turned as the creature is: a
+ *   way that draws the eyes again over a prop draws these, so the creature has one gaze.
  */
 
 /**
@@ -379,7 +385,7 @@ const WORK = {
   // the body bobbing once a keystroke.
   typing: {
     eyes: "open",
-    build({ u, nudge, size, t, sprite, torso }) {
+    build({ u, nudge, size, t, gaze, torso }) {
       // Keys a cell apart, with a sub-cell gap of case between them.
       /** @type {(x: number, y: number, w: number, color: Color) => Element} */
       const key = (x, y, w, color) => rect(x * u, y * u, w * u - nudge, u - nudge, color);
@@ -401,7 +407,7 @@ const WORK = {
           lit([[4, 9], [2, 10]], 1, 0.1, 400),
           lit([[7, 9], [9, 10]], 0.1, 1, 400),
           lit([[5, 9], [8, 9]], 0.1, 1, 560),
-          ...peek(sprite.parts.eyes.open, u, bob),
+          ...peek(gaze("open"), u, bob),
         ],
       };
     },
@@ -410,7 +416,7 @@ const WORK = {
   // highlight runs along a line, while the body sways slowly.
   reading: {
     eyes: "look",
-    build({ u, nudge, size, t, sprite, torso }) {
+    build({ u, nudge, size, t, gaze, torso }) {
       // Three lines of text a page, the last one short, a quarter of the page apart: inside it at any size.
       /** @type {(x: number) => Element[]} */
       const lines = (x) => [3, 3, 2].map((w, k) => rect(x * u, 8 * u + Math.floor(((k + 1) * 3 * u) / 4), w * u, nudge, PROP.ink));
@@ -431,14 +437,14 @@ const WORK = {
         .loop("left", { from: 0, to: 2 * u, period: 1600, easing: "linear" });
       const bob = { from: 0, to: -nudge, period: 1600 };
       torso.loop("top", bob);
-      return { behind: [], front: [cover, pages, highlight, text, leafR, leafL, spine, ...peek(sprite.parts.eyes.look, u, bob)] };
+      return { behind: [], front: [cover, pages, highlight, text, leafR, leafL, spine, ...peek(gaze("look"), u, bob)] };
     },
   },
   // Running commands: a hammer held up at the top left slams down on an
   // anvil, sparks flick at each blow, and the body dips with it.
   hammering: {
     eyes: "open",
-    build({ u, size, nudge, t, sprite, torso }) {
+    build({ u, size, nudge, t, gaze, torso }) {
       // One blow a period. Ease-in hangs the hammer up high, then slams it down.
       const blow = { period: 720, easing: /** @type {const} */ ("ease-in") };
       // A head 2 by 3 cells, its handle in from its middle. Down, it rests on the anvil's face
@@ -452,7 +458,7 @@ const WORK = {
         .loop("top", { from: 0, to: 6 * u, ...blow });
       // Held in the torso, so it dips with each blow. The eyes go again on top: the handle
       // passes the face on the way down.
-      torso.loop("top", { from: 0, to: nudge, ...blow }).child(hammer).child(layer(sprite.parts.eyes.open, u));
+      torso.loop("top", { from: 0, to: nudge, ...blow }).child(hammer).child(layer(gaze("open"), u));
       const anvil = mark([[0, 10, 3, 1], [1, 11]], t.dim, u);
       const sparks = mark([[2, 9], [3, 10]], t.working, u).loop("opacity", { from: 0, to: 1, ...blow });
       return { behind: [], front: [anvil, sparks] };
@@ -462,7 +468,7 @@ const WORK = {
   // glass, and a glint twinkles on it.
   searching: {
     eyes: "look",
-    build({ u, size, nudge, t, sprite, torso }) {
+    build({ u, size, nudge, t, gaze, torso }) {
       // A round rim around a 2 by 2 glass, its handle off the lower right.
       /** @type {Cells} */
       const rim = [[1, 0, 2, 1], [1, 3, 2, 1], [0, 1, 1, 2], [3, 1, 1, 2], [3, 3]];
@@ -476,7 +482,7 @@ const WORK = {
         .loop("top", { from: u, to: 3 * u, period: 1700 });
       const sweep = full(size).child(lens).loop("left", { from: 0, to: 6 * u, period: 2600 });
       // Over the body but under a second copy of the eyes, so the lens never covers them.
-      torso.child(sweep).child(layer(sprite.parts.eyes.look, u));
+      torso.child(sweep).child(layer(gaze("look"), u));
       return { behind: [], front: [] };
     },
   },
@@ -575,7 +581,7 @@ const WORK = {
   // popping up out of it and back.
   installing: {
     eyes: "open",
-    build({ u, nudge, size, t, sprite, torso }) {
+    build({ u, nudge, size, t, gaze, torso }) {
       const bob = { from: 0, to: -nudge, period: 1200 };
       torso.loop("top", bob);
       const hold = mark([[3, 9, 6, 1]], PROP.hold, u);
@@ -586,7 +592,7 @@ const WORK = {
       const flap = (cells, from, to) => full(size).child(mark(cells, PROP.flap, u)).loop("top", { from, to, period: 600 });
       return {
         behind: [],
-        front: [hold, item, box, flap([[1, 8], [0, 7]], 0, -nudge), flap([[10, 8], [11, 7]], -nudge, 0), ...peek(sprite.parts.eyes.open, u, bob)],
+        front: [hold, item, box, flap([[1, 8], [0, 7]], 0, -nudge), flap([[10, 8], [11, 7]], -nudge, 0), ...peek(gaze("open"), u, bob)],
       };
     },
   },
@@ -705,6 +711,31 @@ const DAYTIME = {
 };
 
 /**
+ * Which way a creature can face, and the step it takes that way, in cells.
+ * @typedef {"left" | "right" | "up" | "down"} Facing
+ * @type {Record<Facing, [dx: number, dy: number]>}
+ */
+const STEP = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+
+/** @type {(rects: Rect[]) => Rect[]} The same rectangles, left and right swapped. */
+const mirrored = (rects) => rects.map((r) => ({ ...r, x: GRID - r.x - r.w }));
+
+/**
+ * Which way the "look" eyes glance against the open ones, by where their pupils move.
+ * The pupils are the eyes' darkest color: round and big eyes fill their boxes, so only the
+ * dark cells move, and the white ones move the other way.
+ * @param {Record<Mood, Rect[]>} eyes
+ * @returns {number} Above 0 for screen right, below 0 for left, 0 for neither.
+ */
+function glance(eyes) {
+  const shade = (/** @type {string} */ hex) => [1, 3, 5].reduce((s, i) => s + parseInt(hex.slice(i, i + 2), 16), 0);
+  const dark = eyes.open.reduce((d, r) => (shade(r.color) < shade(d) ? r.color : d), eyes.open[0].color);
+  /** @type {(rects: Rect[]) => number} The pupils' cells' summed centers. */
+  const pupils = (rects) => rects.reduce((s, r) => (r.color === dark ? s + (r.x + r.w / 2) * r.w * r.h : s), 0);
+  return pupils(eyes.look) - pupils(eyes.open);
+}
+
+/**
  * The status's marks, drawn behind or in front of the creature.
  * @param {Status | null} status
  * @param {number} u
@@ -757,9 +788,12 @@ function accents(status, u) {
  *   true). The drawer takes it away while it shows how the tests came out.
  * @param {string | null} [options.daytime] The part of the day (`daytimeOf`): a done or idle
  *   creature keeps its prop. Anything else, or null, adds none.
+ * @param {Facing | null} [options.face] The way the creature faces, or null to face out. It
+ *   steps a cell that way with all it draws, and to a side its open or glancing eyes look
+ *   that way; happy and closed eyes are a status's cue and stay.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0, tube = true, daytime = null } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0, tube = true, daytime = null, face = null } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
@@ -767,6 +801,12 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   // A turn takes the status's place until it is over: only a name of TURNS' own is one.
   const shot = turn && typeof turn.kind === "string" && Object.hasOwn(TURNS, turn.kind) ? TURNS[turn.kind] : null;
   const look = shot ? null : status;
+  // To a side, the eyes glance that way: "look", or "look" mirrored when it glances the other
+  // way (pip eyes glance left). Facing up or down keeps the eyes.
+  const step = face ? STEP[face] : null;
+  const side = step?.[0] ? (glance(eyes) * step[0] < 0 ? mirrored(eyes.look) : eyes.look) : null;
+  /** @type {(mood: Mood) => Rect[]} */
+  const gaze = (mood) => (side && (mood === "open" || mood === "look") ? side : eyes[mood]);
   // A label anyone can set picks it, so only a name of WORK's own counts ("__proto__" doesn't).
   const how = look === "working" ? WORK[typeof work === "string" && Object.hasOwn(WORK, work) ? work : ownWork(sprite)] : null;
 
@@ -774,12 +814,12 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   const right = layer(feet[1], u);
   const torso = div().absolute().left(0).top(0).size(size)
     .child(layer(body, u))
-    .child(layer(eyes[how?.eyes ?? shot?.eyes ?? EYES[look] ?? "open"], u));
+    .child(layer(gaze(how?.eyes ?? shot?.eyes ?? EYES[look] ?? "open"), u));
   const figure = div().absolute().left(0).top(0).size(size);
 
   // Working, the way of working moves the parts and draws its own marks; a turn, the same.
   /** @type {Parts} */
-  const parts = { u, size, nudge, t: /** @type {Theme} */ (theme()), sprite, left, right, torso, tube };
+  const parts = { u, size, nudge, t: /** @type {Theme} */ (theme()), sprite, gaze, left, right, torso, tube };
   const worked = shot ? shot.build({ ...parts, id: `${id}-${turn.kind}-${turn.n}`, step: turn.step }) : how?.build(parts);
   if (look === "done") {
     figure.loop("top", { from: 0, to: -u, period: 700, easing: "ease-out" });
@@ -797,7 +837,11 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
     behind.push(...day.behind);
     front.push(...day.front);
   }
-  return div().id(id).relative().size(size).flex_none().children([...behind, hit ? struck(figure, sprite, id, u, hit) : figure, ...front]);
+  const drawn = [...behind, hit ? struck(figure, sprite, id, u, hit) : figure, ...front];
+  // Facing a way, all of it steps as one, so every prop and mark keeps its place on the creature.
+  // The step snaps, as a pixel creature turns round: no id, no transition.
+  const shown = step ? [div().absolute().left(step[0] * u).top(step[1] * u).size(size).children(drawn)] : drawn;
+  return div().id(id).relative().size(size).flex_none().children(shown);
 }
 
 /** @typedef {"front" | "left" | "back" | "right"} Face A side the creature is seen from. */
