@@ -40,7 +40,9 @@
 // A blocked agent that goes on has its fire put out: water pours on the flames, they die,
 // and steam rises before the creature goes back to work. A working agent that finishes
 // cheers once: a burst of confetti goes up and falls before the creature settles into its
-// done pose. Each such one-shot for a status change is one of sprite-view's TURNS.
+// done pose. An idle or finished agent that starts work wakes up first: its creature
+// yawns, stretches and pops its eyes open. Each such one-shot for a status change is one
+// of sprite-view's TURNS.
 //
 // Each helper an agent has running is a small figure (a sheep for an `hc` terminal it
 // started, a honey bee for a sub-agent; both are "bees" below) that flies out of its sprite

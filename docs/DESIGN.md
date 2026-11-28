@@ -159,7 +159,7 @@ export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
 export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
-export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse cheer
+export const TURNS: Record<string, Turn>;       // one-shots for a status change: douse cheer stretch
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
@@ -232,7 +232,8 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
 - `turn` is `{ kind, n, step } | null`: a one-shot being played because the agent's status
   changed. A `Turn` in `TURNS` is `{ from, to, first, steps, eyes, build }`: the change it
   plays on (null for any status), its first step, when each next step starts in ms from the
-  change (null: over), the creature's eyes, and what it does at a step: `build` gets the
+  change (null: over), the creature's eyes (one mood, or a mood by step, open for a step
+  it leaves out), and what it does at a step: `build` gets the
   same parts a way of working gets, plus the turn's `id` and `step`, moves them as it likes
   and returns its marks. While a turn of a known `kind` plays it takes the status's place:
   no way of working, status motion or status accent is drawn, and a part the turn leaves
@@ -253,6 +254,13 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
     easing out; `fall` drops them three cells over 900 ms, easing in, as they fade. They are
     in `CONFETTI`'s colors, never `HIT`'s, `FIRE`'s, `DOUSE`'s or a status cue's. It is over
     within 2 s, before any later done look that waits a few seconds (`STAGES`) would start.
+  - `stretch`, from any other status to working (it comes after `douse`, so blocked to
+    working stays the douse): `yawn` shuts the eyes, slumps the body over the feet by a
+    sub-cell move and opens a mouth in the art's ink two rows under the eyes' top, across the
+    middle two columns, on body cells only; `stretch` shuts the mouth and eases the body up
+    a cell over 420 ms, slowing, while the feet stay; `wake` drops it back into place over
+    160 ms with open eyes, and a tick in the theme's foreground pops out behind each top
+    corner. Nothing loops: it is one move, and the creature works when it is over.
 - `stage` is how long the status has held: the number of that status's `STAGES` times
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
@@ -593,6 +601,9 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   600 ms, and the done pose at 1.6 s. It cheers once per finish: a redraw keeps the same
   cheer, and going back to work ends it. A blocked or idle agent that turns done, an agent
   done on the first draw and a new agent that is done get no cheer.
+  An idle or done agent that starts work stretches: `yawn` at once, `stretch` at
+  500 ms, `wake` at 1 s, and to work at 1.5 s. The first draw and a new agent at work get no
+  stretch.
 - Each draw keeps every agent's status and finds the changes since the draw before, as
   `{ address, from, to }` (`changes`). Only agents drawn both times can change: the first
   draw, a new agent and an agent that left and came back have none, and an empty drawer

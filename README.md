@@ -11,7 +11,8 @@ move according to what their agents are doing.
   when the agent is blocked, celebrates when it finished, and rests when it is idle. When
   a blocked agent goes on, water puts its fire out before it goes back to work. When a
   working agent finishes, one burst of confetti goes up before the creature settles into
-  its happy done hop.
+  its happy done hop. When an idle or finished agent starts work, its creature wakes up
+  first: it yawns, stretches and pops its eyes open.
 - **Ways of working.** With [one more hook](#ways-of-working), a working creature does
   what its agent does: it types while the agent edits files, reads a book while it reads,
   bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,
@@ -259,8 +260,10 @@ trick arrives again.
 ![Another creature working the four ways for kinds of command, side by side: a bubbling test tube, a crane lifting a brick, a box it unpacks, and a branching twig](docs/command-ways.gif)
 
 The second recording shows the four ways for kinds of command: testing, building,
-installing and git. Both recordings are older than compacting. A working creature shows
-what its agent is doing, when the agent's hooks say:
+installing and git. Both recordings are older than compacting. A creature whose agent was
+idle or done wakes up before it works: for a second and a half it yawns with its eyes shut,
+stretches up, and drops back with its eyes popped open. Then it shows what its agent is
+doing, when the agent's hooks say:
 
 | Way | The agent | Claude Code's tools |
 |---|---|---|

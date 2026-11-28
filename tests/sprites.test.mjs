@@ -584,6 +584,82 @@ test("a new douse has new ids, and a turn of no known kind is no turn", () => {
   }
 });
 
+/** A creature waking up for work, at one step of the stretch. */
+const stretched = (sprite, step, { px = 3, n = 1 } = {}) =>
+  spriteElement(sprite, { id: "s", px, status: "working", work: "typing", turn: { kind: "stretch", n, step } });
+const STRETCH_STEPS = ["yawn", "stretch", "wake"];
+/** A spread of creatures: one of each kind, and seeds with their eyes high and low. */
+const WAKERS = [...KINDS, ...Array.from({ length: 120 }, (_, i) => makeSprite(`w${i}`))];
+
+test("an idle or finished agent starting work plays a stretch: to working from any status but blocked, in steps that end", () => {
+  const { from, to, first, steps } = TURNS.stretch;
+  assert.deepEqual([from, to, first], [null, "working", "yawn"]);
+  const kinds = Object.keys(TURNS);
+  assert.ok(kinds.indexOf("douse") < kinds.indexOf("stretch"), "the douse comes first, so blocked to working still puts the fire out");
+  assert.deepEqual(steps.map(([, step]) => step), ["stretch", "wake", null]);
+  assert.ok(steps.every(([ms], i) => i === 0 || ms > steps[i - 1][0]), "each step after the last");
+  assert.ok(steps.at(-1)[0] >= 1200 && steps.at(-1)[0] <= 2000, "slow enough to follow, short enough not to hold up the work");
+});
+
+test("a stretch: the creature yawns with its eyes shut, reaches up a cell, and drops back with its eyes open", () => {
+  const ink = "#16141f";
+  for (const sprite of WAKERS) {
+    const { body, eyes } = sprite.parts;
+    const on = (x, y) => body.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+    const torso = (el) => walk(el).find((n) => n.id === "s-stretch-1-body");
+    const [yawn, reach, wake] = STRETCH_STEPS.map((step) => stretched(sprite, step));
+    for (const el of [yawn, reach, wake]) check(el);
+    // The torso holds the body, then the eyes: the eyes it draws are the step's.
+    const eyesOf = (el) => nodeOf(torso(el).children[1]).children.map((c) => `${last(nodeOf(c), "left") / 3},${last(nodeOf(c), "top") / 3}`);
+    const cells = (mood) => eyes[mood].map((r) => `${r.x},${r.y}`);
+
+    // Yawning: it slumps a little, eyes shut, its mouth open under them, on its body only.
+    assert.ok(last(torso(yawn), "top") > 0, `${sprite.kind}: it slumps`);
+    assert.deepEqual(eyesOf(yawn), cells("closed"), `${sprite.kind}: eyes shut`);
+    const mouth = walk(yawn).find((n) => n.id === "s-stretch-1-mouth");
+    assert.ok(mouth, `${sprite.kind}: a mouth`);
+    for (const n of walk(mouth).filter((n) => calls(n, "bg").length)) {
+      assert.equal(last(n, "bg"), ink);
+      const x = last(n, "left") / 3;
+      const y = last(n, "top") / 3;
+      assert.ok(on(x, y), `${sprite.kind}: the mouth at ${x},${y} is on the body`);
+      assert.ok(!eyes.open.some((r) => r.x === x && r.y === y), "and not on an eye");
+    }
+
+    // Stretching: the mouth shuts and the body reaches up a cell, slowing, over its feet.
+    assert.equal(last(torso(reach), "top"), -3, `${sprite.kind}: up a cell`);
+    assert.equal(Object.fromEntries(calls(torso(reach), "transition")).top.easing, "ease-out");
+    assert.deepEqual(eyesOf(reach), cells("closed"));
+    assert.ok(!walk(reach).some((n) => n.id === "s-stretch-1-mouth"), "the mouth shuts");
+
+    // Woken: back in place with open eyes, the creature as it stands still, ticks behind it.
+    assert.equal(last(torso(wake), "top"), 0);
+    assert.deepEqual(eyesOf(wake), cells("open"), `${sprite.kind}: eyes popped open`);
+    const plain = still(sprite.seed);
+    const board = raster(stretched(sprite, "wake", { px: 1 }));
+    for (let y = 0; y < GRID; y++) {
+      for (let x = 0; x < GRID; x++) {
+        if (plain[y][x] !== null) assert.equal(board[y][x], plain[y][x], `${sprite.kind}: ${x},${y} as it stands`);
+        else assert.ok(board[y][x] === null || board[y][x] === theme().foreground, `${sprite.kind}: ${x},${y} empty or a tick`);
+      }
+    }
+
+    // Every step stays in the box: `raster` fails on anything outside it.
+    for (const step of STRETCH_STEPS) raster(stretched(sprite, step, { px: 1 }));
+  }
+});
+
+test("a stretch is one move, not a loop: nothing of the creature's work or rest shows until it is over", () => {
+  for (const sprite of KINDS) {
+    for (const step of STRETCH_STEPS) {
+      const nodes = walk(stretched(sprite, step));
+      assert.ok(nodes.every((n) => calls(n, "loop").length === 0), `${sprite.kind} ${step}: nothing loops`);
+      assert.ok(!nodes.some((n) => calls(n, "bg").some(([c]) => [theme().working, theme().idle, theme().done].includes(c))), `${step}: no status cue`);
+      for (const node of nodes) if (node.id !== null && node !== nodes[0]) assert.ok(node.id.startsWith("s-stretch-1-"), node.id);
+    }
+  }
+});
+
 test("a turn is given the creature's parts and moves them as a way of working does", () => {
   const sprite = makeSprite("t1");
   TURNS.jig = { from: null, to: null, first: "up", steps: [[100, null]], eyes: "closed",

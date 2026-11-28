@@ -32,6 +32,8 @@
 //   douse    blocked to working: water pours on the fire and puts it out, steam rises
 //   cheer    working to done: one burst of confetti pops out from behind the creature,
 //            which hops with happy eyes, and drifts down as it fades
+//   stretch  any other change to working (idle or done): the creature yawns with its eyes
+//            shut, stretches up a cell, and drops back with its eyes popped open
 //
 // `faceRects` is the creature still from one side, front, back or turned edge-on, for a
 // caller that turns it.
@@ -212,6 +214,40 @@ function cheer({ id, step, u, left, right, torso }) {
   return { behind: bits, front: [] };
 }
 
+/** The color of a yawning mouth: the art's own ink, so it reads as part of the face. */
+const YAWN = "#16141f";
+
+/**
+ * A creature waking up for work, at one step of the turn. Yawning, it slumps a little with
+ * its eyes shut and its mouth open wide under them; stretching, the mouth shuts and the body
+ * reaches up a cell over its planted feet, slowing as it goes; woken, it drops back into
+ * place with its eyes open, and a tick pops out in each top corner, by its head. The body
+ * keeps its id across the steps, so `.transition` eases between them. The eyes are the
+ * turn's, by step.
+ * @param {TurnParts} parts Its step is "yawn", "stretch" or "wake".
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
+function stretch({ id, step, u, nudge, size, t, sprite, torso }) {
+  const woken = step === "wake";
+  torso
+    .id(`${id}-body`)
+    .top(step === "yawn" ? nudge : step === "stretch" ? -u : 0)
+    .transition("top", woken ? { duration: 160, easing: "ease-in" } : { duration: 420, easing: "ease-out" });
+  if (step === "yawn") {
+    // Two rows under the eyes' top, across the middle two columns, two rows deep: only
+    // where the body is, so it never shows off the art.
+    const y = Math.min(...sprite.parts.eyes.open.map((r) => r.y)) + 2;
+    /** @type {(x: number, y: number) => boolean} */
+    const art = (x, y) => sprite.parts.body.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+    /** @type {Cells} */
+    const gape = [[GRID / 2 - 1, y], [GRID / 2, y], [GRID / 2 - 1, y + 1], [GRID / 2, y + 1]];
+    torso.child(full(size).id(`${id}-mouth`).child(mark(gape.filter(([x, y]) => art(x, y)), YAWN, u)));
+  }
+  // Behind the creature, so the ticks show only where the art leaves room.
+  const pop = full(size).id(`${id}-pop`).child(mark([[0, 2], [1, 1], [GRID - 1, 2], [GRID - 2, 1]], t.foreground, u));
+  return { behind: woken ? [pop] : [], front: [] };
+}
+
 /**
  * A one-shot a sprite plays when its agent's status changes: a turn.
  * @typedef {object} Turn
@@ -220,7 +256,8 @@ function cheer({ id, step, u, left, right, torso }) {
  * @property {string} first Its first step, drawn on the draw that finds the change.
  * @property {[ms: number, step: string | null][]} steps When each next step starts, in ms
  *   from the change, ascending; null: it is over.
- * @property {Mood} eyes The creature's eyes while it plays.
+ * @property {Mood | Record<string, Mood>} eyes The creature's eyes while it plays, or by
+ *   step for eyes that change: a step it leaves out has open eyes.
  * @property {(parts: TurnParts) => { behind: Element[], front: Element[] }} build
  *   At a step: moves the creature's parts, as a way of working does, and returns its marks,
  *   in place of the status's. A part it leaves alone holds still.
@@ -241,6 +278,8 @@ export const TURNS = {
   douse: { from: "blocked", to: "working", first: "pour", steps: [[40, "splash"], [700, "steam"], [1800, null]], eyes: "open", build: douse },
   // Over well before a done look that calms down after a few seconds would start (STAGES).
   cheer: { from: "working", to: "done", first: "pop", steps: [[40, "burst"], [600, "fall"], [1600, null]], eyes: "happy", build: cheer },
+  // After douse: blocked to working matches it first, so this one plays from idle or done.
+  stretch: { from: null, to: "working", first: "yawn", steps: [[500, "stretch"], [1000, "wake"], [1500, null]], eyes: { yawn: "closed", stretch: "closed", wake: "open" }, build: stretch },
 };
 
 /**
@@ -809,12 +848,14 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   const gaze = (mood) => (side && (mood === "open" || mood === "look") ? side : eyes[mood]);
   // A label anyone can set picks it, so only a name of WORK's own counts ("__proto__" doesn't).
   const how = look === "working" ? WORK[typeof work === "string" && Object.hasOwn(WORK, work) ? work : ownWork(sprite)] : null;
+  // A turn's eyes can change by step; a step it leaves out has open eyes.
+  const turnEyes = !shot ? null : typeof shot.eyes === "string" ? shot.eyes : Object.hasOwn(shot.eyes, turn.step) ? shot.eyes[turn.step] : "open";
 
   const left = layer(feet[0], u);
   const right = layer(feet[1], u);
   const torso = div().absolute().left(0).top(0).size(size)
     .child(layer(body, u))
-    .child(layer(gaze(how?.eyes ?? shot?.eyes ?? EYES[look] ?? "open"), u));
+    .child(layer(gaze(how?.eyes ?? turnEyes ?? EYES[look] ?? "open"), u));
   const figure = div().absolute().left(0).top(0).size(size);
 
   // Working, the way of working moves the parts and draws its own marks; a turn, the same.

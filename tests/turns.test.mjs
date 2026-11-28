@@ -1,7 +1,8 @@
 // Turns: the one-shots the drawer plays when an agent's status changes. A blocked agent that
 // goes on has its fire put out: water pours on it, it dies, and steam rises, then the
 // creature goes back to work. An agent that finishes cheers once: confetti bursts out and
-// falls, then the creature settles into the done pose.
+// falls, then the creature settles into the done pose. An idle or finished agent that
+// starts work wakes up first: it yawns, stretches and pops its eyes open, then works.
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
@@ -61,8 +62,8 @@ test("a blocked agent that goes on has its fire put out on that draw, step by st
   assert.ok(nodes.some((node) => calls(node, "loop").length), "and the creature is back at work");
 });
 
-test("only blocked to working puts a fire out: no other change and no new agent plays a turn", () => {
-  const pairs = [["idle", "working"], ["done", "working"], ["blocked", "done"], ["blocked", "idle"], ["working", "blocked"]];
+test("blocked to done or idle, working to blocked and a new agent play no turn", () => {
+  const pairs = [["blocked", "done"], ["blocked", "idle"], ["working", "blocked"]];
   for (const [from, to] of pairs) {
     mock.reset();
     const t1 = mock.agent("t1", { status: from });
@@ -203,12 +204,95 @@ test("going back to work ends the cheer at once, its steps do nothing, and the n
   t1.status = "working";
   let tree = draw(drawer, cx);
   assert.equal(cheerOf(tree, "t1"), null, "back at work, not still cheering");
+  assert.equal(drawer.turnOf("t1").kind, "stretch", "done to working wakes it up instead");
   const notified = cx.notified;
-  cx.run(cheerAt.over);
-  assert.equal(cx.notified, notified, "the ended cheer's steps wake nothing");
+  cx.run(Math.max(cheerAt.over, stretchAt.over));
+  assert.equal(cx.notified, notified + TURNS.stretch.steps.length, "only the stretch's steps wake it: the ended cheer's wake nothing");
 
   t1.status = "done";
   tree = draw(drawer, cx);
   const second = cheerOf(tree, "t1");
   assert.ok(second && second !== first, "a new cheer, with new ids, from its first step");
+});
+
+/** The stretch on an agent's sprite: its number, or null for none. */
+const stretchOf = (tree, address) => {
+  const body = walk(tree).find((n) => new RegExp(`^pp-spr-${address}-stretch-\\d+-body$`).test(n.id ?? ""));
+  return body ? Number(body.id.split("-").at(-2)) : null;
+};
+/** The ms each step of the stretch starts at, by step. */
+const stretchAt = Object.fromEntries(TURNS.stretch.steps.map(([ms, step]) => [step ?? "over", ms]));
+
+test("an idle or finished agent that starts work wakes on that draw: it yawns, stretches, pops its eyes open, then works", () => {
+  for (const from of ["idle", "done"]) {
+    mock.reset();
+    const t1 = mock.agent("t1", { status: from });
+    mock.agent("t2", { status: from });
+    const drawer = new Drawer();
+    const cx = context();
+    assert.equal(stretchOf(draw(drawer, cx), "t1"), null, `${from}: no stretch when the drawer opens`);
+
+    t1.status = "working";
+    let tree = draw(drawer, cx);
+    const n = stretchOf(tree, "t1");
+    assert.ok(n, `${from}: the stretch starts on the draw that sees the change`);
+    assert.equal(drawer.turnOf("t1").step, "yawn");
+    assert.equal(stretchOf(tree, "t2"), null, `${from}: the agent that did not start keeps resting`);
+    const body = (tree) => find(tree, `pp-spr-t1-stretch-${n}-body`);
+    assert.ok(find(tree, `pp-spr-t1-stretch-${n}-mouth`), "yawn: the mouth is open");
+    assert.equal(stretchOf(draw(drawer, cx), "t1"), n, "a redraw keeps the same stretch");
+
+    cx.run(stretchAt.stretch);
+    tree = draw(drawer, cx);
+    assert.ok(last(body(tree), "top") < 0, "stretch: the body reaches up");
+    cx.run(stretchAt.wake);
+    tree = draw(drawer, cx);
+    assert.equal(drawer.turnOf("t1").step, "wake");
+    assert.equal(last(body(tree), "top"), 0, "wake: it drops back into place");
+
+    cx.run(stretchAt.over);
+    tree = draw(drawer, cx);
+    assert.equal(stretchOf(tree, "t1"), null, `${from}: the stretch is over`);
+    assert.equal(drawer.turnOf("t1"), null);
+    assert.ok(walk(find(tree, "pp-spr-t1")).some((node) => calls(node, "loop").length), "and the creature is at work");
+  }
+});
+
+test("blocked to working is still a douse, and a first draw or a new working agent does not stretch", () => {
+  const t1 = mock.agent("t1", { status: "blocked" });
+  let drawer = new Drawer();
+  let cx = context();
+  draw(drawer, cx);
+  t1.status = "working";
+  const tree = draw(drawer, cx);
+  assert.equal(drawer.turnOf("t1").kind, "douse");
+  assert.equal(stretchOf(tree, "t1"), null);
+
+  mock.reset();
+  mock.agent("t1", { status: "working" });
+  drawer = new Drawer();
+  cx = context();
+  assert.equal(stretchOf(draw(drawer, cx), "t1"), null, "working when the drawer opens is no stretch");
+  mock.agent("t2", { status: "working" });
+  assert.equal(stretchOf(draw(drawer, cx), "t2"), null, "a new agent at work did not just wake");
+});
+
+test("a change mid-stretch ends it at once, its steps do nothing, and the next start stretches again", () => {
+  const t1 = mock.agent("t1", { status: "idle" });
+  const drawer = new Drawer();
+  const cx = context();
+  draw(drawer, cx);
+  t1.status = "working";
+  const first = stretchOf(draw(drawer, cx), "t1");
+
+  t1.status = "idle";
+  assert.equal(stretchOf(draw(drawer, cx), "t1"), null, "back to rest, not still waking");
+  const notified = cx.notified;
+  cx.run(stretchAt.over);
+  assert.equal(cx.notified, notified, "the ended stretch's steps wake nothing");
+
+  t1.status = "working";
+  const second = stretchOf(draw(drawer, cx), "t1");
+  assert.ok(second && second !== first, "a new stretch, with new ids, from its first step");
+  assert.equal(drawer.turnOf("t1").step, "yawn");
 });
