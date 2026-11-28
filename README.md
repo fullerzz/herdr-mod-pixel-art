@@ -23,6 +23,8 @@ move according to what their agents are doing.
   holds a moment, then fades.
 - **Signposts.** When an agent checks out or switches to another branch, a signpost by its
   creature flips from pointing back to pointing the other way.
+- **Smoke.** With [the same hooks](#failed-commands), a command an agent runs that fails
+  makes its creature cough, and a puff of black smoke goes up from its face.
 - **Worker bees.** Every helper an agent starts is a little figure that flies out of its
   creature from a puff of smoke and stays beside it until the helper ends: a sheep for a
   terminal started with `hc run`, with no setup, and a honey bee for a sub-agent, with
@@ -129,6 +131,24 @@ agent came from, then its board turns and points the other way, the way it went.
 a moment and fades, about three seconds in all. A checkout lands on the same agents as a
 commit. A checkout of the branch already checked out goes nowhere and shows nothing.
 
+## Failed commands
+
+When a command a Claude Code agent runs fails, its creature coughs: it lurches down a little,
+and a puff of black smoke goes up from its face, drifts to the top of its cell and clears.
+The whole puff takes about a second. Each failure is a puff of its own, so two in a row
+are two puffs.
+
+A failure is a shell command that ends with an exit code other than 0. A failed read or
+edit is not one, nor a command the person interrupts, nor one a sub-agent runs. It needs
+the hook `just hooks` installs: [`tools/bee-hook.sh fail`](#worker-bees) on Claude Code's
+`PostToolUseFailure`, which Claude Code sends for exactly these. Codex has no such event,
+so a Codex creature never smokes. The hook keeps a `pixel.result` label on the agent's
+terminal, with a new value for each failure. Any agent can report one itself:
+
+```sh
+hc label "$HC_TERMINAL_ID" pixel.result=failed.$$   # a new value each time
+```
+
 ## Magic arrivals
 
 ![A wand taps an empty spot in the drawer, a puff of smoke and sparkles goes up, and a new agent's creature is there when it clears](docs/magic-spawn.gif)
@@ -208,8 +228,8 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
   just hooks             # both, or `just hooks claude` / `just hooks codex`
   ```
 
-  It adds five hooks to `~/.claude/settings.json` and `~/.codex/hooks.json` after the
-  ones already there, keeps the file as it was beside it (`.bak-pixel-party-<time>`), and
+  It adds six hooks to `~/.claude/settings.json` and five to `~/.codex/hooks.json` (Codex
+  has no event for a failed command) after the ones already there, keeps the file as it was beside it (`.bak-pixel-party-<time>`), and
   is safe to run again. It never changes a hook that is already there: if one of yours
   also runs a `bee-hook.sh` (even this one, under a matcher that limits it to some tools),
   the new hook goes after it and a note says so. A file it
@@ -226,14 +246,15 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
       "SubagentStop": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh stop", "timeout": 5 }] }],
       "SessionStart": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh clear", "timeout": 5 }] }],
       "PreToolUse": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh tool", "timeout": 5 }] }],
-      "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh think", "timeout": 5 }] }]
+      "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh think", "timeout": 5 }] }],
+      "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh fail", "timeout": 5 }] }]
     }
   }
   ```
 
   The hook does nothing outside an `hc` terminal, and gives up on an `hc` call after 2
   seconds. The tool hook takes about 30 ms, so each tool waits that long to start. `clear` removes
-  the labels a killed session left behind, `pixel.work` too. It keeps the labels of
+  the labels a killed session left behind, `pixel.work` and `pixel.result` too. It keeps the labels of
   a program still running on the same terminal (an agent's own `claude -p` starts a session
   too): the `pixel.hive` label names the program that owns them. Any other agent can do the same from its own hooks:
 

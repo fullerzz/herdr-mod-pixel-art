@@ -38,6 +38,9 @@ picker lets the person choose another creature for an agent.
 - **Signposts.** A checkout or switch in an agent's repository flips a signpost by its
   sprite: it shows pointing back the way HEAD came from, turns edge-on, and points the
   other way, then fades. Other moves of HEAD get one-shots of their own the same way.
+- **Smoke.** A shell command an agent runs that fails makes its sprite cough: it lurches,
+  and a puff of black smoke goes up from its face and clears. Only Claude Code's hooks say
+  so (`PostToolUseFailure`).
 - **Bees.** Each helper an agent has running is a small figure beside its sprite: a sheep
   for a terminal it started with `hc run`, a honey bee for a sub-agent inside its own
   program. Both are called bees below. A new bee flies out of the sprite from a puff of
@@ -68,6 +71,7 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | `terminals()` gives each terminal's `parent`: the terminal that started it with `hc run`. A helper without a pane is not in `agents()`. | `hc` helpers are bees with no setup. |
 | Herdr sees nothing of a sub-agent inside an agent's program (Claude Code's Agent tool). Its hooks run with `HC_TERMINAL_ID` set, and `hc label` takes a key such as `pixel.bee.a1B2-c_3`. | A hook keeps one label per running sub-agent; the label change re-renders the drawer. |
 | A Claude Code `PreToolUse` hook's JSON names the tool (`tool_name`: `Read`, `Grep`, `Agent`, ...). A sub-agent's own tool calls carry `agent_id` and `agent_type`; the main agent's carry neither. `UserPromptSubmit` fires for each prompt, a background sub-agent's report included. (Claude Code 2, measured with `claude -p`.) | The hook says what the agent is doing from `tool_name`, and leaves a sub-agent's tools to its bee. |
+| A Bash command that exits other than 0 fires Claude Code's `PostToolUseFailure`, not `PostToolUse`. Its JSON is `session_id`, ..., `agent_id` and `agent_type` for a sub-agent's, `hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt`, `duration_ms`. The exit code is only text at the start of `error` (`"Exit code 2\n..."`), which also holds the output, cut to about 10 KB: a failed `seq 1 200000` was 13 KB in all. `PostToolUse` has no exit code at all, and a 1.2 MB output made it 37 KB. A failed Edit (no match) fired neither. (Claude Code 2.1.332, measured with `claude -p`.) Codex 0.172's hook events include no failure event. | A failed command is the `PostToolUseFailure` hook for a shell tool, with no parsing of the error. Codex gets no hook for it. |
 | `hc label` on the caller's own terminal takes about 10 ms; the whole tool hook about 30 ms. A `PreToolUse` JSON holds the tool's whole input (a Write's content: megabytes), after `tool_name` and `agent_id`. | Before a tool or a prompt, the hook parses only up to `"tool_input"`, at most 8 KiB, and reads the rest to throw it away unparsed. A 2 MB Write costs it about 20 ms, not the 530 ms of parsing it all. A shell tool's command is the one exception, with a budget of its own: the first 512 bytes after `"tool_input"`, within those 8 KiB. |
 | `.loop` plays its return leg as the forward leg backwards, easing included: an 8 s ease-in `top` loop is symmetric about its far end, slow to leave home and slow to come back. `.loop("width")` runs too. | Two loops of one period with ease-out and ease-in light in one order and go out in the reverse, as the previews in Chrome (CSS `alternate`) showed. |
 | A Claude Code hook's parent process is `claude` itself (measured for SessionStart, SubagentStart and SubagentStop). A `claude -p` run from an agent's tool inherits `HC_TERMINAL_ID` and starts a session of its own. | `clear` tells the owner's own new session from a nested program's session by pid. |
@@ -295,14 +299,23 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
   are BashOutput and KillShell. The command is the input's first `"command"` string, read from its first
   512 bytes, never expanded (no globbing); a string cut there is read as far as it goes.
   Codex's shell input is guessed to take the same shape.
+- `tools/bee-hook.sh fail` on `PostToolUseFailure` reports a failed command: for a shell
+  tool (Bash, shell, local_shell, exec_command) of the agent's own (no `agent_id`) that the
+  person did not interrupt (`is_interrupt`), it sets `pixel.result=failed.<the hook's pid>`.
+  A result's value is `<kind>.<nonce>`, new for each result, so the drawer plays every one
+  however many come in a row, and no tool needs to clear it first. `failed` is the only
+  kind so far. `tool_name` and `agent_id` come from the head, as for `tool`; `is_interrupt`
+  from the last 64 bytes. A failure is rare, so it reads all of its JSON: `head` reads ahead
+  on a pipe and would leave `tail` nothing. A 4 MB one takes about 0.2 s.
 - `tools/bee-hook.sh start|stop|clear` writes the labels from an agent's hooks. It never
   fails or stalls its agent: each `hc` call is killed after 2 seconds. It does nothing
   outside an `hc` terminal. `clear` leaves the labels alone on a compaction, in a
   sub-agent's own session start, and while another live program owns them: `pixel.hive`
   holds the pid of the owning program, the hook's parent process, and `clear` takes
-  ownership when that program has died. `clear` removes `pixel.work` too.
+  ownership when that program has died. `clear` removes `pixel.work` and `pixel.result` too.
 - `tools/install-hooks.mjs` (`just hooks`) adds the five hooks to Claude Code's
-  `settings.json` and Codex's `hooks.json`, which share one shape. It appends, because
+  `settings.json` and Codex's `hooks.json`, which share one shape, and `PostToolUseFailure`
+  to Claude Code's only (`CLAUDE_EVENTS`): Codex has no such event. It appends, because
   Codex keys a hook's trust by its place in its list, and never changes a hook already
   there: an event has the hook only when a command is exactly the one it writes, or that
   with the path unquoted, in a group that runs for everything (no matcher, `""` or `"*"`).
@@ -427,6 +440,15 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   nearest next stage of any agent and redraws then. One is pending at a time: a redraw
   before it is due adds none, a sooner one replaces it, and the replaced one does nothing.
   An agent with no known start, or at its status's last stage, needs none.
+- Each draw also finds the results the agents' hooks reported since the draw before
+  (`reports`, `{ address, kind }`): a `pixel.result` value an agent did not have then. Only
+  agents drawn both times report, as with status changes, and a label taken away is no
+  result. A `failed` result makes the sprite cough black smoke, over the box at 2 px
+  cells: the puff's clouds, darkest in front and lighter behind so it reads on any theme,
+  gather over the face (18 px down the cell) and the sprite lurches 2 px down. At 250 ms the
+  clouds drift out and up 3 cells, to the cell's top, and fade over 520 ms while the sprite
+  comes back up; it is gone at 1 s. It plays through `play`, and moves the sprite, not the
+  box, whose `top` is a stamp's.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 

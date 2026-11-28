@@ -7,7 +7,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { EVENTS, Refusal, commandsFor, install, main, merge } from "../tools/install-hooks.mjs";
+import { CLAUDE_EVENTS, EVENTS, Refusal, commandsFor, install, main, merge } from "../tools/install-hooks.mjs";
 
 const commands = commandsFor("/opt/pixel party/tools/bee-hook.sh");
 const dir = () => mkdtempSync(join(tmpdir(), "pp-hooks-"));
@@ -418,6 +418,21 @@ test("main does both programs, skips one that is not installed, and fails on a r
   assert.match(r.out, /untouched/);
   assert.equal(readFileSync(join(env.CODEX_HOME, "hooks.json"), "utf8"), "{ // mine\n}");
   assert.equal(run("gemini").code, 2);
+});
+
+test("Claude Code also gets the hook for a failed tool; Codex, which has no such event, does not", () => {
+  const d = dir();
+  const env = { CLAUDE_CONFIG_DIR: join(d, "claude"), CODEX_HOME: join(d, "codex") };
+  mkdirSync(env.CLAUDE_CONFIG_DIR);
+  mkdirSync(env.CODEX_HOME);
+  const lines = [];
+  assert.equal(main([], env, (line) => lines.push(line)), 0);
+  const claude = JSON.parse(readFileSync(join(env.CLAUDE_CONFIG_DIR, "settings.json"), "utf8")).hooks;
+  const codex = JSON.parse(readFileSync(join(env.CODEX_HOME, "hooks.json"), "utf8")).hooks;
+  assert.deepEqual(Object.keys(claude), Object.keys(CLAUDE_EVENTS));
+  assert.match(claude.PostToolUseFailure[0].hooks[0].command, /'[^']*\/tools\/bee-hook\.sh' fail$/);
+  assert.deepEqual(Object.keys(codex), Object.keys(EVENTS));
+  assert.ok(!("PostToolUseFailure" in codex));
 });
 
 test("main never stops at the first program: each error is reported and the next is still done", { skip: process.getuid?.() === 0 && "root writes anywhere" }, () => {

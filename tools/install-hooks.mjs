@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Adds the bee hooks (tools/bee-hook.sh) to Claude Code's and Codex's own hook files, so
-// their sub-agents show as bees and their creatures do what the agent does. Both keep hooks
+// their sub-agents show as bees and their creatures do what the agent does (and, for Claude
+// Code, cough smoke when a command fails). Both keep hooks
 // as JSON, in the same shape:
 //
 //   Claude Code   ~/.claude/settings.json   (or $CLAUDE_CONFIG_DIR)
@@ -41,6 +42,9 @@ export const EVENTS = /** @type {const} */ ({
   UserPromptSubmit: "think",
 });
 
+/** Claude Code's events beyond those. Codex (0.172) has no event for a failed tool. */
+export const CLAUDE_EVENTS = /** @type {const} */ ({ ...EVENTS, PostToolUseFailure: "fail" });
+
 /** A file this won't change, and why. Nothing was written. */
 export class Refusal extends Error {}
 
@@ -53,10 +57,11 @@ const quote = (path) => `'${path.replaceAll("'", `'\\''`)}'`;
 /**
  * The command of each event's hook.
  * @param {string} script The absolute path of bee-hook.sh.
+ * @param {Record<string, string>} [events] The events, and what bee-hook.sh is told for each.
  * @returns {Record<keyof typeof EVENTS, string>}
  */
-export const commandsFor = (script) =>
-  /** @type {any} */ (Object.fromEntries(Object.entries(EVENTS).map(([event, action]) => [event, `${quote(script)} ${action}`])));
+export const commandsFor = (script, events = EVENTS) =>
+  /** @type {any} */ (Object.fromEntries(Object.entries(events).map(([event, action]) => [event, `${quote(script)} ${action}`])));
 
 /** @type {(command: string) => string} The command with its first word, quoted by `quote`, unquoted. */
 const unquoted = (command) => command.replace(/^'((?:[^']|'\\'')*)'(?= )/, (_, word) => word.replaceAll("'\\''", "'"));
@@ -230,11 +235,11 @@ function write(path, text, mode, made) {
 /**
  * The programs whose hooks this knows, and where each keeps them.
  * @param {NodeJS.ProcessEnv} env
- * @returns {Record<string, { name: string, dir: string, file: string }>}
+ * @returns {Record<string, { name: string, dir: string, file: string, events: Record<string, string> }>}
  */
 export const targets = (env) => ({
-  claude: { name: "Claude Code", dir: env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), file: "settings.json" },
-  codex: { name: "Codex", dir: env.CODEX_HOME || join(homedir(), ".codex"), file: "hooks.json" },
+  claude: { name: "Claude Code", dir: env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), file: "settings.json", events: CLAUDE_EVENTS },
+  codex: { name: "Codex", dir: env.CODEX_HOME || join(homedir(), ".codex"), file: "hooks.json", events: EVENTS },
 });
 
 /**
@@ -253,10 +258,10 @@ export function main(argv, env, say) {
     return 2;
   }
   const script = join(dirname(fileURLToPath(import.meta.url)), "bee-hook.sh");
-  const commands = commandsFor(script);
   let code = 0;
   for (const key of names.length ? names : Object.keys(all)) {
-    const { name, dir, file } = all[key];
+    const { name, dir, file, events } = all[key];
+    const commands = commandsFor(script, events);
     if (!existsSync(dir)) {
       say(`${name}: skipped, no ${dir}`);
       continue;

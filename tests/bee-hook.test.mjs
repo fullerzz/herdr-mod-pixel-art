@@ -114,11 +114,11 @@ test("a second program's session on the same terminal leaves the live owner's be
 
 test("a new session clears what a dead, missing or same owner left, and owns the bees", async () => {
   for (const owner of [["pixel.hive=99999999"], [], [`pixel.hive=${process.pid}`]]) {
-    seed(["pixel.avatar=knight7", "pixel.bee.a1=1", "pixel.bee.b2=1", "pixel.work=reading", ...owner]);
+    seed(["pixel.avatar=knight7", "pixel.bee.a1=1", "pixel.bee.b2=1", "pixel.work=reading", "pixel.result=failed.7", ...owner]);
     rmSync(join(dir, "calls"), { force: true });
     ok(await hook("clear", session()));
     assert.deepEqual(labels(), ["pixel.avatar=knight7", `pixel.hive=${process.pid}`], String(owner));
-    assert.deepEqual(calls(), ["get t9 --json", `label t9 pixel.bee.a1= pixel.bee.b2= pixel.work= pixel.hive=${process.pid}`]);
+    assert.deepEqual(calls(), ["get t9 --json", `label t9 pixel.bee.a1= pixel.bee.b2= pixel.work= pixel.result= pixel.hive=${process.pid}`]);
   }
 });
 
@@ -266,6 +266,54 @@ test("a prompt sets the agent thinking; a sub-agent's tools and prompts leave th
   assert.deepEqual(calls(), []);
 });
 
+// Claude Code's PostToolUseFailure, as 2.1.332 sends it for a Bash command that exits 2: the
+// exit code is only text at the start of `error`, which holds up to about 10 KB of output.
+const failure = (fields = {}, error = "Exit code 2\nls: /nope: No such file or directory") => ({
+  session_id: "s",
+  transcript_path: "/t.jsonl",
+  cwd: "/repo",
+  prompt_id: "p",
+  permission_mode: "default",
+  effort: { level: "medium" },
+  hook_event_name: "PostToolUseFailure",
+  tool_name: "Bash",
+  ...fields,
+  tool_input: { command: "ls /nope", description: "List it" },
+  tool_use_id: "toolu_01",
+  error,
+  is_interrupt: false,
+  duration_ms: 103,
+});
+const result = () => labels().filter((l) => l.startsWith("pixel.result="));
+
+test("a failed command sets pixel.result to a new failed value each time, and leaves pixel.work alone", async () => {
+  seed(["pixel.work=hammering"]);
+  ok(await hook("fail", failure()));
+  const [first] = result();
+  assert.match(first ?? "", /^pixel\.result=failed\.\d+$/);
+  ok(await hook("fail", failure({ tool_name: "shell" })));
+  const [second] = result();
+  assert.match(second ?? "", /^pixel\.result=failed\.\d+$/, "Codex's name for its shell too");
+  assert.notEqual(second, first, "two failures in a row are two results");
+  assert.ok(labels().includes("pixel.work=hammering"));
+  assert.equal(calls().length, 2, "one hc call each");
+});
+
+test("a failure only counts for a command of the agent's own, not interrupted, and only from its own fields", async () => {
+  ok(await hook("fail", failure({ tool_name: "Read" })));
+  ok(await hook("fail", failure({ agent_id: "a1", agent_type: "Explore" })));
+  ok(await hook("fail", { ...failure(), is_interrupt: true }));
+  ok(await hook("fail", { ...failure({}, `Exit code 1\n${"x".repeat(10_000)}`), is_interrupt: true }));
+  ok(await hook("fail", failure(), { HC_TERMINAL_ID: "" }));
+  // The command's input and output can hold the hook's own keys: only the head's count.
+  ok(await hook("fail", { ...failure({ tool_name: "mcp__x__y" }), tool_input: { tool_name: "Bash", is_interrupt: false } }));
+  assert.deepEqual(calls(), []);
+  const r = await hook("fail", { ...failure(), tool_input: { command: "x".repeat(4_000_000) }, error: `Exit code 1\n"is_interrupt":true ${"y".repeat(10_000)}` });
+  ok(r);
+  assert.ok(r.ms < 1000, `took ${r.ms} ms`);
+  assert.equal(result().length, 1, "a huge failure is read quickly, and its output's words are not the hook's");
+});
+
 test("a stalled hc gives up within the hook's 5 s timeout, quietly, on every action", async () => {
   const runs = await Promise.all([
     hook("start", { agent_id: "a1" }, { FAKE_STALL: "1" }),
@@ -273,6 +321,7 @@ test("a stalled hc gives up within the hook's 5 s timeout, quietly, on every act
     hook("clear", session(), { FAKE_STALL: "1" }),
     hook("tool", { tool_name: "Read" }, { FAKE_STALL: "1" }),
     hook("think", {}, { FAKE_STALL: "1" }),
+    hook("fail", failure(), { FAKE_STALL: "1" }),
   ]);
   for (const r of runs) {
     ok(r);

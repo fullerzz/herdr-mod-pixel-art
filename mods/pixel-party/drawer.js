@@ -19,6 +19,9 @@
 // way HEAD came from, turns edge-on, and points the other way before it fades. Other kinds of
 // move plug into the same table (`ONE_SHOTS`), one entry each.
 //
+// A command an agent runs that fails is a puff of black smoke: the creature coughs, and the
+// smoke goes up from its face and clears.
+//
 // A new agent arrives by a magic trick: a wand taps the empty cell, a puff of smoke and
 // sparkles goes up, and the creature is there when it clears. "Abracadabra!" stands in for
 // its status line meanwhile. The agents already there when the drawer first draws get none.
@@ -55,6 +58,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Shot | null} move The one-shot for the last move of HEAD that landed on it, while it plays.
  * @property {Trick | null} trick The trick it arrives by, if it is new.
  * @property {Puff | null} puff The puff a new bee of its flies out of, if any.
+ * @property {Soot | null} soot The black smoke a failed command of its coughs up, if any.
  * @property {Flier[]} bees Its helpers, as bees.
  * @property {string | null} work What it is doing, as its hooks say (`pixel.work`), if they do.
  * @property {number} stage How many of its status's STAGES it has held for: 0 when its start is unknown.
@@ -74,6 +78,13 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * What one kind of move plays: its first step, when each next step starts (null: gone), and
  * how a step draws, in the box over the sprite.
  * @typedef {{ first: string, steps: [ms: number, step: string | null][], draw: (t: Theme, address: string, shot: Shot) => Element }} OneShot
+ */
+/** @typedef {Show<"cough" | "rise">} Soot Black smoke from a failed command. */
+
+/**
+ * A result an agent's hooks reported since it was last drawn: the kind its `pixel.result`
+ * label names ("failed").
+ * @typedef {{ address: string, kind: string }} Report
  */
 
 /**
@@ -123,9 +134,14 @@ const STAMP_STEPS = [[30, "press"], [900, "lift"], [2700, "fade"], [3800, null]]
 const TRICK_STEPS = [[240, "tap"], [440, "poof"], [760, "reveal"], [1500, null]];
 /** @type {[ms: number, step: Puff["step"] | null][]} After "cloud": it clears as the bee flies out. */
 const PUFF_STEPS = [[BEE_HOLD + 20, "clear"], [800, null]];
+/** @type {[ms: number, step: Soot["step"] | null][]} After "cough": the smoke goes up and clears. */
+const SOOT_STEPS = [[250, "rise"], [1000, null]];
+const COUGH = 2; // px the creature lurches down as it coughs
 const TRICK_WORD = "Abracadabra!";
 /** The label an agent's hooks keep what it is doing in (`tools/bee-hook.sh`): one of sprite-view's WORKS. */
 const WORK = "pixel.work";
+/** The label an agent's hooks keep its last result in (`tools/bee-hook.sh fail`): `<kind>.<nonce>`, new for each one. */
+const RESULT = "pixel.result";
 
 /** @type {Record<Status, string>} */
 const WORD = { working: "Working", blocked: "Needs you", done: "Finished", idle: "Idle" };
@@ -195,6 +211,12 @@ export default class Drawer {
   allDone = false;
   /** @type {Map<string, Shot>} The one-shot playing for the last move of HEAD, other than a commit, that landed on each agent, by address. */
   moves = new Map();
+  /** @type {Map<string, string>} Each agent's `pixel.result` when it was last drawn ("" for none), by address. */
+  results = new Map();
+  /** @type {Report[]} The results the last draw found. */
+  reports = [];
+  /** @type {Map<string, Soot>} By agent address. */
+  soots = new Map();
   /** @type {Map<string, number | null>} When each agent's status began, ms since the epoch, by address; null when unknown. */
   since = new Map();
   /** @type {Map<string, number>} Each agent's stage on the last draw, by address. */
@@ -376,6 +398,27 @@ export default class Drawer {
     });
   }
 
+  /**
+   * The results each agent's hooks reported since it was last drawn: a `pixel.result` with a
+   * value it did not have then. Its value is new for each result, so a second failure in a
+   * row is a second report, and a label taken away is none. As with status changes, an
+   * agent not drawn last time reports nothing: its label is older than the drawer's look.
+   * One-shots for a result play from here with `play`, before the items are built.
+   * @param {AgentInfo[]} list
+   * @param {Map<string, { labels?: Record<string, string> }>} byAddress `terminals()` by address.
+   */
+  reported(list, byAddress) {
+    /** @type {Report[]} */
+    const reports = [];
+    const results = new Map(list.map((a) => [a.address, byAddress.get(a.address)?.labels?.[RESULT] ?? ""]));
+    for (const [address, value] of results) {
+      const before = this.results.get(address);
+      if (value && before !== undefined && before !== value) reports.push({ address, kind: value.split(".")[0] });
+    }
+    this.results = results;
+    this.reports = reports;
+  }
+
   /** @param {string} name A `pixel-party.<name>` key command: "pick", "reroll" or "reset". */
   command(name) {
     const target = currentAgent(agents());
@@ -429,14 +472,16 @@ export default class Drawer {
     const list = agents();
     const first = this.seen === null;
     const now = Date.now();
+    const byAddress = new Map(terminals().map((x) => [x.address, x]));
     this.arrivals(list, cx);
     this.statusChanges(list, now);
     this.clock(list, now, cx);
+    this.reported(list, byAddress);
+    for (const { address, kind } of this.reports) if (kind === "failed") this.play(this.soots, address, "cough", SOOT_STEPS, cx);
     if (!list.length) return div();
     const bees = this.swarm(list, cx, first);
     const t = /** @type {Theme} */ (theme());
     const edge = placement()?.edge ?? null;
-    const byAddress = new Map(terminals().map((x) => [x.address, x]));
     const shown = currentAgent(list);
     const items = list.map((a) => {
       const trick = this.tricks.get(a.address) ?? null;
@@ -449,6 +494,7 @@ export default class Drawer {
         move: this.moves.get(a.address) ?? null,
         trick,
         puff: this.puffs.get(a.address) ?? null,
+        soot: this.soots.get(a.address) ?? null,
         bees: bees.get(a.address) ?? [],
         work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
         stage: this.stages.get(a.address) ?? 0,
@@ -646,7 +692,8 @@ function stampElement(t, address, stamp) {
 }
 
 // A puff of smoke: round clouds over a spot with sparkles around them, in cells of `u` px.
-// Gathered, it covers the spot; cleared, the clouds and sparkles drift out from it and fade.
+// Gathered, it covers the spot; cleared, the clouds and sparkles drift out from it, and up
+// by the look's `rise`, and fade.
 // Clouds: dx, dy and size in cells from the spot, and their shade: back ones darker so the
 // puff reads on a light theme too. Sparkles: a plus sign each, gold and lilac.
 /** @type {Color[]} */
@@ -655,16 +702,27 @@ const SMOKE = ["#f4f4f8", "#d9d9e3", "#a9a9bb"];
 const CLOUDS = [[-3, 2, 4, 2], [3, 2, 4, 2], [-3, -2, 4, 1], [3, -2, 4, 1], [0, 0, 6, 0]];
 /** @type {[dx: number, dy: number, color: Color][]} */
 const SPARKS = [[-5, -4, "#ffd447"], [5, -4, "#c7a6ff"], [-5, 3, "#c7a6ff"], [5, 3, "#ffd447"]];
+/**
+ * What a puff looks like: its cloud shades, front to back, its sparkles, and the cells it
+ * goes up as it clears.
+ * @typedef {{ shades: Color[], sparks: [dx: number, dy: number, color: Color][], rise: number }} Look
+ */
+/** @type {Look} Magic: white smoke and sparkles. */
+const MAGIC = { shades: SMOKE, sparks: SPARKS, rise: 0 };
+/** @type {Look} A failed command: black smoke going up. The back clouds are lighter, so it reads on a dark theme too. */
+const SOOT = { shades: ["#141418", "#4a4a56", "#7a7a88"], sparks: [], rise: 3 };
 
 /**
  * @param {string} id
  * @param {[x: number, y: number]} spot Px in the cell.
  * @param {number} u
  * @param {boolean} clear
+ * @param {Look} [look]
  * @returns {Element}
  */
-function smoke(id, [x, y], u, clear) {
+function smoke(id, [x, y], u, clear, { shades, sparks, rise } = MAGIC) {
   const out = clear ? 2 : 1;
+  const up = clear ? rise : 0;
   /** @type {(el: Element) => Element} */
   const drift = (el) => el
     .opacity(clear ? 0 : 1)
@@ -672,13 +730,13 @@ function smoke(id, [x, y], u, clear) {
     .transition("top", { duration: 520, easing: "ease-out" })
     .transition("opacity", { duration: 520, easing: "ease-in" });
   const clouds = CLOUDS.map(([dx, dy, d, shade], i) =>
-    drift(div().id(`${id}-cloud-${i}`).absolute().left(Math.round(x + (dx * out - d / 2) * u)).top(Math.round(y + (dy * out - d / 2) * u)).size(d * u).rounded(d * u).bg(SMOKE[shade])));
+    drift(div().id(`${id}-cloud-${i}`).absolute().left(Math.round(x + (dx * out - d / 2) * u)).top(Math.round(y + (dy * out - up - d / 2) * u)).size(d * u).rounded(d * u).bg(shades[shade])));
   // Sparkles start further out than clouds, so they drift only a cell and stay in the cell.
-  const sparks = SPARKS.map(([dx, dy, color], i) =>
-    drift(div().id(`${id}-spark-${i}`).absolute().left(Math.round(x + (dx + (clear ? Math.sign(dx) : 0) - 1.5) * u)).top(Math.round(y + (dy + (clear ? Math.sign(dy) : 0) - 1.5) * u)).size(3 * u)
+  const plus = sparks.map(([dx, dy, color], i) =>
+    drift(div().id(`${id}-spark-${i}`).absolute().left(Math.round(x + (dx + (clear ? Math.sign(dx) : 0) - 1.5) * u)).top(Math.round(y + (dy + (clear ? Math.sign(dy) : 0) - up - 1.5) * u)).size(3 * u)
       .child(div().absolute().left(0).top(u).w(3 * u).h(u).bg(color))
       .child(div().absolute().left(u).top(0).w(u).h(3 * u).bg(color))));
-  return div().id(id).absolute().left(0).top(0).size_full().children([...clouds, ...sparks]);
+  return div().id(id).absolute().left(0).top(0).size_full().children([...clouds, ...plus]);
 }
 
 // A magic wand, 7 by 7 cells from its handle at the lower left to its white tip.
@@ -696,6 +754,7 @@ const WAND_W = WAND[0].length * STAMP_PX;
 /** @type {Record<string, Color>} */
 const WAND_PAINT = { h: "#8b6fd6", t: "#ffffff" };
 const CENTER = /** @type {[number, number]} */ ([CELL / 2, CELL_H / 2]);
+const FACE = /** @type {[number, number]} */ ([CELL / 2, 18]); // where a cough's smoke starts: it rises to the cell's top
 
 // A new agent's arrival. The wand shows over the cell's upper right, taps down toward the
 // middle, and fades as the smoke goes up there; the smoke clears as the creature fades in.
@@ -828,14 +887,15 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // so the box adds only the tint. A hit's numbers, a stamp and a move's one-shot go over the
 // sprite, in the box, so a closed drawer shows them too. The box dips as the stamp lands and
 // rises after. A trick hides the sprite until it reveals it, and a new bee's puff goes over
-// its middle.
+// its middle. A failed command's black smoke goes over its face and up, while the sprite
+// lurches with the cough; the box's own top is the stamp's.
 /**
  * @param {Theme} t
  * @param {Item} it
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, hit, stamp, move, trick, puff, bees, work, stage }, side) {
+function cell(t, { a, hit, stamp, move, trick, puff, soot, bees, work, stage }, side) {
   const hidden = Boolean(trick) && trick.step !== "reveal";
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
@@ -859,10 +919,15 @@ function cell(t, { a, hit, stamp, move, trick, puff, bees, work, stage }, side) 
       work,
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live },
       stage,
-    }).when(Boolean(trick), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" })))
+    })
+      .when(Boolean(trick), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
+      .when(Boolean(soot), (el) => el
+        .top(soot.step === "cough" ? COUGH : 0)
+        .transition("top", soot.step === "cough" ? { duration: 60, easing: "ease-out" } : { duration: 300, easing: "ease-out" })))
     .child(stripe)
     .when(Boolean(trick), (el) => el.child(trickElement(a.address, trick)))
     .when(Boolean(puff), (el) => el.child(smoke(`pp-puff-${a.address}-${puff.n}`, CENTER, BEE_PX, puff.step === "clear")))
+    .when(Boolean(soot), (el) => el.child(smoke(`pp-soot-${a.address}-${soot.n}`, FACE, BEE_PX, soot.step === "rise", SOOT)))
     .when(Boolean(move), (el) => el.child(ONE_SHOTS[move.move.kind].draw(t, a.address, move)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
