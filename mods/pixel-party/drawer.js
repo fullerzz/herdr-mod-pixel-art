@@ -21,6 +21,10 @@
 // stamp does not land on, clap: a pair of white gloves claps three times in front of each, with
 // gold sparks at each clap.
 //
+// The lines changed in an agent's repository since its last commit fill an XP bar in a strip
+// of its own under the sprite's box. A commit cashes it in: the stamp lands, the bar drains,
+// and a commit that took a level's worth of lines pops a LEVEL UP over the creature.
+//
 // A checkout in an agent's repository flips a signpost by its sprite: it shows pointing the
 // way HEAD came from, turns edge-on, and points the other way before it fades. A reset rewinds
 // the creature: it spins backwards, jittering like a worn tape, under a "◀◀". A rebase is a
@@ -62,7 +66,7 @@ import { agents, terminals, panes, spaces, focused, run, theme, placement } from
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { GRID, makeSprite, randomSeed } from "./sprites.js";
 import { faceRects, spriteElement, daytimeOf, HIT, STAGES, TURNS } from "./sprite-view.js";
-import { EditWatcher, hitSize } from "./edits.js";
+import { EditWatcher, LEVEL_LINES, hitSize } from "./edits.js";
 import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /** @import { AsyncContext, Color, Context, Element } from "gpui-kit" */
@@ -80,6 +84,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {boolean} on Whether it is the agent keys act on, marked as focused.
  * @property {Hit | null} hit The hit it is taking, if any.
  * @property {Combo | null} combo The combo its hits make, once it has COMBO_MIN of them.
+ * @property {Xp | null} xp Its XP bar, while its repository has uncommitted lines or a commit cashes them in.
  * @property {Stamp | null} stamp The stamp it is getting, if any.
  * @property {Clap | null} clap The clap it gives for a commit another agent in its repository made, if any.
  * @property {Shot | null} move The one-shot for the last move of HEAD that landed on it, while it plays.
@@ -122,6 +127,12 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @typedef {Show<ThumbStep | DropStep> & { passed: boolean }} Verdict
  */
 /** @typedef {Show<"hold" | "fade"> & { count: number }} Combo Hits on one agent in quick succession, and how many. */
+/**
+ * A commit cashing in the XP bar: its repository, the lines the bar held, and the lines the
+ * commit left, from the read after it (until then, all of them: it took none).
+ * @typedef {Show<"hold" | "drain" | "pop" | "fade"> & { root: string, lines: number, left: number }} Cash
+ */
+/** @typedef {{ lines: number, cash: Cash | null }} Xp An XP bar: its repository's uncommitted lines, and the commit cashing them in. */
 
 /**
  * A result an agent's hooks reported since it was last drawn: the kind its `pixel.result`
@@ -168,6 +179,16 @@ const COMBO_FADE = 400; // ms it takes to fade
 const COMBO_STEPS = [[COMBO_GAP, "fade"], [COMBO_GAP + COMBO_FADE, null]];
 const COMBO_H = 20; // px: the counter's two rows, at the bottom of the box
 const COMBO_COLOR = "#f7b521"; // amber, as the bees' count: no hit, fire or status color
+const XP_H = 4; // px: the XP bar's strip under the box, its 3 px bar and a 1 px gap over it
+const XP_X = 6; // px: the bar is as wide as the sprite over it
+const XP_W = CELL - 2 * XP_X;
+const XP_COLOR = "#8f9bff"; // periwinkle: no hit, fire, douse, confetti, combo or status color
+const XP_TRACK = "#10101699"; // the empty part of the bar: the stamp's dark, see-through
+const XP_DRAIN = 500; // ms the bar takes to drain
+/** @type {[ms: number, step: Cash["step"] | null][]} After "hold": it drains as the stamp lands, then a level up pops once the tool has lifted away, and fades. */
+const CASH_STEPS = [[30 + 340, "drain"], [1300, "pop"], [2100, "fade"], [2700, null]];
+const LEVEL_TOP = 2; // px: the LEVEL UP at the box's top, clear of the stamp's mark at its lower right
+const LEVEL_RISE = 8; // px it rises as it pops in, and again as it fades
 /**
  * A hit's numbers by its size: text px, px from one row to the next, and the first row's
  * top. A crit's rows start higher, so two fit under its tag in the 44 px box, and its text
@@ -275,6 +296,8 @@ export default class Drawer {
   hits = new Map();
   /** @type {Map<string, Combo>} By agent address, from its first hit; shown from COMBO_MIN. */
   combos = new Map();
+  /** @type {Map<string, Cash>} By agent address: a commit cashing in its XP bar. */
+  cashes = new Map();
   serial = 0;
   /** @type {Set<string>} The ids of the bees that have flown out to their places. */
   flown = new Set();
@@ -361,6 +384,7 @@ export default class Drawer {
       (root, lines, cx) => this.strike(root, lines, cx),
       (root, _commit, cx) => this.stamp(root, cx),
       (root, move, cx) => this.moved(root, move, cx),
+      (root, lines, cx) => this.left(root, lines, cx),
     );
     /** @type {(cx: AsyncContext) => void} */
     const follow = (cx) => this.edits.follow(folders().values(), cx);
@@ -421,16 +445,35 @@ export default class Drawer {
   /**
    * A commit was made in a repository: a stamp on its agents, and a clap from the others in
    * it, the ones the stamp does not land on. A new stamp or clap replaces the last.
+   * It cashes in the stamped agents' XP bar: the lines the repository held before the
+   * commit, still the watcher's until the read after it is kept.
    * @param {string} root
    * @param {AsyncContext} cx
    */
   stamp(root, cx) {
     const here = this.agentsOf(root);
     const stamped = new Set(this.agentsIn(root, here));
+    const lines = this.edits?.uncommitted(root) ?? 0;
     for (const address of here) {
-      if (stamped.has(address)) this.play(this.stamps, address, "drop", STAMP_STEPS, cx);
-      else this.play(this.claps, address, "clap", CLAP_STEPS, cx);
+      if (!stamped.has(address)) {
+        this.play(this.claps, address, "clap", CLAP_STEPS, cx);
+        continue;
+      }
+      this.play(this.stamps, address, "drop", STAMP_STEPS, cx);
+      if (lines) this.play(this.cashes, address, "hold", CASH_STEPS, cx, { root, lines, left: lines });
     }
+    cx.notify();
+  }
+
+  /**
+   * A repository's uncommitted lines changed: its bars are drawn anew. While a commit's
+   * cash-in still holds, they are what the commit left, so how much it took is known.
+   * @param {string} root
+   * @param {number} lines
+   * @param {AsyncContext} cx
+   */
+  left(root, lines, cx) {
+    for (const cash of this.cashes.values()) if (cash.root === root && cash.step === "hold") cash.left = lines;
     cx.notify();
   }
 
@@ -697,6 +740,15 @@ export default class Drawer {
     const edge = where?.edge ?? null;
     const face = where?.hovered && !where.dragging ? OPEN_SIDE[where.edge] : null;
     const shown = currentAgent(list);
+    const dirs = folders();
+    /** @type {(address: string) => Xp | null} */
+    const xpOf = (address) => {
+      const dir = dirs.get(address);
+      const root = dir && this.edits?.rootOf(dir);
+      const lines = (root && this.edits?.uncommitted(root)) || 0;
+      const cash = this.cashes.get(address) ?? null;
+      return lines || cash ? { lines, cash } : null;
+    };
     /** @type {Item[]} */
     const items = list.map((a) => {
       const trick = this.tricks.get(a.address) ?? null;
@@ -708,6 +760,7 @@ export default class Drawer {
         on: a.address === shown,
         hit: this.hits.get(a.address) ?? null,
         combo: combo && combo.count >= COMBO_MIN ? combo : null,
+        xp: xpOf(a.address),
         stamp: this.stamps.get(a.address) ?? null,
         clap: this.claps.get(a.address) ?? null,
         move: this.moves.get(a.address) ?? null,
@@ -729,7 +782,7 @@ export default class Drawer {
       const ghost = this.ghosts.get(old.a.address);
       const exit = this.exits.get(old.a.address);
       if (!ghost || !exit) continue;
-      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: bees.get(old.a.address) ?? [] });
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, xp: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: bees.get(old.a.address) ?? [] });
     }
     this.drawn = items;
 
@@ -871,6 +924,63 @@ function comboElement(address, combo) {
     .child(glyphs(count, 10, 0, COMBO_COLOR, 0))
     .child(glyphs("COMBO", 7, 11, "#000000c0", 1))
     .child(glyphs("COMBO", 7, 11, COMBO_COLOR, 0));
+}
+
+// An XP bar in its strip under the box: a dark track, filled from the left by the uncommitted
+// lines, full at a level's worth. Its ids carry no number, so a change of the lines eases
+// the fill to its new width. Cashed in, it holds the lines the commit took until the stamp
+// lands, then drains to what is left, slower.
+/**
+ * @param {string} address
+ * @param {Xp} xp
+ * @returns {Element}
+ */
+function xpBar(address, { lines, cash }) {
+  const shown = cash?.step === "hold" ? cash.lines : lines;
+  const fill = shown > 0 ? Math.max(1, Math.round((XP_W * Math.min(shown, LEVEL_LINES)) / LEVEL_LINES)) : 0;
+  return div()
+    .id(`pp-xp-${address}`)
+    .absolute()
+    .left(XP_X)
+    .top(CELL_H + 1)
+    .w(XP_W)
+    .h(XP_H - 1)
+    .bg(XP_TRACK)
+    .child(div()
+      .id(`pp-xp-${address}-fill`)
+      .absolute()
+      .left(0)
+      .top(0)
+      .h(XP_H - 1)
+      .w(fill)
+      .bg(XP_COLOR)
+      .transition("width", cash && cash.step !== "hold" ? { duration: XP_DRAIN, easing: "ease-in" } : { duration: 300, easing: "ease-out" }));
+}
+
+// A level up over the creature, for a commit that took a full bar, a level's worth of lines: "LEVEL UP" in the
+// bar's color, outlined dark as the hit numbers are, at the box's top. It waits unseen while
+// the bar drains, pops up into place once the stamp's tool has lifted away, and rises on as
+// it fades.
+/**
+ * @param {string} address
+ * @param {Cash} cash
+ * @returns {Element}
+ */
+function levelElement(address, { n, step }) {
+  /** @type {(color: Color, d: number) => Element} */
+  const glyphs = (color, d) => div().absolute().left(d).top(d).w(CELL).text_center().text_size(8).font_extrabold().text_color(color).child("LEVEL UP");
+  return div()
+    .id(`pp-level-${address}-${n}`)
+    .absolute()
+    .left(0)
+    .top(LEVEL_TOP + (step === "drain" ? LEVEL_RISE : step === "fade" ? -LEVEL_RISE : 0))
+    .w(CELL)
+    .h(10)
+    .opacity(step === "pop" ? 1 : 0)
+    .transition("top", step === "fade" ? { duration: 600, easing: "ease-in" } : { duration: 200, easing: "ease-out" })
+    .transition("opacity", step === "fade" ? { duration: 600, easing: "ease-in" } : { duration: 120, easing: "ease-out" })
+    .child(glyphs("#000000c0", 1))
+    .child(glyphs(XP_COLOR, 0));
 }
 
 // A stamp's mark, 8 by 6 cells: a bold check. It says "approved" by its shape, so it reads
@@ -1385,11 +1495,12 @@ function verdictElement(t, address, { n, step, passed }) {
 /**
  * @param {Flier[]} bees
  * @param {"left" | "right" | "bottom"} side
+ * @param {number} below Px from the cell's top where the lanes start: under the box, and its XP bar.
  * @returns {Element[]}
  */
-function hive(bees, side) {
+function hive(bees, side, below) {
   /** @type {(i: number) => [number, number]} The i-th place: left and top in the cell. */
-  const spot = (i) => [2 + (i % BEE_ROW) * BEE_STEP, CELL_H + BEE_LIFT + Math.floor(i / BEE_ROW) * BEE_LANE];
+  const spot = (i) => [2 + (i % BEE_ROW) * BEE_STEP, below + BEE_LIFT + Math.floor(i / BEE_ROW) * BEE_LANE];
   const [w, h] = [BEE_W * BEE_PX, BEE_H * BEE_PX];
   const home = [(CELL - w) / 2, (CELL_H - h) / 2];
   const away = side === "right" ? -1 : 1;
@@ -1431,7 +1542,8 @@ function hive(bees, side) {
 const go = (a) => run("pane.focus", { pane: a.pane });
 
 // The sprite and its cue in a box, and under the box the lanes of its bees. `side` is where
-// the stripe goes: "left", "right" or "bottom". The sprite draws its own "!" when blocked,
+// the stripe goes: "left", "right" or "bottom". Between the box and the lanes, the XP bar
+// takes a strip of its own while it shows. The sprite draws its own "!" when blocked,
 // so the box adds only the tint. A hit's numbers, a combo's counter, a stamp, a clap and a
 // move's one-shot go over the sprite, in the box, so a closed drawer shows them too. The box dips
 // as the stamp lands and rises after. A trick hides the sprite until it reveals it, an exit hides it under its
@@ -1446,7 +1558,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {Facing | null} face The way the creature faces: toward the open side while hovered.
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, combo, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
+function cell(t, { a, seed, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime }, side, face) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1490,12 +1602,14 @@ function cell(t, { a, seed, hit, combo, stamp, clap, move, trick, exit, puff, so
     .when(Boolean(shot), (el) => el.child(shot.draw(t, a.address, move)))
     .when(Boolean(combo), (el) => el.child(comboElement(a.address, combo)))
     .when(Boolean(clap), (el) => el.child(clapElement(a.address, clap)))
+    .when(Boolean(xp?.cash && xp.cash.lines - xp.cash.left >= LEVEL_LINES && xp.cash.step !== "hold"), (el) => el.child(levelElement(a.address, xp.cash)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
       .top(stamp.step === "press" ? STAMP_DIP : 0)
       .transition("top", stamp.step === "press" ? { duration: 60, delay: STAMP_SLAM - 40, easing: "ease-in" } : { duration: 500, easing: "ease-out" })
       .child(stampElement(t, a.address, stamp)));
-  return div().relative().w(CELL).h(CELL_H + lanes(bees.length)).flex_none().child(box).children(hive(bees, side));
+  const below = CELL_H + (xp ? XP_H : 0);
+  return div().relative().w(CELL).h(below + lanes(bees.length)).flex_none().child(box).when(Boolean(xp), (el) => el.child(xpBar(a.address, xp))).children(hive(bees, side, below));
 }
 
 /** @type {(address: string) => string | null} The machine of a remote address ("mini/t7"), else null. */

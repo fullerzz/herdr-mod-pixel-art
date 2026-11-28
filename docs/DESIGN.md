@@ -51,6 +51,10 @@ picker lets the person choose another creature for an agent.
   "approved" by its shape: red is the "Needs you" cue, so the stamp never relies on it.
 - **Claps.** The other agents in the repository of a commit, the ones its stamp does not
   land on, clap: two white gloves clap three times in front of each sprite, then fade.
+- **XP bar.** The lines changed in an agent's repository since its last commit fill an XP
+  bar under its sprite, full at a level's worth (100 lines). A commit cashes it in: the
+  stamp lands, the bar drains, and a commit of a full bar's worth pops a `LEVEL UP` over
+  the creature.
 - **Signposts.** A checkout or switch in an agent's repository flips a signpost by its
   sprite: it shows pointing back the way HEAD came from, turns edge-on, and points the
   other way, then fades. A reset rewinds the sprite: it spins backwards three times, its rows
@@ -129,7 +133,7 @@ main.js ──> drawer.js ──┬─> identity.js ──> herdr
 | `identity.js` | coordinator | The label: `seedFor`, `hasAvatar`, `setAvatar`, `clearAvatar`, `openPicker`. |
 | `sprites.js` | sprites | Seed to sprite. Pure: no imports, runs under plain node. |
 | `sprite-view.js` | sprites | Sprite to element, with motion per status and way of working, a turn for a status change, and a hit's flash and knock. |
-| `edits.js` | drawer | Lines added and removed in the agents' repositories, and HEAD's moves there, from git. |
+| `edits.js` | drawer | Lines added and removed in the agents' repositories, the lines left uncommitted there, and HEAD's moves there, from git. |
 | `bees.js` | drawer | An agent's helpers, and the bee drawn for each. |
 | `drawer.js` | drawer | The party drawer. |
 | `picker.js` | picker | The picker popup. |
@@ -319,6 +323,8 @@ export const countLines = (text) => number;
 export function growth(before, after): Lines;         // { added, removed }: only what grew
 export const HIT_LINES = 5, CRIT_LINES = 200;         // lines from which a change is a hit, and a crit
 export const hitSize = (lines) => HitSize;            // "tick" under HIT_LINES, "crit" from CRIT_LINES, else "hit"
+export const changed = (diff) => number;              // a Diff's lines, added and removed together
+export const LEVEL_LINES = 100;                       // uncommitted lines that fill the XP bar: a level
 export async function readDiff(root): Diff | null;    // against HEAD, untracked files as added
 export const START: Cursor;                          // { lines: 0, last: "" }: nothing read yet
 export function parseReflog(lines): HeadMove[];     // reflog file lines, oldest first
@@ -326,9 +332,10 @@ export const isCommit = (subject) => boolean;       // git's note for a new comm
 export function moveKind(subject): MoveKind | null;  // a move that is no commit: the command its note names
 export async function readMoves(log, from: Cursor): { moves: HeadMove[], to: Cursor } | null; // the lines after `from`
 export class EditWatcher {
-  constructor(onGrowth: (root, lines, cx) => void, onCommit?: (root, sha, cx) => void, onMove?: (root, move: Move, cx) => void);
+  constructor(onGrowth: (root, lines, cx) => void, onCommit?: (root, sha, cx) => void, onMove?: (root, move: Move, cx) => void, onDiff?: (root, lines: number, cx) => void);
   follow(dirs, cx): void;   // watch the repositories these folders are in, and no other; ask a folder in none again after 10 s
   rootOf(dir): string | null;
+  uncommitted(root): number | null;  // `changed` of the last diff read; null before the first read and once unwatched
 }
 ```
 
@@ -339,6 +346,11 @@ export class EditWatcher {
 - `hitSize` takes a count of lines, so any count can be sized: a hit's added and removed
   lines together, or a running total.
 - At most 50 untracked files are read per look.
+- A repository's uncommitted lines are `changed` of its diff against HEAD, untracked files
+  included. `onDiff` gets them on the first read and on each read that changes them, a
+  shrink (a commit, a stash, a revert) included. `onCommit` runs inside the look's reflog
+  read, before that look's diff is kept, so `uncommitted` still holds the lines the commit
+  took. A repository's lines are forgotten when it is no longer watched.
 - The reflog is HEAD's own file (`rev-parse --git-path logs/HEAD`, relative to the repository
   unless its git folder is elsewhere, as in a linked worktree; not `--path-format`, which git
   before 2.31 echoes back). Its path is asked for again on each look until git tells it. A
@@ -542,6 +554,24 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   it anew, with the new count. 2.5 s after the last hit it fades over 400 ms, and is gone; a
   hit while it fades starts a new count. Every hit counts, ticks and crits alike. It plays
   through `play`.
+- An agent in a watched repository with uncommitted lines has an XP bar: a strip of its own,
+  4 px, between the box and the bees' lanes, so a closed drawer shows it and nothing in the
+  box covers it. Its cell grows by the strip while the bar shows. The bar is 36 px, as wide
+  as the sprite, 3 px tall: a see-through dark track, filled from the left in periwinkle
+  (`#8f9bff`, no hit, fire, douse, confetti, combo or status color) by `uncommitted` of its
+  repository over `LEVEL_LINES`, and full from there on. A change of the lines slides the
+  fill to its new width over 300 ms. Every agent in the repository shows it; an agent in
+  none, a remote agent and a ghost show none.
+- A commit cashes the bar in on the agents it stamps, when it had lines: the bar holds the
+  lines the commit took while the stamp falls, and drains to what is left over 500 ms from
+  370 ms, as the stamp lands. A commit that took a level's worth of lines (`LEVEL_LINES`
+  or more, from the lines before it less the lines the read after it left; a reword takes
+  none) levels up: a `LEVEL UP` in the bar's color, 8 px, outlined as the numbers are, waits unseen 8 px
+  low at the box's top, pops up to 2 px from the top at 1.3 s, once the stamp's tool has
+  lifted away and only its mark holds (lower right, clear of it), and rises 8 px more as it
+  fades over 600 ms from 2.1 s. The cash-in is gone at 2.7 s, and the strip with it when
+  nothing is left uncommitted. It plays through `play`; a commit with nothing to cash in
+  plays none.
 - A commit in a repository stamps the same agents a hit would, in the box over the sprite's
   lower right, so a closed drawer shows it. The tool, 8 by 9 cells of 3 px, is drawn 14 px
   above its spot and unseen, then 30 ms later falls onto the spot over 340 ms, easing in, as
@@ -592,7 +622,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   at 1,250 ms, holds, fades over 500 ms from 2.3 s, and is gone at 2.8 s. Each card keeps
   its id through the shuffle, so it glides; a rebase's many reflog lines in one look are
   one move, so one shuffle.
-- Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
+- Bees sit under the sprite's box, and under its XP bar when it shows, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees
   the sixth place shows a count of the rest. They can't leave the drawer: Herdr clips a
@@ -622,7 +652,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - An agent drawn the time before and gone now leaves by an exit, the trick in reverse. Its
   row stays as it was last drawn, a ghost, in its place, with the seed it was drawn with,
   so its creature stays the same though its terminal and label are gone. A ghost shows
-  only its creature, the exit and its bees leaving: no hit, combo, stamp, clap or arrival,
+  only its creature, the exit and its bees leaving: no hit, combo, XP bar, stamp, clap or arrival,
   and it is out of the status changes, the clocks and the current agent. Its bees all leave
   at once, each by its own exit, so they are gone before the puff clears; they stay drawn,
   gone, until the row goes, so the row keeps its height. It does nothing when clicked or right

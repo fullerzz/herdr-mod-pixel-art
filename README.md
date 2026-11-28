@@ -38,6 +38,9 @@ move according to what their agents are doing.
   holds a moment, then fades.
 - **Claps.** When an agent commits, the other agents in the same repository clap for it:
   a pair of white gloves claps three times in front of each creature.
+- **XP bar.** The lines an agent has changed since its last commit fill an XP bar under its
+  creature, full at 100 lines. A commit cashes it in: the stamp lands, the bar drains, and
+  a commit of 100 lines or more pops a `LEVEL UP`.
 - **Signposts.** When an agent checks out or switches to another branch, a signpost by its
   creature flips from pointing back to pointing the other way.
 - **Rewinds.** When an agent resets its branch, its creature spins backwards like a tape
@@ -164,6 +167,20 @@ makes) and the first commit of a new repository included, even one made with `gi
 where the agent already is. A checkout, reset, rebase, pull or cherry-pick moves the branch
 too, but is no stamp. Commits in a linked worktree count as well, and a commit still counts
 when other git commands follow it right away.
+
+## XP bar
+
+Every line an agent changes in its git repository and has not committed yet fills an XP
+bar in a thin strip under its creature, with no setup: added and removed lines alike, new
+files included. 100 lines are a level and fill the bar; past that it stays full. A revert
+or a stash empties it again, since those lines are gone. Lines already uncommitted when
+Herdr starts fill it from the start.
+
+A commit cashes the bar in. The bar holds while the stamp falls and drains as it lands,
+down to whatever the commit left uncommitted. When the commit took a full bar's worth, 100 lines or more, a
+`LEVEL UP` pops up at the top of the cell once the stamp lifts, and rises away as it fades.
+A smaller commit just drains the bar. The bar shows on every agent in the repository, and
+the cash-in on the agents the stamp lands on.
 
 ## Claps
 

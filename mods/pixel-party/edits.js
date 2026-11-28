@@ -8,6 +8,8 @@
 // read. Growth in a file's added lines is a green hit, growth in its removed lines a red
 // one. A commit, a stash or a revert shrinks the diff, and shows nothing. `hitSize` says
 // how hard a change hits by its lines added and removed together: a tick, a hit or a crit.
+// The whole diff's lines, added and removed together, are the repository's uncommitted
+// lines: reported on the first read and each time they change, shrinking included.
 //
 // A commit is read from HEAD's reflog file on the same look, one line per move of HEAD. Each
 // look reads only the lines added since the last look, from where that one got to, so no
@@ -45,6 +47,12 @@ export function parseNumstat(stdout) {
   return diff;
 }
 
+/**
+ * Lines in a Diff, added and removed together.
+ * @type {(diff: Diff) => number}
+ */
+export const changed = (diff) => [...diff.values()].reduce((n, { added, removed }) => n + added + removed, 0);
+
 /** @type {(text: string) => number} Lines in a file's text, a last line without "\n" included. */
 export const countLines = (text) => (text ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0);
 
@@ -77,6 +85,9 @@ export const CRIT_LINES = 200;
  * @type {(lines: number) => HitSize}
  */
 export const hitSize = (lines) => (lines >= CRIT_LINES ? "crit" : lines >= HIT_LINES ? "hit" : "tick");
+
+/** Uncommitted lines that make a level: they fill the XP bar, and a commit of a full bar levels up. */
+export const LEVEL_LINES = 100;
 
 /** @type {(cwd: string, args: string[]) => ReturnType<typeof exec>} Git that never writes the index. */
 const git = (cwd, args) => exec("git", ["--no-optional-locks", ...args], { cwd });
@@ -258,17 +269,21 @@ export async function readDiff(root) {
   }
 }
 
-/** Watches the repositories of the folders it is given, and reports what grows in them, the commits made in them, and HEAD's other moves. */
+/** Watches the repositories of the folders it is given, and reports what grows in them, their uncommitted lines, the commits made in them, and HEAD's other moves. */
 export class EditWatcher {
   /**
    * @param {(root: string, lines: Lines, cx: AsyncContext) => void} onGrowth
    * @param {(root: string, commit: string, cx: AsyncContext) => void} [onCommit] Gets the new commit's sha.
    * @param {(root: string, move: Move, cx: AsyncContext) => void} [onMove] Gets a move of HEAD that is no commit.
+   * @param {(root: string, lines: number, cx: AsyncContext) => void} [onDiff] Gets the repository's uncommitted lines when they change.
    */
-  constructor(onGrowth, onCommit = () => {}, onMove = () => {}) {
+  constructor(onGrowth, onCommit = () => {}, onMove = () => {}, onDiff = () => {}) {
     this.onGrowth = onGrowth;
     this.onCommit = onCommit;
     this.onMove = onMove;
+    this.onDiff = onDiff;
+    /** @type {Map<string, number>} Each watched repository's uncommitted lines, once read. */
+    this.totals = new Map();
     /** @type {Map<string, string | null>} Folder to repository root; null: none, or still asking. */
     this.roots = new Map();
     /** @type {Map<string, number>} When each folder was last asked for its repository. */
@@ -288,6 +303,18 @@ export class EditWatcher {
    */
   rootOf(dir) {
     return this.roots.get(dir) ?? null;
+  }
+
+  /**
+   * A watched repository's uncommitted lines (`changed` of its diff against HEAD), as of the
+   * last read; null before its first read and once it is no longer watched. A commit is
+   * reported before the read that follows it is kept, so `onCommit` still sees the lines
+   * the commit took.
+   * @param {string} root
+   * @returns {number | null}
+   */
+  uncommitted(root) {
+    return this.totals.get(root) ?? null;
   }
 
   /**
@@ -324,6 +351,7 @@ export class EditWatcher {
     for (const [root, task] of this.watched) {
       if (wanted.has(root)) continue;
       this.watched.delete(root);
+      this.totals.delete(root);
       task.cancel();
     }
     for (const root of wanted) if (!this.watched.has(root)) this.watch(root, cx);
@@ -362,7 +390,16 @@ export class EditWatcher {
         if (read || made) this.report(root, moved.moves, cx);
         read = moved.to;
       };
+      /** @type {(diff: Diff | null) => void} Keeps the diff's lines, and reports them when they changed. */
+      const keep = (diff) => {
+        if (!diff || !live()) return;
+        const lines = changed(diff);
+        if (this.totals.get(root) === lines) return;
+        this.totals.set(root, lines);
+        this.onDiff(root, lines, cx);
+      };
       let [last] = await Promise.all([readDiff(root), readLog()]);
+      keep(last);
       while (live()) {
         try {
           await Promise.race(folders.map(wait));
@@ -376,6 +413,7 @@ export class EditWatcher {
         if (!live() || !next) continue;
         const lines = last ? growth(last, next) : null;
         last = next;
+        keep(next);
         if (lines && (lines.added || lines.removed)) this.onGrowth(root, lines, cx);
       }
     });
