@@ -3,8 +3,10 @@
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { mock } from "herdr";
+import { statSync } from "node:fs";
+import { mock, shared } from "herdr";
 import PixelParty from "../mods/pixel-party/main.js";
+import { SOUND, SOUNDS } from "../mods/pixel-party/drawer.js";
 import { check, context, text } from "./mocks/gpui.mjs";
 
 const STATUSES = ["working", "blocked", "done", "idle"];
@@ -62,4 +64,22 @@ test("key commands reach the drawer: pick opens the picker for the focused agent
   const [[spec]] = mock.of("openOverlay");
   assert.deepEqual(spec.props, { view: "picker", terminal: "t1" });
   assert.equal(spec.kind, "dialog");
+});
+
+test("sounds are off until the sounds-on key; sounds-on and sounds-off set them, again and again, with or without an agent", async () => {
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  open();
+  assert.equal(shared(SOUNDS), undefined, "off: nothing turned them on");
+  for (const [key, on] of [["sounds-on", true], ["sounds-on", true], ["sounds-off", false], ["sounds-off", false], ["sounds-on", true]]) {
+    mock.send(key);
+    await settle();
+    assert.equal(shared(SOUNDS), on, key);
+  }
+});
+
+test("each sound is an MP3 in the mod's folder, where Herdr's home has the mod", () => {
+  for (const path of Object.values(SOUND)) {
+    assert.match(path, /^mods\/pixel-party\/sounds\/[a-z]+\.mp3$/);
+    assert.ok(statSync(new URL(`../${path}`, import.meta.url)).size > 0, path);
+  }
 });

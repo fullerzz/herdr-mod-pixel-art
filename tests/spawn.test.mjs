@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { mock } from "herdr";
-import Drawer from "../mods/pixel-party/drawer.js";
+import Drawer, { SOUND, SOUNDS, TRICK_POOF } from "../mods/pixel-party/drawer.js";
 import { calls, check, context, find, text, walk } from "./mocks/gpui.mjs";
 
 const last = (node, name) => calls(node, name).at(-1)?.[0];
@@ -145,4 +145,45 @@ test("a new helper's bee flies out of a puff of smoke in the middle of the creat
 
   mock.state.terminals.push({ address: "t5", parent: "t1", state: "live", labels: {} });
   assert.notEqual(puffOf(draw(drawer, cx), "t1")?.id ?? null, puff.id, "the next helper gets a puff of its own");
+});
+
+test("an arrival makes no sound until the person turns sounds on; then the agents a draw finds poof once, as the smoke goes up", () => {
+  mock.agent("t1");
+  const drawer = new Drawer();
+  const cx = context();
+  draw(drawer, cx);
+  mock.agent("t2");
+  assert.ok(trickOf(draw(drawer, cx), "t2"));
+  cx.run(Infinity);
+  assert.deepEqual(mock.of("playSound"), [], "off by default");
+
+  mock.state.shared[SOUNDS] = true;
+  mock.agent("t3");
+  mock.agent("t4");
+  const tree = draw(drawer, cx);
+  assert.ok(trickOf(tree, "t3") && trickOf(tree, "t4"));
+  cx.run(TRICK_POOF - 1);
+  assert.deepEqual(mock.of("playSound"), [], "not before the smoke goes up");
+  cx.run(TRICK_POOF);
+  assert.deepEqual(mock.of("playSound"), [[SOUND.arrive]], "one poof for the two of them");
+  draw(drawer, cx);
+  cx.run(Infinity);
+  assert.equal(mock.of("playSound").length, 1, "a draw with no one new is quiet");
+
+  mock.state.shared[SOUNDS] = false;
+  mock.agent("t5");
+  assert.ok(trickOf(draw(drawer, cx), "t5"));
+  cx.run(Infinity);
+  assert.equal(mock.of("playSound").length, 1, "off again");
+});
+
+test("with sounds on, the agents there at the first draw make no sound", () => {
+  mock.state.shared[SOUNDS] = true;
+  mock.agent("t1");
+  mock.agent("t2");
+  const drawer = new Drawer();
+  const cx = context();
+  draw(drawer, cx);
+  cx.run(Infinity);
+  assert.deepEqual(mock.of("playSound"), []);
 });

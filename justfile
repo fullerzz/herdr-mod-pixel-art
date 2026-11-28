@@ -32,3 +32,8 @@ dock *args:
 # Take the drawer out of a layout (default: the shown one)
 undock *args:
     node tools/dock.mjs undock {{ args }}
+
+# Make the optional sounds again with ffmpeg: a thunk for a stamp, a poof for an arrival
+sounds:
+    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "sine=f=75:d=0.22:sample_rate=44100" -f lavfi -i "anoisesrc=d=0.22:c=brown:a=0.8:s=7:r=44100" -filter_complex "[0][1]amix=inputs=2:weights=1 0.7:normalize=0,lowpass=f=500,afade=t=out:st=0.01:d=0.21:curve=exp,volume=7dB" -ac 1 -b:a 64k -map_metadata -1 mods/pixel-party/sounds/stamp.mp3
+    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "anoisesrc=d=0.3:c=pink:a=0.6:s=3:r=44100" -af "highpass=f=400,lowpass=f=2500,afade=t=in:d=0.04,afade=t=out:st=0.05:d=0.25:curve=qsin,volume=10dB" -ac 1 -b:a 64k -map_metadata -1 mods/pixel-party/sounds/arrive.mp3

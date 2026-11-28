@@ -4,8 +4,8 @@
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { mock, theme } from "herdr";
-import Drawer, { GOLD } from "../mods/pixel-party/drawer.js";
+import { mock, shared, theme } from "herdr";
+import Drawer, { GOLD, SOUND, SOUNDS, STAMP_LANDS } from "../mods/pixel-party/drawer.js";
 import { FIRE } from "../mods/pixel-party/sprite-view.js";
 import { isCommit, parseReflog, readMoves, START } from "../mods/pixel-party/edits.js";
 import { calls, check, context, find, walk } from "./mocks/gpui.mjs";
@@ -529,4 +529,49 @@ test("the gold is its own: no fire color, no status cue, and clear of the fire o
   const taken = [...Object.values(FIRE), theme().done, theme().blocked];
   assert.ok(!inksOf(stamp).some((c) => taken.includes(c)));
   for (const flame of Object.values(FIRE)) assert.ok(distance(GOLD, flame) >= 48, `${GOLD} reads apart from ${flame}`);
+});
+
+test("a stamp makes no sound until the person turns sounds on; then a commit thunks once, as the tool lands, and claps make none", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.agent("t2", { status: "idle" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  draw(drawer, cx);
+  await move("b", "commit: quiet");
+  let tree = draw(drawer, cx);
+  assert.ok(stampOf(tree, "t1") && clapOf(tree, "t2"), "the stamp and the clap show as ever");
+  cx.run(Infinity);
+  assert.deepEqual(mock.of("playSound"), [], "off by default");
+
+  drawer.command("sounds-on");
+  assert.equal(shared(SOUNDS), true);
+  await move("c", "commit: loud");
+  tree = draw(drawer, cx);
+  assert.ok(stampOf(tree, "t1") && clapOf(tree, "t2"));
+  cx.run(STAMP_LANDS - 1);
+  assert.deepEqual(mock.of("playSound"), [], "not before the tool lands");
+  cx.run(STAMP_LANDS);
+  assert.deepEqual(mock.of("playSound"), [[SOUND.stamp]], "one thunk for the stamp, none for the clap");
+  cx.run(Infinity);
+  assert.equal(mock.of("playSound").length, 1);
+
+  drawer.command("sounds-off");
+  assert.equal(shared(SOUNDS), false);
+  await move("d", "commit: quiet again");
+  assert.ok(stampOf(draw(drawer, cx), "t1"));
+  cx.run(Infinity);
+  assert.equal(mock.of("playSound").length, 1, "off again");
+});
+
+test("with sounds on, a commit that stamps several agents thunks once", async () => {
+  mock.state.shared[SOUNDS] = true;
+  mock.agent("t1", { status: "idle" });
+  mock.agent("t2", { status: "done" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }, { pane: "p-t2", cwd: "/repo/lib" }];
+  const { drawer, cx } = await start();
+  await move("b", "commit: x");
+  const tree = draw(drawer, cx);
+  assert.ok(stampOf(tree, "t1") && stampOf(tree, "t2"));
+  cx.run(Infinity);
+  assert.deepEqual(mock.of("playSound"), [[SOUND.stamp]]);
 });

@@ -51,6 +51,10 @@
 // An agent that gets a new creature swaps it with no wand: the old one shrinks a pixel size
 // at a time into a puff of the same smoke, and the new one pops out of it, small, and grows.
 //
+// Sounds are off unless the person turns them on (`pixel-party.sounds-on`): then a stamp
+// thunks as the tool lands, and an arrival poofs as its smoke goes up. One commit or one
+// draw sounds once, however many agents it reaches.
+//
 // An agent that becomes blocked jolts into it: its creature jumps as if startled, drops
 // back, and the fire catches at its feet before the badge shows.
 // A blocked agent that goes on has its fire put out: water pours on the flames, they die,
@@ -84,7 +88,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, spaces, focused, run, theme, placement, window } from "herdr";
+import { agents, terminals, panes, spaces, focused, run, theme, placement, window, playSound, shared, setShared } from "herdr";
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { GRID, makeSprite, randomSeed } from "./sprites.js";
 import { faceRects, spriteElement, daytimeOf, CONFETTI, HIT, STAGES, TURNS } from "./sprite-view.js";
@@ -301,6 +305,14 @@ const BANNER_H = 11; // px: a ribbon at the box's top, over the creature's top r
 const BANNER_TOP = 1; // px
 const TRICK_WORD = "Abracadabra!";
 const EXIT_WORD = "Poof!";
+/** The shared value that turns the sounds on: only `true` does, so they are off until the person asks. */
+export const SOUNDS = "pixel-party.sounds";
+/** The MP3 each sound plays, relative to Herdr's home, where the mod's folder is (`just sounds` makes them). */
+export const SOUND = { stamp: "mods/pixel-party/sounds/stamp.mp3", arrive: "mods/pixel-party/sounds/arrive.mp3" };
+/** ms after a stamp drops that its tool lands: its press, then the slam. */
+export const STAMP_LANDS = STAMP_STEPS[0][0] + STAMP_SLAM;
+/** ms after a trick starts that its smoke goes up. */
+export const TRICK_POOF = TRICK_STEPS.find(([, step]) => step === "poof")[0];
 /** The label an agent's hooks keep what it is doing in (`tools/bee-hook.sh`): one of sprite-view's WORKS. */
 const WORK = "pixel.work";
 /** The label an agent's hooks keep its last result in (`tools/bee-hook.sh fail` and `pass`): `<kind>.<nonce>`, new for each one. */
@@ -446,6 +458,17 @@ export default class Drawer {
   }
 
   /**
+   * Plays a sound in `ms`, when the person has turned sounds on.
+   * @param {keyof typeof SOUND} name
+   * @param {number} ms
+   * @param {AsyncContext | Context} cx
+   */
+  sound(name, ms, cx) {
+    if (shared(SOUNDS) !== true) return;
+    cx.timer.after(ms, () => void playSound(SOUND[name]));
+  }
+
+  /**
    * @param {Record<string, any>} _props
    * @param {AsyncContext} cx
    */
@@ -514,7 +537,8 @@ export default class Drawer {
 
   /**
    * A commit was made in a repository: a stamp on its agents, and a clap from the others in
-   * it, the ones the stamp does not land on. A new stamp or clap replaces the last.
+   * it, the ones the stamp does not land on. A new stamp or clap replaces the last. With
+   * sounds on, one thunk as the stamps land; a clap makes none.
    * It cashes in the stamped agents' XP bar: the lines the repository held before the
    * commit, still the watcher's until the read after it is kept.
    * @param {string} root
@@ -532,6 +556,7 @@ export default class Drawer {
       this.play(this.stamps, address, "drop", STAMP_STEPS, cx, { gold: this.count(address) === MILESTONE });
       if (lines) this.play(this.cashes, address, "hold", CASH_STEPS, cx, { root, lines, left: lines });
     }
+    if (stamped.size) this.sound("stamp", STAMP_LANDS, cx);
     cx.notify();
   }
 
@@ -579,13 +604,15 @@ export default class Drawer {
 
   /**
    * A trick for each agent not drawn last time, unless this is the first draw: the agents
-   * there when the drawer opens were there before it.
+   * there when the drawer opens were there before it. With sounds on, one poof for them all.
    * @param {AgentInfo[]} list
    * @param {Context} cx
    */
   arrivals(list, cx) {
     const now = new Set(list.map((a) => a.address));
-    if (this.seen) for (const address of now) if (!this.seen.has(address)) this.play(this.tricks, address, "wand", TRICK_STEPS, cx);
+    const fresh = this.seen ? [...now].filter((address) => !this.seen.has(address)) : [];
+    for (const address of fresh) this.play(this.tricks, address, "wand", TRICK_STEPS, cx);
+    if (fresh.length) this.sound("arrive", TRICK_POOF, cx);
     this.seen = now;
   }
 
@@ -744,8 +771,13 @@ export default class Drawer {
     return null;
   }
 
-  /** @param {string} name A `pixel-party.<name>` key command: "pick", "reroll" or "reset". */
+  /** @param {string} name A `pixel-party.<name>` key command: "pick", "reroll", "reset", "sounds-on" or "sounds-off". */
   command(name) {
+    // On and off, not a toggle: a command reaches every shown copy, and two would flip it back.
+    if (name === "sounds-on" || name === "sounds-off") {
+      setShared(SOUNDS, name === "sounds-on");
+      return;
+    }
     const target = currentAgent(agents());
     if (!target) return;
     if (name === "pick") openPicker(target, "dialog");

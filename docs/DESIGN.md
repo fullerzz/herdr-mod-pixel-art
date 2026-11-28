@@ -109,8 +109,11 @@ picker lets the person choose another creature for an agent.
 - **Swaps.** An agent that gets a new creature, from the picker, a key or `hc label`, swaps
   it with no wand: the old creature shrinks a pixel size at a time into a puff of the same
   smoke, and the new one pops out of it, small, and grows back to full size.
+- **Sounds.** Off unless the person turns them on: then a stamp lands with a thunk, and an
+  arrival goes up with a poof.
 - **Keys.** Three commands act on the current agent, for `keys.json` and
-  `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`.
+  `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`. Two more
+  turn the sounds on and off: `pixel-party.sounds-on`, `pixel-party.sounds-off`.
 
 ## Facts the design rests on
 
@@ -127,6 +130,7 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | `hc(["label", address, "k=v"])` works from a mod. `k=` removes the label. | The picker writes through `identity.js` only. |
 | `openOverlay({ mod: "pixel-party", props })` opens this mod on itself. | One mod folder holds both the drawer and the picker. |
 | `herdr-app do pixel-party.<command>` reaches `nextCommand()`. | Every write path can be driven without a pointer. |
+| `playSound` plays `"done"`, `"blocked"` (Herdr's attention sounds, which `settings.json` can change) or an MP3 path, absolute or relative to Herdr's home (`types/herdr.d.ts`; not heard from this mod, and whether `sounds.enabled: false` in `settings.json` mutes it is not measured). | The mod's own sounds are two small MP3s in its folder, named from Herdr's home (`mods/pixel-party/sounds/`), never the attention sounds. |
 | `focused().agent` names an agent even when the keyboard is in a shell pane, or in another agent's pane. | Commands prefer the pane with the keyboard. |
 | A mod linked into the app's home reloads when the link is made again, not on every save. | `just install` is the reload. |
 | `herdr-app check` hangs inside a command sandbox. | Workers run the node tests; the coordinator runs the check. |
@@ -793,6 +797,9 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   bold check, 8 by 6 cells in `theme().done`, outlined dark so it reads on any creature. The
   mark holds, fades over 1 s from 2.7 s, and is gone at 3.8 s. Each step is slow enough to
   follow by eye. A new stamp on the same agent replaces the last, with new ids.
+- With sounds on, a commit that stamps any agent plays one thunk (`sounds/stamp.mp3`) at
+  370 ms (`STAMP_LANDS`), as the tool lands: one for the commit, however many agents it
+  stamps. A clap plays none.
 - Each stamp counts toward the agent it lands on (`tally`, by address: the local day, from
   `Date#toDateString`, and the count that day). A clap counts nothing. The tenth stamp of an
   agent's day (`MILESTONE`) is gold: the same stamp, its mark and its rubber inked in `GOLD`
@@ -921,7 +928,15 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   and a puff goes up over the middle: five round clouds in three greys and four plus-sign
   sparkles, gold and lilac. At 760 ms the clouds drift out to twice their distance and the
   sparkles a cell further, all fading over 520 ms, while the sprite fades in over 360 ms.
-  It is gone at 1.5 s. Its status line reads "Abracadabra!" until then.
+  It is gone at 1.5 s. Its status line reads "Abracadabra!" until then. With sounds on, a
+  draw that finds new agents plays one poof (`sounds/arrive.mp3`) at 440 ms (`TRICK_POOF`),
+  as the puff goes up, however many arrive. An exit plays none.
+- Sounds are on only while the shared value `pixel-party.sounds` is `true`, so they are off
+  until the person runs `pixel-party.sounds-on`; `pixel-party.sounds-off` sets it `false`.
+  These two set it, rather than flip it: a command reaches every shown copy, and two copies
+  would flip it twice. Each shown drawer plays its own sounds. The value is read when a
+  stamp or a trick starts, so turning sounds off silences the next one, not one already
+  playing. `just sounds` makes the two MP3s again with ffmpeg.
 - An agent drawn the time before and gone now leaves by an exit, the trick in reverse. Its
   row stays as it was last drawn, a ghost, in its place, with the seed it was drawn with,
   so its creature stays the same though its terminal and label are gone. A ghost shows

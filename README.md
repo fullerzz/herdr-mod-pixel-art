@@ -80,6 +80,8 @@ move according to what their agents are doing.
   puff of smoke and sparkles goes up, and its creature is there when the smoke clears. An
   agent that ends leaves by the same trick in reverse, and an agent that gets a new
   creature swaps it in a puff of the same smoke.
+- **Sounds.** If you [turn them on](#sounds), a stamp lands with a thunk and an arrival goes
+  up with a poof. They are off unless you do.
 - **Yours to choose.** Right-click a row for a grid of other creatures. The choice is saved
   as a label on the agent's terminal, so it stays through restarts and shows on every
   Herdr client.
@@ -146,6 +148,8 @@ link is remade.
   ```json
   { "global": { "ctrl-shift-y": "pixel-party.reroll" } }
   ```
+
+  Two more commands turn the [sounds](#sounds) on and off; they act on no agent.
 
 However it is chosen, the new creature [swaps in](#magic-arrivals) with a puff of smoke.
 
@@ -365,6 +369,22 @@ it, small, and grows back to full size, in about a second. The picker, the keys 
 plays only the arrival.
 
 ![The wand taps a leaving agent's creature, the smoke goes up and clears to an empty cell, and the row is gone](docs/magic-exit.gif)
+
+## Sounds
+
+The drawer can play two short sounds: a low thunk as a stamp lands on a commit, and a soft
+poof as a new agent's smoke goes up. They are off unless you turn them on, and they stay
+the way you leave them, through restarts:
+
+```sh
+herdr-app do pixel-party.sounds-on
+herdr-app do pixel-party.sounds-off
+```
+
+Bind them in `~/.config/herdr-app/keys.json` like the other commands. A commit that stamps
+several agents thunks once, and agents that arrive together poof once. Claps and agents that
+leave make no sound. The sounds are MP3s in `mods/pixel-party/sounds/`, played through
+Herdr's `playSound`; `just sounds` makes them again with ffmpeg.
 
 ## Ways of working
 
