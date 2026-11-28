@@ -48,6 +48,8 @@
 // its status line meanwhile. The agents already there when the drawer first draws get none.
 // An agent that ends leaves by the same trick in reverse: its row stays, as it was last
 // drawn, while the wand taps the creature and the smoke goes up, and is gone when it clears.
+// An agent that gets a new creature swaps it with no wand: the old one shrinks a pixel size
+// at a time into a puff of the same smoke, and the new one pops out of it, small, and grows.
 //
 // An agent that becomes blocked jolts into it: its creature jumps as if startled, drops
 // back, and the fire catches at its feet before the badge shows.
@@ -110,6 +112,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Shot | null} move The one-shot for the last move of HEAD that landed on it, while it plays.
  * @property {Trick | null} trick The trick it arrives by, if it is new.
  * @property {Exit | null} exit The trick it leaves by, if it is gone.
+ * @property {Swap | null} swap The swap to its new creature, if its seed just changed.
  * @property {Puff | null} puff The puff a new bee of its flies out of, if any.
  * @property {Soot | null} soot The black smoke a failed command of its coughs up, if any.
  * @property {Verdict | null} verdict How its last tests came out, while that shows.
@@ -132,6 +135,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @typedef {Show<"clap" | "fade">} Clap The other agents' applause for a commit. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "reveal">} Trick A new agent's arrival. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "clear">} Exit An agent's departure: the trick in reverse. */
+/** @typedef {Show<"shrink" | "small" | "poof" | "pop" | "grow" | "out"> & { from: string }} Swap A new creature for an agent: the one `from` was drawn from shrinks into a puff, and the new one pops out. */
 /** @typedef {Show<"cloud" | "clear">} Puff Smoke where a new bee comes out. */
 /** @typedef {Show<"home" | "hop" | "off">} Leave A bee whose helper ended: a bee flies home, a sheep hops and goes off. */
 /** @typedef {Show<string> & { move: Move }} Shot A move of HEAD being shown, and the move. */
@@ -263,6 +267,12 @@ const TRICK_STEPS = [[240, "tap"], [440, "poof"], [760, "reveal"], [1500, null]]
 const EXIT_STEPS = [[240, "tap"], [440, "poof"], [760, "clear"], [1300, null]];
 /** @type {[ms: number, step: Puff["step"] | null][]} After "cloud": it clears as the bee flies out. */
 const PUFF_STEPS = [[BEE_HOLD + 20, "clear"], [800, null]];
+/** @type {[number, Swap["step"] | null][]} A new creature: the old one shrinks into a puff, the new one pops out of it and grows as the puff clears. */
+const SWAP_STEPS = [[100, "small"], [200, "poof"], [450, "pop"], [550, "grow"], [650, "out"], [1100, null]];
+/** @type {Record<Swap["step"], number>} The sprite's px at each step: a pixel size at a time, down and back up. */
+const SWAP_PX = { shrink: 2, small: 1, poof: 1, pop: 1, grow: 2, out: PX };
+/** @type {Set<Swap["step"]>} The steps that still draw the old creature. */
+const SWAP_OLD = new Set(["shrink", "small", "poof"]);
 /** @type {[ms: number, step: Soot["step"] | null][]} After "cough": the smoke goes up and clears. */
 const SOOT_STEPS = [[250, "rise"], [1000, null]];
 const COUGH = 2; // px the creature lurches down as it coughs
@@ -362,6 +372,10 @@ export default class Drawer {
   tricks = new Map();
   /** @type {Map<string, Exit>} By agent address. */
   exits = new Map();
+  /** @type {Map<string, Swap>} By agent address. */
+  swaps = new Map();
+  /** @type {Map<string, string>} The seed each agent was drawn with last time, by address. */
+  seeds = new Map();
   /** @type {Map<string, Item>} The agents that left, as they were last drawn, while their exit plays; by address. */
   ghosts = new Map();
   /** @type {Item[]} The rows drawn last time, in order, ghosts included. */
@@ -589,12 +603,33 @@ export default class Drawer {
       if (it.exit || now.has(address)) continue;
       this.ghosts.set(address, it);
       this.tricks.delete(address);
+      this.swaps.delete(address);
       this.play(this.exits, address, "wand", EXIT_STEPS, cx);
     }
     for (const address of this.ghosts.keys()) {
       if (now.has(address)) this.exits.delete(address);
       if (!this.exits.has(address)) this.ghosts.delete(address);
     }
+  }
+
+  /**
+   * A swap for each agent whose seed is not the one it was drawn with last time: its label
+   * changed, by the picker, a key command or `hc label` from a shell. Only agents drawn both
+   * times swap, and an arriving one does not: its trick already shows the new creature. A
+   * swap that still draws its old creature keeps that one, so a second seed before the pop
+   * shrinks on from the creature on screen, not from one never drawn.
+   * @param {AgentInfo[]} list
+   * @param {Context} cx
+   */
+  reseeded(list, cx) {
+    const seeds = new Map(list.map((a) => [a.address, seedFor(a.address)]));
+    for (const [address, seed] of seeds) {
+      const from = this.seeds.get(address);
+      if (from === undefined || from === seed || this.tricks.has(address)) continue;
+      const cur = this.swaps.get(address);
+      this.play(this.swaps, address, "shrink", SWAP_STEPS, cx, { from: cur && SWAP_OLD.has(cur.step) ? cur.from : from });
+    }
+    this.seeds = seeds;
   }
 
   /**
@@ -797,6 +832,7 @@ export default class Drawer {
     const byAddress = new Map(terminals().map((x) => [x.address, x]));
     this.departures(list, cx);
     this.arrivals(list, cx);
+    this.reseeded(list, cx);
     this.statusChanges(list, now);
     this.react(cx);
     // The party starts on the moment, and ends as soon as an agent is anything but done, or
@@ -844,7 +880,7 @@ export default class Drawer {
       const combo = this.combos.get(a.address);
       return {
         a,
-        seed: seedFor(a.address),
+        seed: this.seeds.get(a.address),
         line: trick ? TRICK_WORD : lineOf(a, byAddress.get(a.address)),
         on: a.address === shown,
         hit: this.hits.get(a.address) ?? null,
@@ -855,6 +891,7 @@ export default class Drawer {
         move: this.moves.get(a.address) ?? null,
         trick,
         exit: /** @type {Exit | null} */ (null),
+        swap: this.swaps.get(a.address) ?? null,
         puff: this.puffs.get(a.address) ?? null,
         soot: this.soots.get(a.address) ?? null,
         verdict: this.verdicts.get(a.address) ?? null,
@@ -873,7 +910,7 @@ export default class Drawer {
       const ghost = this.ghosts.get(old.a.address);
       const exit = this.exits.get(old.a.address);
       if (!ghost || !exit) continue;
-      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, xp: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, banner: null, bees: bees.get(old.a.address) ?? [] });
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, xp: null, stamp: null, clap: null, move: null, trick: null, exit, swap: null, puff: null, soot: null, verdict: null, banner: null, bees: bees.get(old.a.address) ?? [] });
     }
     this.drawn = items;
 
@@ -1978,10 +2015,11 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // so a closed drawer shows them too. The box dips
 // as the stamp lands and rises after. A trick hides the sprite until it reveals it, an exit hides it under its
 // smoke, a one-shot that draws the creature itself hides it while it plays, and a new bee's
-// puff goes over its middle. A failed command's black smoke goes over its face and up, while
-// the sprite lurches with the cough; the box's own top is the stamp's. How tests came out
+// puff goes over its middle. A swap draws the old creature smaller a pixel size at a time,
+// hides it under a puff, and draws the new one out of it, small, growing back to full size.
+// A failed command's black smoke goes over its face and up, while the sprite lurches with the cough; the box's own top is the stamp's. How tests came out
 // goes beside it, while it holds no tube of its own. The current agent's crown stands behind
-// the sprite at the box's top, and goes while a trick or an exit hides the sprite. A blocked
+// the sprite at the box's top, and goes while a trick, an exit or a swap hides the sprite. A blocked
 // bee turns the creature down toward the lanes, when hover does not turn it, and puts a drop
 // of sweat by its head, which goes while the sprite is hidden. While the drawer is dragged,
 // the sprite sways under the crown, which holds still.
@@ -1994,8 +2032,8 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {boolean} ride Whether the drawer is dragged: the creature hangs on and sways.
  * @returns {Element}
  */
-function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime, banner, doze }, side, face, ride) {
-  const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
+function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, swap, puff, soot, verdict, bees, work, stage, turn, daytime, banner, doze }, side, face, ride) {
+  const hidden = trick ? trick.step !== "reveal" : exit ? exit.step === "poof" || exit.step === "clear" : swap?.step === "poof";
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
   // A blocked helper worries its creature: it looks down at its bees, unless the drawer's
@@ -2016,9 +2054,9 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
     .rounded(6)
     .when(blocked, (el) => el.bg(`${t.blocked}40`))
     .when(on && !hidden, (el) => el.child(crownElement(a.address)))
-    .child(spriteElement(makeSprite(seed), {
+    .child(spriteElement(makeSprite(swap && SWAP_OLD.has(swap.step) ? swap.from : seed), {
       id: `pp-spr-${a.address}`,
-      px: PX,
+      px: swap ? SWAP_PX[swap.step] : PX,
       status: a.status,
       work,
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live, size: hit.size },
@@ -2031,6 +2069,7 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
       doze,
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
+      .when(Boolean(swap), (el) => el.opacity(hidden ? 0 : 1))
       .when(Boolean(shot?.hides), (el) => el.opacity(0))
       .when(Boolean(soot), (el) => el
         .top(soot.step === "cough" ? COUGH : 0)
@@ -2038,6 +2077,7 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
     .child(stripe)
     .when(Boolean(trick), (el) => el.child(trickElement(`pp-trick-${a.address}-${trick.n}`, trick.step)))
     .when(Boolean(exit), (el) => el.child(trickElement(`pp-exit-${a.address}-${exit.n}`, exit.step)))
+    .when(Boolean(swap) && swap.step !== "shrink" && swap.step !== "small", (el) => el.child(smoke(`pp-swap-${a.address}-${swap.n}`, CENTER, PX, swap.step !== "poof")))
     .when(Boolean(puff), (el) => el.child(smoke(`pp-puff-${a.address}-${puff.n}`, CENTER, BEE_PX, puff.step === "clear")))
     .when(Boolean(soot), (el) => el.child(smoke(`pp-soot-${a.address}-${soot.n}`, FACE, BEE_PX, soot.step === "rise", SOOT)))
     .when(Boolean(verdict), (el) => el.child(verdictElement(t, a.address, verdict)))

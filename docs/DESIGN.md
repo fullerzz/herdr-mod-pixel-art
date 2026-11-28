@@ -106,6 +106,9 @@ picker lets the person choose another creature for an agent.
   smoke and sparkles goes up, and its sprite is there when the smoke clears.
 - **Departures.** An agent that ends leaves by the trick in reverse: a wand taps its sprite,
   a puff of smoke goes up, and the cell is empty when the smoke clears.
+- **Swaps.** An agent that gets a new creature, from the picker, a key or `hc label`, swaps
+  it with no wand: the old creature shrinks a pixel size at a time into a puff of the same
+  smoke, and the new one pops out of it, small, and grows back to full size.
 - **Keys.** Three commands act on the current agent, for `keys.json` and
   `herdr-app do`: `pixel-party.pick`, `pixel-party.reroll`, `pixel-party.reset`.
 
@@ -745,7 +748,7 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   box's top, centered, from 0 to 8 px down with its outline, behind the sprite: a creature's
   eyes start 13 px down at the highest (its fourth row), and the sprite draws over it, so it
   covers no part of the creature. It holds still, whatever the creature does or faces. It
-  goes while an arrival or an exit hides the sprite, and a leaving agent wears none.
+  goes while an arrival, an exit or a swap hides the sprite, and a leaving agent wears none.
 - Click: `run("pane.focus", { pane })`. Right click: `openPicker(address)`.
 - A hit in a repository lands on the agents working in it, else on every agent in it. Only
   agents on this computer are watched. Its numbers sit in the sprite cell, so a closed
@@ -907,12 +910,12 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   stripe, and from 2 px down, clear of the crown and of every eye whichever way the
   creature faces. It trickles 2 px down and back every second with `.loop("top")`, so no
   timer runs. It has no `!` and no status color: the sprite draws the only `!`. It goes
-  while a trick, an exit or a one-shot that hides the sprite hides it. Worry starts and
+  while a trick, an exit, a swap or a one-shot that hides the sprite hides it. Worry starts and
   ends on the draw that finds it, with no turn: it ends when the helper goes on or ends,
   even while its bee is still leaving.
 - An agent not drawn the time before arrives by a trick, in the box over its sprite. The
   agents of the first draw were there before the drawer, so they get none; an agent that
-  leaves and comes back gets one again, and a new seed for the same agent gets none. The
+  leaves and comes back gets one again, and a new seed for the same agent gets none: it swaps. The
   sprite is unseen until the reveal. A wand, 7 by 7 cells of 3 px, shows over the box's
   upper right, and at 240 ms taps down toward the middle over 180 ms. At 440 ms it fades
   and a puff goes up over the middle: five round clouds in three greys and four plus-sign
@@ -931,9 +934,21 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   over 520 ms to an empty cell. The row is gone at 1.3 s. Its status line reads "Poof!"
   until then. An agent leaving mid-arrival stops arriving. One that comes back mid-exit
   stops leaving and arrives again, in one row.
+- An agent drawn the time before with another seed swaps its creature, in the box, with no
+  wand: its label changed, by the picker, `reroll`, `reset` or `hc label` from a shell. Only
+  the seed counts, so a label that is no seed, or a reset with no label to clear, swaps
+  nothing. The sprite keeps its status, motion and id, and is drawn at a smaller `px`, so it
+  shrinks a pixel size at a time, centered in the box. At once the old creature is at 2 px
+  cells, and at 100 ms at 1 px. At 200 ms it is unseen under the arrival's puff, five clouds
+  and four sparkles over the middle. At 450 ms the new creature pops out at 1 px cells as
+  the puff clears over 520 ms, grows to 2 px at 550 ms and is full size at 650 ms. It is gone
+  at 1.1 s. Its status line stays its own, and its row still clicks. A new seed while it
+  arrives swaps nothing: the trick shows the new creature. A new seed mid-swap starts over,
+  from the creature on screen: the old one before the pop, the new one after it. An agent leaving mid-swap stops swapping, and its ghost is the
+  new creature at full size.
 - A new bee comes out of the same puff at 2 px cells over the middle of the sprite. It
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
-  get none. Stamps, claps, tricks, exits, puffs and moves' one-shots share one timeline helper
+  get none. Stamps, claps, tricks, exits, swaps, puffs and moves' one-shots share one timeline helper
   (`play`): each step is one render, and a new one on the same agent replaces the last, with
   new ids. A status change's one-shot, its turn, plays through it too, and so does a bee's
   exit, keyed by the bee's id rather than its agent's, since several can leave at once.

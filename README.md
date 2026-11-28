@@ -78,7 +78,8 @@ move according to what their agents are doing.
   worried, with a drop of sweat by its head, and keeps doing what it was doing.
 - **Magic arrivals.** A new agent appears by a magic trick: a wand taps its empty spot, a
   puff of smoke and sparkles goes up, and its creature is there when the smoke clears. An
-  agent that ends leaves by the same trick in reverse.
+  agent that ends leaves by the same trick in reverse, and an agent that gets a new
+  creature swaps it in a puff of the same smoke.
 - **Yours to choose.** Right-click a row for a grid of other creatures. The choice is saved
   as a label on the agent's terminal, so it stays through restarts and shows on every
   Herdr client.
@@ -145,6 +146,8 @@ link is remade.
   ```json
   { "global": { "ctrl-shift-y": "pixel-party.reroll" } }
   ```
+
+However it is chosen, the new creature [swaps in](#magic-arrivals) with a puff of smoke.
 
 ## Fire
 
@@ -354,6 +357,12 @@ status line says "Poof!". The wand taps the creature, the smoke goes up, and the
 empty when it clears. Then the row is gone, a little over a second after the agent
 ended. The row does nothing when clicked meanwhile. An agent that comes back during the
 trick arrives again.
+
+An agent that gets a new creature swaps it in its cell, with no wand. The old creature
+shrinks a pixel size at a time into a puff of the same smoke, and the new one pops out of
+it, small, and grows back to full size, in about a second. The picker, the keys and
+`hc label` from a shell all swap it. A new creature for an agent that is still arriving
+plays only the arrival.
 
 ![The wand taps a leaving agent's creature, the smoke goes up and clears to an empty cell, and the row is gone](docs/magic-exit.gif)
 
