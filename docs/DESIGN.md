@@ -24,6 +24,9 @@ picker lets the person choose another creature for an agent.
 - **Fidgets.** An idle creature fidgets in its own way, at its own rhythm, both picked by
   its seed: a blink, a glance aside, or a scratch at its side. A fidget shows only for a
   moment of its rhythm, so almost every frame of an idle creature has its eyes shut.
+- **Doze.** While the Herdr window is not active, the creatures doze: each rests as an idle
+  one does. A blocked one keeps burning, since that is when the person most needs to see
+  it. When the window comes back, they all glance up at once, then go on.
 - **Jolt.** When an agent becomes blocked, its creature jumps as if startled and drops
   back, then the fire catches and the badge shows.
 - **Fire out.** When a blocked agent goes on, water pours on its creature's fire and puts it
@@ -114,6 +117,7 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 |---|---|
 | Elements accept only `#rgb`, `#rrggbb`, `#rrggbbaa` colors. `hsl(...)` fails the whole view with an error card. | Every generated color is a hex literal. |
 | `herdr-app check` renders with no agents, so it never runs sprite code. | The node tests render every status; the check alone proves little. |
+| `herdr-app check` renders with `window()` null. | A draw with no window is an active one. |
 | Absolutely positioned `div`s draw crisp pixels at any zoom. | Sprites are divs. No image files, no file writes, no build step. |
 | `.loop("top" \| "opacity", ...)` animates a child `div`, including an absolutely positioned layer, without an id or a timer. | Motion is per part and costs no script time. |
 | A label change re-renders mods at once: `terminals()` is live. | No polling and no shared-state signal after a choice. |
@@ -192,7 +196,7 @@ these guarantees:
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null, ride = false }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null, ride = false, doze = false }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
@@ -200,7 +204,7 @@ export const CONFETTI: { pink: "#ff5fa2", violet: "#a77bff", sky: "#4cc9f0" };
 export const SMOKE: { dark: "#6e655c", light: "#a89d92" };
 export const DUST: { web: "#cdc8bd", dust: "#8a8478" };
 export const FATIGUE: { sweat: "#7cc9f2", shine: "#effaff", mug: "#f6f3ee", coffee: "#5c3a21", steam: "#dde5ee" };
-export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch, and the drawer's party
+export const TURNS: Record<string, Turn>;       // one-shots for a status change: jolt douse cheer stretch, and the drawer's party and glance
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting delegating planning mcp skill
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const FIDGETS: readonly string[];        // blink look scratch
@@ -362,10 +366,11 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   knocks a third of a cell (at least a pixel). A crit flashes solid and fades over 700 ms;
   its knock is one cell too, since the art leaves only the outer ring empty.
 - `turn` is `{ kind, n, step } | null`: a one-shot being played because the agent's status
-  changed, or the drawer's party (`party`, below), which no status change plays. A `Turn`
-  in `TURNS` is `{ from, to, first, steps, eyes, build }`: the change it plays on (null for
-  any status), its first step, when each next step starts in ms from the change, or for
-  the party from its `crouch` (null: over), the creature's eyes (one mood, or a mood by step, open for a step
+  changed, or the drawer's party or glance (`party` and `glance`, below), which no status
+  change plays. A `Turn` in `TURNS` is `{ from, to, first, steps, eyes, build }`: the
+  change it plays on (null for any status), its first step, when each next step starts in
+  ms from the change, or for the party from its `crouch`, or for the glance from the
+  window's return (null: over), the creature's eyes (one mood, or a mood by step, open for a step
   it leaves out), and what it does at a step: `build` gets the
   same parts a way of working gets, plus the turn's `id` and `step`, moves them as it likes
   and returns its marks. While a turn of a known `kind` plays it takes the status's place:
@@ -409,6 +414,11 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
     that turned done at different times out of step: transitions between steps the drawer
     plays on all of them at once keep them together. It draws no marks, and no done
     sparkles until it is over.
+  - `glance`, from idle to idle, a change no status makes either: the drawer plays it on
+    every creature but a blocked one at once when its window comes back (Drawer behavior).
+    Open eyes throughout. `up` lifts the torso a cell over the planted feet at once, as a
+    head raised to look; `down` drops it back over 200 ms, easing in, and it is over at
+    700 ms. Nothing loops, for the party's reason. It draws no marks.
 - `stage` is how long the status has held: the number of that status's `STAGES` times
   reached, ascending ms from the status's start, 0 when the start is unknown. A look that
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
@@ -450,6 +460,14 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   there and back, easing in and out, around where it stands. The layer has an id of its own,
   `<id>-ride`, so the sway runs on through every draw while the ride lasts. At rest it is the
   sprite that does not ride. Not riding draws no such layer.
+- `doze` is `true` while the creature dozes, as the drawer has it while the window is not
+  active. A working or done creature then draws as an idle one at stage 0, whatever its
+  `stage` and `work`: closed eyes, the breath, the fidget, the "z" and the time of day's
+  prop, so a long work's stage never shows as an idle's dust. An idle creature keeps its
+  own stage. A blocked creature ignores it: fire, badge and stage stay, so blocked is still
+  the loudest look. A turn still takes the status's place. Dozing, a creature's status no
+  longer reads from the sprite alone: the drawer's stripe, tint and status line still show
+  it. Anything but `true` is no doze.
 
 ### Contract: `edits.js`
 
@@ -703,6 +721,16 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   natively, so one draw as the drag starts and one as it ends are enough, and no timer runs.
   Each draw reads `dragging`; as with `hovered`, that Herdr draws the mod again when it
   changes is not measured, and `types/herdr.d.ts` does not say.
+- While `window().active` is false, every sprite gets `doze`: the creatures doze, and a
+  blocked one burns on. The cell's stripe and tint and the status line stay as they are.
+  The draw that finds the window active again after a draw that found it not plays the
+  `glance` turn through `play` into `glances`, one show for the whole drawer, as the party
+  is: every creature on the same step, but a blocked one, which never dozed and whose fire
+  a turn would hide. An agent's own turn and the party's jump win over it. The first draw
+  has no draw before it, so it plays none, and nor does a redraw while the window stays
+  active. A draw that finds the window inactive again ends the glance at once, and its
+  steps wake nothing. `types/herdr.d.ts` calls `window()` live; that Herdr draws the mod
+  again when `active` changes is not measured.
 - The text column names the agent and shows its status line: the agent's own message
   (`terminals()` entry's `report.msg`) when it has one.
 - A working agent's sprite works the way its terminal's `pixel.work` label names, else its

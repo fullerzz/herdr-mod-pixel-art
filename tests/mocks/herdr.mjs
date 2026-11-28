@@ -10,6 +10,8 @@ const blank = () => ({
   machines: [],
   focused: null,
   placement: null,
+  /** Merged over `window()`'s other fields: `{ active: false }` is a window in the background. Null: no window, as in `herdr-app check`. */
+  window: { active: true },
   props: {},
   shared: {},
   layout: null,
@@ -94,7 +96,7 @@ export const props = () => mock.state.props;
 export const layout = () => mock.state.layout;
 export const layouts = () => ["main"];
 export const settings = () => ({ dark: true, zoom: 1 });
-export const window = () => ({ platform: "macos", titlebar: "none", buttons: false, maximized: false, fullscreen: false, active: true });
+export const window = () => (mock.state.window === null ? null : { platform: "macos", titlebar: "none", buttons: false, maximized: false, fullscreen: false, active: true, ...mock.state.window });
 export const keys = () => [];
 export const commands = () => [];
 export const fonts = () => [];

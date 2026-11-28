@@ -1368,6 +1368,76 @@ test("calming down cuts no cheer or party short: a turn draws the same at any st
   assert.ok(STAGES.done[0] > TURNS.cheer.steps.at(-1)[0] + TURNS.party.steps.at(-1)[0], "the party is over before the calm-down");
 });
 
+// ---- dozing while the window is away, and the glance up when it comes back ----
+
+test("dozing, a working or done creature rests as an idle one does, at a nap's start; an idle one sleeps on, and a blocked one keeps burning", () => {
+  for (const sprite of [...KINDS, ...SEEDS.slice(0, 12).map(makeSprite)]) {
+    const el = (options) => tree(spriteElement(sprite, { id: "s", ...options }));
+    for (const daytime of [null, "night"]) {
+      const nap = el({ status: "idle", stage: 0, daytime });
+      for (const stage of [0, 1, 2]) {
+        for (const work of [null, "typing", "testing"]) {
+          assert.equal(el({ status: "working", work, stage, daytime, doze: true }), nap, `${sprite.seed}: working at stage ${stage}, ${work}, dozes`);
+        }
+        assert.equal(el({ status: "done", stage, daytime, doze: true }), nap, `${sprite.seed}: done at stage ${stage} dozes`);
+        assert.equal(el({ status: "idle", stage, daytime, doze: true }), el({ status: "idle", stage, daytime }), "an idle one sleeps on, as deep as it was");
+        assert.equal(el({ status: "blocked", stage, daytime, doze: true }), el({ status: "blocked", stage, daytime }), "a blocked one keeps burning, as hot as it was");
+      }
+    }
+    assert.notEqual(el({ status: "working", doze: true }), el({ status: "working" }), "dozing changes a working creature");
+    assert.equal(el({ status: null, doze: true }), el({ status: null }), "the still pose stays");
+    const jolt = { kind: "jolt", n: 1, step: "catch" };
+    assert.equal(el({ status: "blocked", turn: jolt, doze: true }), el({ status: "blocked", turn: jolt }), "a turn still plays");
+  }
+});
+
+/** A creature glancing up, at one step of the glance. */
+const glanced = (sprite, step, { px = 3, n = 1, status = "working" } = {}) => spriteElement(sprite, { id: "s", px, status, turn: { kind: "glance", n, step } });
+const GLANCE_STEPS = ["up", "down"];
+
+test("the glance is a turn no status change plays: the drawer plays it, in steps that end soon", () => {
+  const { from, to, first, steps, eyes } = TURNS.glance;
+  assert.deepEqual([first, eyes], ["up", "open"]);
+  assert.deepEqual(steps.map(([, step]) => step), ["down", null]);
+  assert.ok(steps.every(([ms], i) => i === 0 || ms > steps[i - 1][0]), "each step after the last");
+  assert.ok(steps.at(-1)[0] >= 400 && steps.at(-1)[0] <= 1200, "slow enough to see, short enough to be a glance");
+  const statuses = ["working", "blocked", "done", "idle"];
+  for (const a of statuses) {
+    for (const b of statuses) {
+      if (a === b) continue;
+      const kind = Object.keys(TURNS).find((k) => (TURNS[k].from ?? a) === a && (TURNS[k].to ?? b) === b);
+      assert.notEqual(kind, "glance", `${a} to ${b} is no glance`);
+    }
+  }
+  assert.ok(from && to, "it names a status both ways, so no `null` matches any change");
+});
+
+test("a glance: the creature opens its eyes and lifts its head a cell over its feet, then drops it back, by transitions, not loops", () => {
+  for (const sprite of KINDS) {
+    for (const status of ["working", "done", "idle"]) {
+      const [up, down] = GLANCE_STEPS.map((step) => glanced(sprite, step, { status }));
+      for (const el of [up, down]) check(el);
+      const body = (el) => walk(el).find((n) => n.id === "s-glance-1-body");
+      assert.equal(last(body(up), "top"), -3, `${sprite.kind} ${status}: up a cell`);
+      assert.equal(last(body(down), "top"), 0, `${sprite.kind} ${status}: and back`);
+      assert.equal(Object.fromEntries(calls(body(down), "transition")).top.easing, "ease-in", "faster as it falls");
+
+      const open = sprite.parts.eyes.open.map((r) => [r.x, r.y, r.w, r.h, r.color]);
+      const rects = (node) => node.children.map((c) => nodeOf(c)).map((n) => [last(n, "left"), last(n, "top"), last(n, "w"), last(n, "h"), last(n, "bg")]);
+      for (const step of GLANCE_STEPS) {
+        const el = glanced(sprite, step, { status, px: 1 });
+        assert.ok(walk(el).some((n) => n.children.length === open.length && JSON.stringify(rects(n)) === JSON.stringify(open)), `${status} ${step}: open eyes`);
+        assert.ok(walk(el).every((n) => calls(n, "loop").length === 0), `${sprite.kind} ${status} ${step}: nothing loops, nothing of its status shows`);
+        for (const node of walk(el)) if (node.id !== null && node.id !== "s") assert.ok(node.id.startsWith("s-glance-1-"), node.id);
+        // The feet stay planted.
+        const board = raster(el);
+        for (const r of [...sprite.parts.feet[0], ...sprite.parts.feet[1]]) assert.ok(board[r.y][r.x] !== null, `${sprite.kind} ${step}: a foot stays where it stands`);
+      }
+    }
+  }
+  assert.ok(walk(glanced(makeSprite("t1"), "up", { n: 7 })).some((n) => n.id === "s-glance-7-body"), "a new glance has new ids");
+});
+
 // ---- facing a way ----
 
 const FACES = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };

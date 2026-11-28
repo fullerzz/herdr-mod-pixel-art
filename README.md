@@ -25,6 +25,9 @@ move according to what their agents are doing.
 - **Fidgets.** An idle creature fidgets now and then in its own way, at its own rhythm:
   it blinks, glances aside, or scratches its side. Each fidget lasts a moment, so an
   idle creature almost always has its eyes shut.
+- **Doze.** While the Herdr window is in the background, the creatures doze, eyes shut
+  like idle ones. A blocked one keeps burning, since that is when you most need to see it.
+  When you come back to the window, they all glance up at once.
 - **Ways of working.** With [one more hook](#ways-of-working), a working creature does
   what its agent does: it types while the agent edits files, reads a book while it reads,
   bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,
@@ -437,6 +440,16 @@ lantern or coffee stays at the lower right. The drawer counts the idle from when
 the agent go idle. An agent alone in its tab takes the time from the tab instead. Any
 other agent that is already idle when the drawer opens keeps its `z` until its status next
 changes.
+
+## Dozing
+
+While the Herdr window is not the active one, every creature dozes: a working or finished
+one shuts its eyes and rests as an idle one does, with its `z`, and an idle one sleeps on
+as deep as it was. A blocked one keeps burning, as hot as before: an inactive window is when
+you most need to see it. Each row's stripe and status line still say what its agent is
+doing. When the window is active again, every creature but a blocked one glances up at
+once: its eyes open and its head lifts a cell, and it drops back and goes on with its own
+look within a second.
 
 ## Calm finish
 

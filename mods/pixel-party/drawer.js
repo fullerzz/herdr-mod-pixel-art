@@ -75,10 +75,14 @@
 // A creature at rest keeps a prop for the local time of day: a lantern at night, a cup of
 // coffee in the morning. Sprite motion has no timers, so the drawer looks at the clock each
 // minute and redraws when the part of the day has changed.
+//
+// While the Herdr window is not active, the creatures doze: each rests as an idle one does,
+// but a blocked one keeps burning, since that is when the person most needs to see it. When
+// the window comes back, they all glance up at once, the blocked one aside.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, spaces, focused, run, theme, placement } from "herdr";
+import { agents, terminals, panes, spaces, focused, run, theme, placement, window } from "herdr";
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
 import { GRID, makeSprite, randomSeed } from "./sprites.js";
 import { faceRects, spriteElement, daytimeOf, CONFETTI, HIT, STAGES, TURNS } from "./sprite-view.js";
@@ -115,6 +119,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {SpriteTurn | null} turn The turn its last status change plays, else the party's while every creature plays it, if any.
  * @property {Daytime | null} daytime The part of the day it was drawn in, for its prop at rest.
  * @property {Party | null} banner The party whose banner hangs over its cell: the first row's only.
+ * @property {boolean} doze Whether its creature dozes: while the window is not active.
  */
 
 /**
@@ -397,6 +402,10 @@ export default class Drawer {
   turns = Object.fromEntries(Object.keys(TURNS).map((kind) => [kind, new Map()]));
   /** @type {Daytime | null | undefined} The part of the day of the last draw; undefined before the first. */
   daytime = undefined;
+  /** @type {boolean | undefined} Whether the window was active on the last draw; undefined before the first. */
+  active = undefined;
+  /** @type {Map<string, Show<string>>} The glance the creatures play when the window comes back, under ALL, while it plays. */
+  glances = new Map();
 
   /**
    * Plays a one-shot effect on an agent: `first` now, then each step at its time, and gone
@@ -779,6 +788,12 @@ export default class Drawer {
     const now = Date.now();
     const daytime = daytimeOf(new Date(now).getHours());
     this.daytime = daytime;
+    // Back from away, the creatures glance up, once; away again, they doze at once. The first
+    // draw has no "before": no glance. `herdr-app check` draws with no window (null): active.
+    const active = window()?.active !== false;
+    if (active && this.active === false) this.play(this.glances, ALL, TURNS.glance.first, TURNS.glance.steps, cx);
+    else if (!active) this.glances.delete(ALL);
+    this.active = active;
     const byAddress = new Map(terminals().map((x) => [x.address, x]));
     this.departures(list, cx);
     this.arrivals(list, cx);
@@ -820,6 +835,9 @@ export default class Drawer {
     const party = this.party.get(ALL) ?? null;
     /** @type {SpriteTurn | null} Every creature plays the same step of it, so they jump together. */
     const dance = party && DANCE.has(party.step) ? { kind: "party", n: party.n, step: party.step } : null;
+    const glimpse = this.glances.get(ALL);
+    /** @type {SpriteTurn | null} The same step for every creature too, but a blocked one: a turn would hide its fire. */
+    const glance = glimpse ? { kind: "glance", n: glimpse.n, step: glimpse.step } : null;
     /** @type {Item[]} */
     const items = list.map((a, i) => {
       const trick = this.tricks.get(a.address) ?? null;
@@ -843,8 +861,9 @@ export default class Drawer {
         bees: bees.get(a.address) ?? [],
         work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
         stage: this.stages.get(a.address) ?? 0,
-        turn: this.turnOf(a.address) ?? dance,
+        turn: this.turnOf(a.address) ?? dance ?? (a.status === "blocked" ? null : glance),
         daytime,
+        doze: !active,
         banner: i === 0 ? party : null,
       };
     });
@@ -1975,7 +1994,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  * @param {boolean} ride Whether the drawer is dragged: the creature hangs on and sways.
  * @returns {Element}
  */
-function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime, banner }, side, face, ride) {
+function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, puff, soot, verdict, bees, work, stage, turn, daytime, banner, doze }, side, face, ride) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -2009,6 +2028,7 @@ function cell(t, { a, seed, on, hit, combo, xp, stamp, clap, move, trick, exit, 
       daytime,
       face: face ?? (worried ? "down" : null),
       ride,
+      doze,
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
       .when(Boolean(shot?.hides), (el) => el.opacity(0))

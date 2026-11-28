@@ -49,6 +49,12 @@
 //            shut, stretches up a cell, and drops back with its eyes popped open
 //   party    no change of its own: the drawer plays it on every creature at once when all
 //            its agents are done. Each crouches and jumps twice with happy eyes, together
+//   glance   no change of its own either: the drawer plays it on every creature but a
+//            blocked one when its window comes back. Each opens its eyes and lifts its head
+//            a cell, then lowers it again
+//
+// Dozing (`doze`), while the window is away, a working or done creature rests as an idle one
+// does, in a nap's first stage; an idle one sleeps on. A blocked one keeps burning.
 //
 // `faceRects` is the creature still from one side, front, back or turned edge-on, for a
 // caller that turns it.
@@ -347,6 +353,19 @@ function party({ id, step, u, nudge, left, right, torso }) {
 }
 
 /**
+ * A creature glancing up as its window comes back, at one step of the turn. Up, its eyes
+ * open and its head and body lift a cell over its planted feet, at once; down, they drop
+ * back, faster as they fall. The body keeps its id across the steps, so `.transition` eases
+ * between them. Nothing loops, so the drawer keeps every creature in step.
+ * @param {TurnParts} parts Its step is "up" or "down".
+ * @returns {{ behind: Element[], front: Element[] }}
+ */
+function perk({ id, step, u, torso }) {
+  torso.id(`${id}-body`).top(step === "up" ? -u : 0).transition("top", { duration: 200, easing: "ease-in" });
+  return { behind: [], front: [] };
+}
+
+/**
  * A one-shot a sprite plays when its agent's status changes: a turn.
  * @typedef {object} Turn
  * @property {Status | null} from The status it plays from; null for any.
@@ -383,6 +402,9 @@ export const TURNS = {
   // No change is from a status to itself, so no change plays it: the drawer plays it on every
   // creature at once, when the last agent turns done and every one is.
   party: { from: "done", to: "done", first: "crouch", steps: [[100, "hop"], [380, "land"], [560, "leap"], [840, "settle"], [1100, null]], eyes: "happy", build: party },
+  // No change plays it either: the drawer plays it on every creature but a blocked one, at
+  // once, when its window comes back and they wake from their doze.
+  glance: { from: "idle", to: "idle", first: "up", steps: [[500, "down"], [700, null]], eyes: "open", build: perk },
 };
 
 /**
@@ -1227,16 +1249,23 @@ function accents(status, u, stage) {
  *   that way; happy and closed eyes are a status's cue and stay.
  * @param {boolean} [options.ride] Whether the creature rides (default false): it sways from
  *   side to side with all it draws, two thirds of a cell each way, as a rider on a bus does.
+ * @param {boolean} [options.doze] Whether the creature dozes, as the drawer has it while its
+ *   window is away (default false). A working or done creature rests as idle does, at stage
+ *   0; an idle one keeps its stage; a blocked one keeps burning. A turn still plays.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null, ride = false } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: held = 0, tube = true, daytime = null, face = null, ride = false, doze = false } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
   const nudge = Math.max(1, Math.round(u / 3)); // a sub-cell move, at least one pixel
   // A turn takes the status's place until it is over: only a name of TURNS' own is one.
   const shot = turn && typeof turn.kind === "string" && Object.hasOwn(TURNS, turn.kind) ? TURNS[turn.kind] : null;
-  const look = shot ? null : status;
+  // Dozing, it rests as idle does. A blocked one keeps burning: the person needs to see it
+  // most while they are away. A doze is a nap's start, so a long work's stage is no dust.
+  const dozing = doze === true && (status === "working" || status === "done");
+  const look = shot ? null : dozing ? "idle" : status;
+  const stage = dozing ? 0 : held;
   // To a side, the eyes glance that way: "look", or "look" mirrored when it glances the other
   // way (pip eyes glance left). Facing up or down keeps the eyes.
   const step = face ? STEP[face] : null;
