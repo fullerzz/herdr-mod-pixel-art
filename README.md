@@ -50,7 +50,8 @@ move according to what their agents are doing.
 - **Worker bees.** Every helper an agent starts is a little figure that flies out of its
   creature from a puff of smoke and stays beside it until the helper ends: a sheep for a
   terminal started with `hc run`, with no setup, and a honey bee for a sub-agent, with
-  [one hook](#worker-bees).
+  [one hook](#worker-bees). Then a bee flies back into its creature and fades, and a sheep
+  hops off to the side.
 - **Magic arrivals.** A new agent appears by a magic trick: a wand taps its empty spot, a
   puff of smoke and sparkles goes up, and its creature is there when the smoke clears. An
   agent that ends leaves by the same trick in reverse.
@@ -325,7 +326,9 @@ drawer looks at the clock once a minute, so the prop changes within a minute of 
 
 A figure is one running helper of the agent it stays beside: a sheep for a helper Herdr
 runs, a honey bee for a sub-agent. It moves while the helper works (a bee flies, a sheep
-hops), blinks when the helper is blocked, and rests when the helper is idle. Past six
+hops), blinks when the helper is blocked, and rests when the helper is idle. When the helper
+ends, a bee flies back into the creature and fades, and a sheep hops off to the side; then
+the ones after it move up a place. An agent that leaves sends its figures off first. Past six
 helpers, the last place counts the rest. The recording above is older than the sheep: it
 shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like this:
 

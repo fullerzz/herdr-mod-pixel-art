@@ -47,8 +47,9 @@
 // Each helper an agent has running is a small figure (a sheep for an `hc` terminal it
 // started, a honey bee for a sub-agent; both are "bees" below) that flies out of its sprite
 // to a lane under it, out of a small puff of smoke, and stays there until the helper ends.
-// Herdr clips a floating mod to its frame, so the lane is inside the drawer: it is as wide
-// as the sprite cell, and a closed drawer shows it.
+// Then a bee flies back into the creature and fades, and a sheep hops off to the side; the
+// others glide up a place when it has gone. Herdr clips a floating mod to its frame, so the
+// lane is inside the drawer: it is as wide as the sprite cell, and a closed drawer shows it.
 //
 // A creature at rest keeps a prop for the local time of day: a lantern at night, a cup of
 // coffee in the morning. Sprite motion has no timers, so the drawer looks at the clock each
@@ -104,6 +105,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @typedef {Show<"wand" | "tap" | "poof" | "reveal">} Trick A new agent's arrival. */
 /** @typedef {Show<"wand" | "tap" | "poof" | "clear">} Exit An agent's departure: the trick in reverse. */
 /** @typedef {Show<"cloud" | "clear">} Puff Smoke where a new bee comes out. */
+/** @typedef {Show<"home" | "hop" | "off">} Leave A bee whose helper ended: a bee flies home, a sheep hops and goes off. */
 /** @typedef {Show<string> & { move: Move }} Shot A move of HEAD being shown, and the move. */
 /**
  * What one kind of move plays: its first step, when each next step starts (null: gone), and
@@ -133,7 +135,8 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
 /**
  * A bee being shown.
- * @typedef {Bee & { id: string, out: boolean }} Flier `out` once it has left the sprite for its place.
+ * @typedef {Bee & { id: string, out: boolean, leave?: Leave }} Flier `out` once it has left the sprite for its
+ * place; `leave` once its helper has ended, while it goes.
  */
 
 /**
@@ -180,6 +183,14 @@ const BEE_LANE = 12; // px a row of bees takes
 const BEE_LIFT = 2; // px over the first row: a flying bee lifts by one of its cells
 /** @type {(n: number) => number} The height of the lanes under a sprite with n bees. */
 const lanes = (n) => (n ? BEE_LIFT + Math.ceil(Math.min(n, BEE_MAX) / BEE_ROW) * BEE_LANE : 0);
+const HOME_MS = 450; // ms a leaving bee flies back into the middle of its sprite
+/** @type {[ms: number, step: Leave["step"] | null][]} After "home": gone once it is in. */
+const HOME_STEPS = [[HOME_MS + 50, null]];
+const HOP_MS = 200; // ms each half of a leaving sheep's hop takes
+const HOP_X = 14; // px a leaving sheep hops aside from its place, within its row, which has that much room on the side it hops to: the text column on a side edge, or the 14 px tile margin on a top or bottom edge
+const HOP_UP = 6; // px it leaps
+/** @type {[ms: number, step: Leave["step"] | null][]} After "hop": it lands off to the side as it fades, then is gone. */
+const HOP_STEPS = [[HOP_MS, "off"], [2 * HOP_MS + 20, null]];
 const FOLLOW_MS = 2000; // ms between looks at which folders the agents are in
 const DAYTIME_MS = 60_000; // ms between looks at the clock for a new part of the day
 const STAMP_PX = 3; // a stamp's cells, the sprite's size
@@ -283,6 +294,10 @@ export default class Drawer {
   drawn = [];
   /** @type {Set<string>} The ids of the new bees that have had their puff. */
   puffed = new Set();
+  /** @type {Map<string, Flier[]>} Each row's bees as last drawn, leaving ones included, by agent address. */
+  hived = new Map();
+  /** @type {Map<string, Leave>} The bees leaving because their helper ended, by bee id. */
+  leaving = new Map();
   /** @type {Map<string, Puff>} By agent address. */
   puffs = new Map();
   /** @type {Map<string, Status>} Each agent's status when it was last drawn, by address. */
@@ -591,10 +606,15 @@ export default class Drawer {
    * The agents' bees. A bee not seen before starts inside its sprite, and is let out a
    * beat later, so it is drawn twice and flies between the two. It comes out of a puff of
    * smoke, except on the first draw: those helpers were running before the drawer opened.
+   *
+   * A bee drawn last time whose helper has ended keeps its place while it leaves, and the
+   * ones after it glide up when it has gone. A leaving agent's row, a ghost, sends all its
+   * bees off at once, and keeps them, gone, until the row goes, so the row keeps its height.
+   * A helper that comes back while its bee is leaving stops it, and flies out again.
    * @param {AgentInfo[]} list
    * @param {Context} cx
    * @param {boolean} first The drawer's first draw.
-   * @returns {Map<string, Flier[]>} By agent address.
+   * @returns {Map<string, Flier[]>} By agent address, ghosts included.
    */
   swarm(list, cx, first) {
     const rows = new Set(list.map((a) => a.address));
@@ -602,6 +622,7 @@ export default class Drawer {
     const ids = new Set();
     /** @type {Set<string>} */
     const hatched = new Set();
+    /** @type {Map<string, Flier[]>} */
     const byAgent = new Map(list.map((a) => [a.address, beesOf(a.address, rows, all).map((bee) => {
       const id = `pp-bee-${a.address}-${bee.key}`;
       ids.add(id);
@@ -611,6 +632,24 @@ export default class Drawer {
       }
       return { ...bee, id, out: this.flown.has(id) };
     })]));
+    for (const address of this.ghosts.keys()) byAgent.set(address, []);
+    for (const [address, before] of this.hived) {
+      const now = byAgent.get(address);
+      if (!now) continue;
+      const ghost = !rows.has(address);
+      for (const [i, bee] of before.entries()) {
+        if (ids.has(bee.id)) continue;
+        let leave = bee.leave;
+        if (!leave) {
+          const [step, steps] = bee.kind === "sheep" ? /** @type {const} */ (["hop", HOP_STEPS]) : /** @type {const} */ (["home", HOME_STEPS]);
+          this.play(this.leaving, bee.id, step, [...steps], cx);
+          leave = this.leaving.get(bee.id);
+        } else if (this.leaving.get(bee.id) !== leave && !ghost) continue;
+        now.splice(Math.min(i, now.length), 0, { ...bee, leave });
+      }
+    }
+    for (const id of this.leaving.keys()) if (ids.has(id)) this.leaving.delete(id);
+    this.hived = byAgent;
     if (!first) for (const address of hatched) this.play(this.puffs, address, "cloud", PUFF_STEPS, cx);
     // A helper that ended is forgotten, so one that comes back flies out again.
     for (const id of this.flown) if (!ids.has(id)) this.flown.delete(id);
@@ -647,6 +686,8 @@ export default class Drawer {
     }
     if (!list.length && !this.ghosts.size) {
       this.drawn = [];
+      this.hived = new Map();
+      this.leaving = new Map();
       return div();
     }
     const bees = this.swarm(list, cx, first);
@@ -682,12 +723,12 @@ export default class Drawer {
       };
     });
     // A ghost keeps its place, so its exit plays where its creature stood. It shows only the
-    // creature and its exit: its news and its helpers went with it.
+    // creature, its exit and its bees leaving: its news went with it.
     for (const [i, old] of this.drawn.entries()) {
       const ghost = this.ghosts.get(old.a.address);
       const exit = this.exits.get(old.a.address);
       if (!ghost || !exit) continue;
-      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: [] });
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, combo: null, stamp: null, clap: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: bees.get(old.a.address) ?? [] });
     }
     this.drawn = items;
 
@@ -1270,29 +1311,45 @@ function verdictElement(t, address, { n, step, passed }) {
 
 // The bees in the lanes under the sprite's box. Each has a place by its position in the
 // list, so when one leaves the ones after it glide up a place. A new bee starts unseen in
-// the middle of the sprite.
+// the middle of the sprite. A leaving bee keeps its place until it has gone: a bee flies
+// back into the middle of the sprite and fades as it gets there; a sheep hops off to the
+// side, away from the edge the drawer is docked on (`side`), into its row, and fades as it
+// lands, facing the way it goes.
 /**
  * @param {Flier[]} bees
+ * @param {"left" | "right" | "bottom"} side
  * @returns {Element[]}
  */
-function hive(bees) {
+function hive(bees, side) {
   /** @type {(i: number) => [number, number]} The i-th place: left and top in the cell. */
   const spot = (i) => [2 + (i % BEE_ROW) * BEE_STEP, CELL_H + BEE_LIFT + Math.floor(i / BEE_ROW) * BEE_LANE];
   const [w, h] = [BEE_W * BEE_PX, BEE_H * BEE_PX];
+  const home = [(CELL - w) / 2, (CELL_H - h) / 2];
+  const away = side === "right" ? -1 : 1;
   const more = bees.length > BEE_MAX ? bees.length - (BEE_MAX - 1) : 0;
   const shown = more ? bees.slice(0, BEE_MAX - 1) : bees;
   const out = shown.map((bee, i) => {
     const [left, top] = spot(i);
-    return div()
-      .id(bee.id)
-      .absolute()
-      .left(bee.out ? left : (CELL - w) / 2)
-      .top(bee.out ? top : (CELL_H - h) / 2)
-      .opacity(bee.out ? 1 : 0)
-      .transition("left", { duration: 450, easing: "ease-out" })
-      .transition("top", { duration: 450, easing: "ease-out" })
-      .transition("opacity", { duration: 200 })
-      .child(beeElement({ kind: bee.kind, status: bee.status, px: BEE_PX, phase: i }));
+    const step = bee.leave?.step;
+    const el = div().id(bee.id).absolute();
+    if (step === "home") {
+      el.left(home[0]).top(home[1]).opacity(0)
+        .transition("left", { duration: HOME_MS, easing: "ease-in" })
+        .transition("top", { duration: HOME_MS, easing: "ease-in" })
+        .transition("opacity", { duration: 200, delay: HOME_MS - 200 });
+    } else if (step) {
+      const off = step === "off";
+      el.left(left + away * (off ? HOP_X : HOP_X / 2)).top(off ? top : top - HOP_UP).opacity(off ? 0 : 1)
+        .transition("left", { duration: HOP_MS, easing: "linear" })
+        .transition("top", { duration: HOP_MS, easing: off ? "ease-in" : "ease-out" })
+        .transition("opacity", { duration: HOP_MS, easing: "ease-in" });
+    } else {
+      el.left(bee.out ? left : home[0]).top(bee.out ? top : home[1]).opacity(bee.out ? 1 : 0)
+        .transition("left", { duration: 450, easing: "ease-out" })
+        .transition("top", { duration: 450, easing: "ease-out" })
+        .transition("opacity", { duration: 200 });
+    }
+    return el.child(beeElement({ kind: bee.kind, status: bee.status, px: BEE_PX, phase: i, flip: Boolean(step && step !== "home") && away < 0 }));
   });
   if (more) {
     const [left, top] = spot(BEE_MAX - 1);
@@ -1371,7 +1428,7 @@ function cell(t, { a, seed, hit, combo, stamp, clap, move, trick, exit, puff, so
       .top(stamp.step === "press" ? STAMP_DIP : 0)
       .transition("top", stamp.step === "press" ? { duration: 60, delay: STAMP_SLAM - 40, easing: "ease-in" } : { duration: 500, easing: "ease-out" })
       .child(stampElement(t, a.address, stamp)));
-  return div().relative().w(CELL).h(CELL_H + lanes(bees.length)).flex_none().child(box).children(hive(bees));
+  return div().relative().w(CELL).h(CELL_H + lanes(bees.length)).flex_none().child(box).children(hive(bees, side));
 }
 
 /** @type {(address: string) => string | null} The machine of a remote address ("mini/t7"), else null. */

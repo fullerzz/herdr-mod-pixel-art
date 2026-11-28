@@ -254,22 +254,178 @@ test("a new bee starts unseen inside the sprite, then flies out to its place and
   assert.equal(last(find(drawer.render(cx), "pp-bee-t1-t4"), "opacity"), 1);
 });
 
-test("a helper that ends takes its bee away, and the next ones move up a place", () => {
+const end = (address) => {
+  mock.state.terminals = mock.state.terminals.map((x) => (x.address === address ? { ...x, state: "finished" } : x));
+};
+const unlabel = (address, key) => {
+  mock.state.terminals = mock.state.terminals.map((x) => (x.address === address ? { ...x, labels: { ...x.labels, [key]: "" } } : x));
+};
+// Where a bee is drawn, and how much: left, top, opacity; null when it is not drawn.
+const at = (tree, id) => {
+  const bee = find(tree, id);
+  return bee && [last(bee, "left"), last(bee, "top"), last(bee, "opacity")];
+};
+const draw = (drawer, cx) => {
+  const tree = drawer.render(cx);
+  check(tree);
+  return tree;
+};
+// The cell under a sprite's box: the box and the lanes of its bees.
+const cellOf = (tree, address) => {
+  const box = walk(tree).find((n) => n.children.some((c) => nodeOf(c)?.id === `pp-spr-${address}`));
+  return walk(tree).find((n) => n.children.some((c) => nodeOf(c) === box));
+};
+// The middle of the sprite's box, where a new bee starts: the 48 by 44 box, a 14 by 10 bee.
+const MIDDLE = [17, 17];
+
+test("a sub-agent that ends: its bee flies back into its creature and fades, then the next ones move up a place", () => {
   mock.agent("t1");
-  helper("t3", "t1");
-  helper("t4", "t1");
+  label("t1", "pixel.bee.a1");
+  label("t1", "pixel.bee.b2");
   const drawer = new Drawer();
   const cx = context();
   drawer.render(cx);
   cx.run(1000);
-  const place = (address) => {
-    const bee = find(drawer.render(cx), `pp-bee-t1-${address}`);
-    return bee && [last(bee, "left"), last(bee, "top")];
-  };
-  const first = place("t3");
-  mock.state.terminals = mock.state.terminals.map((x) => (x.address === "t3" ? { ...x, state: "finished" } : x));
-  assert.equal(place("t3"), null);
-  assert.deepEqual(place("t4"), first);
+  let tree = draw(drawer, cx);
+  const [a1, b2] = [at(tree, "pp-bee-t1-pixel.bee.a1"), at(tree, "pp-bee-t1-pixel.bee.b2")];
+  const height = last(cellOf(tree, "t1"), "h");
+
+  unlabel("t1", "pixel.bee.a1");
+  tree = draw(drawer, cx);
+  assert.deepEqual(at(tree, "pp-bee-t1-pixel.bee.a1"), [...MIDDLE, 0], "it flies to the middle of the sprite, fading");
+  const bee = find(tree, "pp-bee-t1-pixel.bee.a1");
+  assert.deepEqual(calls(bee, "transition").map(([p]) => p).sort(), ["left", "opacity", "top"], "it flies and fades, not jumps");
+  const fade = calls(bee, "transition").find(([p]) => p === "opacity")[1];
+  assert.ok(fade.delay > 0, "it is seen most of the way in");
+  assert.deepEqual(at(tree, "pp-bee-t1-pixel.bee.b2"), b2, "the next bee keeps its place while it goes");
+  assert.equal(last(cellOf(tree, "t1"), "h"), height, "and so does the lane");
+  assert.deepEqual(at(draw(drawer, cx), "pp-bee-t1-pixel.bee.a1"), [...MIDDLE, 0], "a redraw changes nothing");
+
+  cx.run(1000);
+  assert.equal(cx.notified, 2, "the launch, then the exit's end");
+  tree = draw(drawer, cx);
+  assert.equal(at(tree, "pp-bee-t1-pixel.bee.a1"), null, "gone");
+  assert.deepEqual(at(tree, "pp-bee-t1-pixel.bee.b2"), a1, "then the next one moves up a place");
+  assert.equal(cx.timers.length, 0);
+});
+
+test("an hc helper that ends: its sheep hops off to the side, away from the drawer's edge, inside its row", () => {
+  for (const [edge, away] of [["left", 1], ["right", -1], ["top", 1], ["bottom", 1], [null, 1]]) {
+    mock.reset({ placement: edge && { edge } });
+    mock.agent("t1");
+    for (const address of ["t3", "t4", "t5"]) helper(address, "t1");
+    const drawer = new Drawer();
+    const cx = context();
+    drawer.render(cx);
+    cx.run(1000);
+    let tree = draw(drawer, cx);
+    const spots = ["t3", "t4", "t5"].map((address) => at(tree, `pp-bee-t1-${address}`));
+
+    end("t3");
+    end("t5");
+    tree = draw(drawer, cx);
+    const hops = ["t3", "t5"].map((address) => at(tree, `pp-bee-t1-${address}`));
+    for (const [i, [x, y, seen]] of [[0, hops[0]], [2, hops[1]]]) {
+      assert.equal(Math.sign(x - spots[i][0]), away, `${edge}: hop: it goes aside, away from the edge`);
+      assert.ok(y < spots[i][1], `${edge}: hop: it leaps`);
+      assert.equal(seen, 1, `${edge}: hop: still seen`);
+    }
+    assert.deepEqual(at(tree, "pp-bee-t1-t4"), spots[1], `${edge}: the sheep between them stays`);
+    // A sheep faces right; the one staying shows how a sheep is drawn facing that way.
+    const art = (address) => walk(find(tree, `pp-bee-t1-${address}`)).filter((n) => last(n, "bg")).map((n) => last(n, "left")).join();
+    assert.equal(art("t5") === art("t4"), away > 0, `${edge}: it faces the way it goes`);
+
+    cx.run(200);
+    tree = draw(drawer, cx);
+    for (const [i, address] of [[0, "t3"], [2, "t5"]]) {
+      const [x, y, seen] = at(tree, `pp-bee-t1-${address}`);
+      const [x0, y0] = spots[i];
+      assert.equal(Math.sign(x - hops[i >> 1][0]), away, `${edge}: off: further aside`);
+      assert.equal(y, y0, `${edge}: off: it lands`);
+      assert.equal(seen, 0, `${edge}: off: and fades`);
+      // It lands 14 px aside from its own place, not from the cell's edge: only the place
+      // nearest the way it goes leaves the cell.
+      assert.equal(x, x0 + away * 14, `${edge}: ${address} lands 14 px aside`);
+      // Herdr clips the drawer to its frame: the hop stays in the row, 14 px either side of
+      // the cell at most (a top or bottom tile is 76 px, the cell 48), and under the box.
+      assert.ok(x >= -14 && x + 14 <= 48 + 14, `${edge}: ${address} lands at ${x}, inside its row`);
+    }
+    for (const [, , seen] of hops) assert.equal(seen, 1);
+
+    cx.run(1000);
+    tree = draw(drawer, cx);
+    assert.equal(at(tree, "pp-bee-t1-t3"), null, `${edge}: gone`);
+    assert.equal(at(tree, "pp-bee-t1-t5"), null, `${edge}: gone`);
+    assert.deepEqual(at(tree, "pp-bee-t1-t4"), spots[0], `${edge}: then the one left moves up`);
+  }
+});
+
+test("a helper that comes back while its bee leaves stops it: one bee, which flies out again", () => {
+  mock.agent("t1");
+  helper("t3", "t1");
+  const drawer = new Drawer();
+  const cx = context();
+  drawer.render(cx);
+  cx.run(1000);
+  const out = at(draw(drawer, cx), "pp-bee-t1-t3");
+  end("t3");
+  draw(drawer, cx);
+  mock.state.terminals = mock.state.terminals.map((x) => (x.address === "t3" ? { ...x, state: "live" } : x));
+  let tree = draw(drawer, cx);
+  assert.equal(beesIn(tree, "t1").length, 1);
+  assert.deepEqual(at(tree, "pp-bee-t1-t3"), [...MIDDLE, 0], "it starts in its sprite again");
+  cx.run(1000);
+  tree = draw(drawer, cx);
+  assert.deepEqual(at(tree, "pp-bee-t1-t3"), out, "and flies out; the stopped exit takes it away no more");
+  assert.deepEqual(at(draw(drawer, cx), "pp-bee-t1-t3"), out);
+});
+
+test("a bee leaving while a new one comes: the new one still flies out", () => {
+  mock.agent("t1");
+  helper("t3", "t1");
+  const drawer = new Drawer();
+  const cx = context();
+  drawer.render(cx);
+  cx.run(1000);
+  draw(drawer, cx);
+  end("t3");
+  helper("t4", "t1");
+  let tree = draw(drawer, cx);
+  assert.equal(at(tree, "pp-bee-t1-t4")[2], 0);
+  cx.run(1000);
+  tree = draw(drawer, cx);
+  assert.equal(at(tree, "pp-bee-t1-t3"), null);
+  assert.equal(at(tree, "pp-bee-t1-t4")[2], 1);
+});
+
+test("an agent that leaves sends its bees off first, and its row keeps its height until it goes", () => {
+  mock.agent("t1");
+  mock.agent("t2");
+  helper("t3", "t2");
+  label("t2", "pixel.bee.a1");
+  const drawer = new Drawer();
+  const cx = context();
+  drawer.render(cx);
+  cx.run(1000);
+  let tree = draw(drawer, cx);
+  const height = last(cellOf(tree, "t2"), "h");
+  const sheep = at(tree, "pp-bee-t2-t3");
+
+  mock.state.agents = mock.state.agents.filter((a) => a.address !== "t2");
+  mock.state.terminals = mock.state.terminals.filter((x) => x.address !== "t2");
+  tree = draw(drawer, cx);
+  assert.deepEqual(at(tree, "pp-bee-t2-pixel.bee.a1"), [...MIDDLE, 0], "the bee flies home");
+  assert.ok(at(tree, "pp-bee-t2-t3")[1] < sheep[1], "the sheep hops");
+  assert.equal(last(cellOf(tree, "t2"), "h"), height);
+
+  cx.run(760);
+  tree = draw(drawer, cx);
+  assert.equal(last(cellOf(tree, "t2"), "h"), height, "the row holds its height while its smoke clears");
+  assert.ok(beesIn(tree, "t2").every((n) => last(n, "opacity") === 0), "its bees are gone by then");
+  cx.run(1300);
+  tree = draw(drawer, cx);
+  assert.equal(cellOf(tree, "t2"), undefined, "the row is gone");
+  assert.deepEqual(beesIn(tree, "t2"), []);
 });
 
 test("more helpers than places: the last place counts the rest", () => {

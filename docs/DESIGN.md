@@ -65,7 +65,8 @@ picker lets the person choose another creature for an agent.
 - **Bees.** Each helper an agent has running is a small figure beside its sprite: a sheep
   for a terminal it started with `hc run`, a honey bee for a sub-agent inside its own
   program. Both are called bees below. A new bee flies out of the sprite from a puff of
-  smoke; it leaves when its helper ends.
+  smoke. When its helper ends, a bee flies back into the sprite and fades, and a sheep hops
+  off to the side.
 - **Arrivals.** A new agent arrives by a magic trick: a wand taps its empty cell, a puff of
   smoke and sparkles goes up, and its sprite is there when the smoke clears.
 - **Departures.** An agent that ends leaves by the trick in reverse: a wand taps its sprite,
@@ -585,7 +586,18 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   the sixth place shows a count of the rest. They can't leave the drawer: Herdr clips a
   floating mod to its frame. A bee not seen before is drawn first in the
   middle of the sprite, unseen, and 40 ms later at its place: it flies there over 450 ms.
-  When a bee leaves, the ones after it glide up a place.
+- A bee drawn the time before and missing from `beesOf` now has left: its helper ended. It
+  stays drawn in its place, with its lane, for its exit, under the same id, so it moves
+  from there. A bee flies back to the middle of the sprite over 450 ms, easing in, and
+  fades over its last 200 ms; it is gone at 500 ms. A sheep hops off to the side, facing the
+  way it goes: over 200 ms it leaps 6 px and 7 px aside, easing out, and over the next 200
+  ms lands 14 px aside, easing in, as it fades; it is gone at 420 ms. It hops away from the
+  edge the drawer is docked on: left on the right edge, right otherwise. It moves 14 px from
+  its own place, within its row, which has that much room on the side it hops to: the text
+  column on a side edge, or the 14 px tile margin on a top or bottom edge. So it stays
+  inside the drawer. Most places land over the next place in the lane; only the place
+  nearest that side leaves the cell. Then the bees after it glide up a place.
+  A helper that comes back while its bee leaves stops the exit, and its bee flies out again.
 - An agent not drawn the time before arrives by a trick, in the box over its sprite. The
   agents of the first draw were there before the drawer, so they get none; an agent that
   leaves and comes back gets one again, and a new seed for the same agent gets none. The
@@ -598,8 +610,10 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - An agent drawn the time before and gone now leaves by an exit, the trick in reverse. Its
   row stays as it was last drawn, a ghost, in its place, with the seed it was drawn with,
   so its creature stays the same though its terminal and label are gone. A ghost shows
-  only its creature and the exit: no hit, combo, stamp, clap, arrival or bees, and it is out of the
-  status changes, the clocks and the current agent. It does nothing when clicked or right
+  only its creature, the exit and its bees leaving: no hit, combo, stamp, clap or arrival,
+  and it is out of the status changes, the clocks and the current agent. Its bees all leave
+  at once, each by its own exit, so they are gone before the puff clears; they stay drawn,
+  gone, until the row goes, so the row keeps its height. It does nothing when clicked or right
   clicked. The wand shows over the creature and taps at 240 ms; at 440 ms it fades, the
   puff goes up, and the sprite fades out under it over 360 ms; at 760 ms the puff clears
   over 520 ms to an empty cell. The row is gone at 1.3 s. Its status line reads "Poof!"
@@ -609,7 +623,8 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   clears as the bee flies out, 60 ms later, and is gone at 800 ms. Bees of the first draw
   get none. Stamps, claps, tricks, exits, puffs and moves' one-shots share one timeline helper
   (`play`): each step is one render, and a new one on the same agent replaces the last, with
-  new ids. A status change's one-shot, its turn, plays through it too.
+  new ids. A status change's one-shot, its turn, plays through it too, and so does a bee's
+  exit, keyed by the bee's id rather than its agent's, since several can leave at once.
 - Each status change plays the first of `TURNS` whose `from` and `to` match it, on the draw
   that finds it, and the sprite draws the turn until its last step. A change ends the turn
   an earlier change started on that agent, even when it plays none itself: a block again
