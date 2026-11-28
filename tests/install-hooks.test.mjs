@@ -420,7 +420,7 @@ test("main does both programs, skips one that is not installed, and fails on a r
   assert.equal(run("gemini").code, 2);
 });
 
-test("Claude Code also gets the hook for a failed tool; Codex, which has no such event, does not", () => {
+test("Claude Code also gets the hooks for a failed tool and a finished one; Codex, which has no failure event, does not", () => {
   const d = dir();
   const env = { CLAUDE_CONFIG_DIR: join(d, "claude"), CODEX_HOME: join(d, "codex") };
   mkdirSync(env.CLAUDE_CONFIG_DIR);
@@ -431,8 +431,10 @@ test("Claude Code also gets the hook for a failed tool; Codex, which has no such
   const codex = JSON.parse(readFileSync(join(env.CODEX_HOME, "hooks.json"), "utf8")).hooks;
   assert.deepEqual(Object.keys(claude), Object.keys(CLAUDE_EVENTS));
   assert.match(claude.PostToolUseFailure[0].hooks[0].command, /'[^']*\/tools\/bee-hook\.sh' fail$/);
+  assert.match(claude.PostToolUse[0].hooks[0].command, /'[^']*\/tools\/bee-hook\.sh' pass$/);
   assert.deepEqual(Object.keys(codex), Object.keys(EVENTS));
   assert.ok(!("PostToolUseFailure" in codex));
+  assert.ok(!("PostToolUse" in codex), "unmeasured for Codex, so not installed there");
 });
 
 test("main never stops at the first program: each error is reported and the next is still done", { skip: process.getuid?.() === 0 && "root writes anywhere" }, () => {

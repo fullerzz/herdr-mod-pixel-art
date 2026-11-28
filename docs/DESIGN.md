@@ -47,6 +47,9 @@ picker lets the person choose another creature for an agent.
 - **Smoke.** A shell command an agent runs that fails makes its sprite cough: it lurches,
   and a puff of black smoke goes up from its face and clears. Only Claude Code's hooks say
   so (`PostToolUseFailure`).
+- **Test results.** Tests that pass get a thumbs up held in front of the sprite's right
+  side, over its right eye; tests that fail make it drop its test tube, which tips over
+  and spills. Failed tests show this instead of smoke. Only Claude Code's hooks say so (`PostToolUse` and `PostToolUseFailure`).
 - **Bees.** Each helper an agent has running is a small figure beside its sprite: a sheep
   for a terminal it started with `hc run`, a honey bee for a sub-agent inside its own
   program. Both are called bees below. A new bee flies out of the sprite from a puff of
@@ -79,6 +82,7 @@ Each was observed in Herdr 0.1.15 with the walking skeleton, not assumed.
 | `terminals()` gives each terminal's `parent`: the terminal that started it with `hc run`. A helper without a pane is not in `agents()`. | `hc` helpers are bees with no setup. |
 | Herdr sees nothing of a sub-agent inside an agent's program (Claude Code's Agent tool). Its hooks run with `HC_TERMINAL_ID` set, and `hc label` takes a key such as `pixel.bee.a1B2-c_3`. | A hook keeps one label per running sub-agent; the label change re-renders the drawer. |
 | A Claude Code `PreToolUse` hook's JSON names the tool (`tool_name`: `Read`, `Grep`, `Agent`, ...). A sub-agent's own tool calls carry `agent_id` and `agent_type`; the main agent's carry neither. `UserPromptSubmit` fires for each prompt, a background sub-agent's report included. (Claude Code 2, measured with `claude -p`.) | The hook says what the agent is doing from `tool_name`, and leaves a sub-agent's tools to its bee. |
+| A Bash command that exits 0 fires `PostToolUse`: `session_id`, ..., `hook_event_name`, `tool_name`, `tool_input`, then `tool_response` (`stdout`, `stderr`, `interrupted`, ...), `tool_use_id`, `duration_ms`. One with `run_in_background: true` fires it at once, 4 ms in, with empty output and then `backgroundTaskId` in `tool_response`, and its end fires no hook. So does one that outlives its `timeout` (2 s for a 15 s test): it moves to the background, and `PostToolUse` comes at the timeout with empty output, `backgroundTaskId` and `timedOutAfterMs`, and no `run_in_background` in its input. A piped command's exit code is its last program's: `node --test` with a failing test, piped to `tail`, fired `PostToolUse`. (Claude Code 2.1.332, measured with `claude -p`.) | Tests passed when `PostToolUse` comes for a test command of a shell tool with no pipe in it and no `backgroundTaskId`. |
 | A Bash command that exits other than 0 fires Claude Code's `PostToolUseFailure`, not `PostToolUse`. Its JSON is `session_id`, ..., `agent_id` and `agent_type` for a sub-agent's, `hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt`, `duration_ms`. The exit code is only text at the start of `error` (`"Exit code 2\n..."`), which also holds the output, cut to about 10 KB: a failed `seq 1 200000` was 13 KB in all. `PostToolUse` has no exit code at all, and a 1.2 MB output made it 37 KB. A failed Edit (no match) fired neither. (Claude Code 2.1.332, measured with `claude -p`.) Codex 0.172's hook events include no failure event. | A failed command is the `PostToolUseFailure` hook for a shell tool, with no parsing of the error. Codex gets no hook for it. |
 | `hc label` on the caller's own terminal takes about 10 ms; the whole tool hook about 30 ms. A `PreToolUse` JSON holds the tool's whole input (a Write's content: megabytes), after `tool_name` and `agent_id`. | Before a tool or a prompt, the hook parses only up to `"tool_input"`, at most 8 KiB, and reads the rest to throw it away unparsed. A 2 MB Write costs it about 20 ms, not the 530 ms of parsing it all. A shell tool's command is the one exception, with a budget of its own: the first 512 bytes after `"tool_input"`, within those 8 KiB. |
 | `.loop` plays its return leg as the forward leg backwards, easing included: an 8 s ease-in `top` loop is symmetric about its far end, slow to leave home and slow to come back. `.loop("width")` runs too. | Two loops of one period with ease-out and ease-in light in one order and go out in the reverse, as the previews in Chrome (CSS `alternate`) showed. |
@@ -141,7 +145,7 @@ these guarantees:
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0 }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
@@ -185,6 +189,8 @@ export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // th
     of its tip in turn.
   - `testing`: eyes glance right, at a test tube in the two columns at the right edge:
     glass over liquid in the theme's accent, three bubbles lighting from the bottom up.
+    With `tube: false` it holds none, and only watches and bobs: the drawer draws how the
+    tests came out in its place. `tube` changes nothing in any other way.
   - `building`: open eyes, a crane: a mast behind the right edge and a jib along the top
     row, both dim, and a brick on a cable rising from a pile at the left foot to row 3 and
     back, the cable reeling in with it.
@@ -354,10 +360,28 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
   tool (Bash, shell, local_shell, exec_command) of the agent's own (no `agent_id`) that the
   person did not interrupt (`is_interrupt`), it sets `pixel.result=failed.<the hook's pid>`.
   A result's value is `<kind>.<nonce>`, new for each result, so the drawer plays every one
-  however many come in a row, and no tool needs to clear it first. `failed` is the only
-  kind so far. `tool_name` and `agent_id` come from the head, as for `tool`; `is_interrupt`
-  from the last 64 bytes. A failure is rare, so it reads all of its JSON: `head` reads ahead
-  on a pipe and would leave `tail` nothing. A 4 MB one takes about 0.2 s.
+  however many come in a row, and no tool needs to clear it first. `tool_name` and
+  `agent_id` come from the head, as for `tool`, and the command from the input after it;
+  `is_interrupt` from the last 64 bytes. A failure is rare, so it reads all of its JSON:
+  `head` reads ahead on a pipe and would leave `tail` nothing. A 4 MB one takes about 0.2 s.
+- A test command is one whose exit code is its tests' (`tests_ran`). Its last command's way
+  is testing, and no other command's is, after `\n`, `;` and `&` split it, as for its way,
+  with a redirect's `&` (`2>&1`, `&>`) splitting nothing, and a `\n` after `&&` or a
+  backslash neither. A quoted string is first one word, whatever it holds (`git commit -m
+  "wip; npm test"` runs no tests), and a quote with no end is no test command. Outside its
+  quoted strings it has no `|` (so no `||` either): a pipe gives the command its last
+  program's exit code, which is not the tests'. It does not end in `&`, which sends the
+  tests to the background, and the JSON string's closing quote is in the input's first 512
+  bytes, so nothing after them is unread. For `fail` only, every
+  command before the tests in their `&&` chain is a `cd`: `npm run build && npm test` fails
+  when the build does, but a chain that passed ran all of it to a good end. For one, `fail`
+  sets `pixel.result=tests-failed.<pid>` instead of `failed`, and `tools/bee-hook.sh pass`
+  on `PostToolUse` sets `pixel.result=tests-passed.<pid>`. `pass` runs after every tool, so
+  it parses only the head, as `tool` does, and calls `hc` for nothing else: not another
+  tool, not a sub-agent's, and not a command with a `"backgroundTaskId"` after its input,
+  which has only started: one sent to the background, or one that outlived its timeout.
+  Its output before the key is empty, so the key is in the head unless the command is
+  long.
 - `tools/bee-hook.sh start|stop|clear` writes the labels from an agent's hooks. It never
   fails or stalls its agent: each `hc` call is killed after 2 seconds. It does nothing
   outside an `hc` terminal. On a compaction's session start `clear` removes `pixel.work`
@@ -367,7 +391,8 @@ export function beeElement({ kind = "bee", status, px = 2, flip, phase }): Eleme
   program has died. `clear` removes `pixel.work` and `pixel.result` too.
 - `tools/install-hooks.mjs` (`just hooks`) adds the six hooks to Claude Code's
   `settings.json` and Codex's `hooks.json`, which share one shape, and `PostToolUseFailure`
-  to Claude Code's only (`CLAUDE_EVENTS`): Codex has no such event. It appends, because
+  and `PostToolUse` to Claude Code's only (`CLAUDE_EVENTS`): Codex has no failure event, and
+  how its `PostToolUse` acts is unmeasured. It appends, because
   Codex keys a hook's trust by its place in its list, and never changes a hook already
   there: an event has the hook only when a command is exactly the one it writes, or that
   with the path unquoted, in a group that runs for everything (no matcher, `""` or `"*"`).
@@ -533,6 +558,17 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   clouds drift out and up 3 cells, to the cell's top, and fade over 520 ms while the sprite
   comes back up; it is gone at 1 s. It plays through `play`, and moves the sprite, not the
   box, whose `top` is a stamp's.
+- A `tests-passed` or `tests-failed` result plays a verdict (`verdicts`), one per agent: the
+  next replaces it. While it shows, the sprite is drawn with `tube: false`, so a testing
+  creature holds no tube of its own. Both are in 3 px cells with the stamp's dark outline,
+  and stay in the cell through every step. Passed: a gold thumbs up, 7 by 7 cells, its right
+  edge at the tube's (42 px), shows from 6 px low and rises to 16 px down the cell at 30 ms,
+  holds, and fades over 600 ms from 1.4 s; gone at 2 s. Failed: the tube, glass over the
+  theme's accent, drawn first just where the sprite held it (36..42 by 19..40 px). It tips
+  left at 80 ms, lies on its side along the cell's floor at 180 ms, and at 480 ms its liquid
+  has run out of its mouth into a puddle on the left. It fades over 600 ms from 1.7 s; gone
+  at 2.3 s. Each frame of the fall is its own layer, shown in its step, as the signpost's
+  turn is. Failed tests make no smoke.
 - Commands act on the current agent, as marked: `pick` opens the picker as a dialog,
   `reroll` saves a random seed, `reset` clears the label. With no agent they do nothing.
 

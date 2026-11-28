@@ -347,6 +347,133 @@ test("a failure only counts for a command of the agent's own, not interrupted, a
   assert.equal(result().length, 1, "a huge failure is read quickly, and its output's words are not the hook's");
 });
 
+// Claude Code's PostToolUse, as 2.1.332 sends it for a Bash command that exits 0: no exit
+// code, only the output in `tool_response`, after the input.
+const success = (command, fields = {}, input = {}) => ({
+  session_id: "s",
+  transcript_path: "/t.jsonl",
+  cwd: "/repo",
+  prompt_id: "p",
+  permission_mode: "default",
+  effort: { level: "medium" },
+  hook_event_name: "PostToolUse",
+  tool_name: "Bash",
+  ...fields,
+  tool_input: { command, description: "Run it", ...input },
+  tool_response: { stdout: "ℹ pass 1\nℹ fail 0", stderr: "", interrupted: false, isImage: false, noOutputExpected: false },
+  tool_use_id: "toolu_01",
+  duration_ms: 1149,
+});
+
+test("a failed test command reports failed tests, not a failed command", async () => {
+  const commands = [
+    "npm test",
+    "cd app && pnpm test",
+    "(cd app && npm test)",
+    "node --test 'tests/*.test.mjs'",
+    "uv run pytest -x",
+    // A redirect's `&` ends no command.
+    "npm test 2>&1",
+    "npm test > out.log 2>&1",
+    "npm test &> out.log",
+    // After a `;` or a newline, an earlier command's result is lost: the tests' is the one.
+    "npm run lint; npm test",
+    "npm test;",
+    "npm run lint\nnpm test\n",
+    "cd app &&\nnpm test",
+    // A quoted string's `;` or `|` is no command's end.
+    'pytest -k "a or b; c"',
+    "npm test -- -t 'a | b'",
+  ];
+  for (const command of commands) {
+    rmSync(join(dir, "labels"), { force: true });
+    ok(await hook("fail", { ...failure(), tool_input: { command, description: "Test it" } }));
+    assert.match(result()[0] ?? "", /^pixel\.result=tests-failed\.\d+$/, command);
+  }
+  // The command's exit code is another program's: it failed, but maybe not its tests. A pipe
+  // or `||` gives it, a command after the tests does, and so does one before them with `&&`.
+  for (const command of [
+    "npm test | tail -20",
+    "npm test 2>&1 | grep -q FAIL",
+    "pytest || exit 3",
+    "npm run build",
+    "npm test && npm run lint",
+    "cargo test && cargo clippy -- -D warnings",
+    "npm test; npm run lint",
+    "npm test\nnpm run lint",
+    "npm run build && npm test",
+    // An `&&` at a line's end, or a line that goes on after a backslash, joins the next line.
+    "npm run build &&\nnpm test",
+    "npm run build && \\\nnpm test",
+    "npm test; npm run test:e2e",
+    `npm run lint; npm test ${"x".repeat(600)}`,
+    // Tests named in a quoted string are not run.
+    'git commit -m "wip; npm test later"',
+    'git commit -m "wip\n\nnpm test passes"',
+    'echo "x; npm test y',
+  ]) {
+    rmSync(join(dir, "labels"), { force: true });
+    ok(await hook("fail", { ...failure(), tool_input: { command, description: "Run it" } }));
+    assert.match(result()[0] ?? "", /^pixel\.result=failed\.\d+$/, command);
+  }
+});
+
+test("a test command that passed sets pixel.result to a new tests-passed value each time", async () => {
+  seed(["pixel.work=testing"]);
+  ok(await hook("pass", success("npm test")));
+  const [first] = result();
+  assert.match(first ?? "", /^pixel\.result=tests-passed\.\d+$/);
+  ok(await hook("pass", success("cargo test --workspace", { tool_name: "shell" })));
+  const [second] = result();
+  assert.match(second ?? "", /^pixel\.result=tests-passed\.\d+$/, "Codex's name for its shell too");
+  assert.notEqual(second, first, "two passes in a row are two results");
+  assert.ok(labels().includes("pixel.work=testing"), "what the agent does is the next tool's to say");
+  assert.equal(calls().length, 2, "one hc call each");
+  // A chain that passed ran every command in it to a good end, so commands before the tests
+  // with `&&` are no matter.
+  for (const command of ["npm run build && npm test", "cd app && pnpm test 2>&1", "npm run lint; npm test"]) {
+    rmSync(join(dir, "labels"), { force: true });
+    ok(await hook("pass", success(command)));
+    assert.match(result()[0] ?? "", /^pixel\.result=tests-passed\.\d+$/, command);
+  }
+});
+
+test("only the agent's own test commands that ran to the end pass; any other tool calls no hc", async () => {
+  const runs = [
+    success("npm run build"),
+    success("ls -la"),
+    success("git commit -m 'npm test'"),
+    // Its exit code is another program's: `npm test | tail` ends as `tail` does.
+    success("npm test 2>&1 | tail -20"),
+    success("npm test || true"),
+    // So is a command's after the tests, and the tests' own may be lost after a `;`.
+    success("npm test; echo exit=$?"),
+    success("npm test && npm run lint"),
+    success("npm test; npm run test:e2e"),
+    // Sent to the background by the shell, it has only started.
+    success("npm test &"),
+    // Tests named in a quoted string are not run.
+    success('git commit -m "wip; npm test later"'),
+    success("git commit -m 'wip\n\nnpm test passes'"),
+    success('echo "x; npm test y"'),
+    // Cut at 512 bytes, what comes after the cut is unknown.
+    success(`npm test ${"x".repeat(600)}; echo done`),
+    // In the background, it has only started: sent there, or moved there when it outlived
+    // its timeout. Claude Code 2.1.332 says so in `tool_response`, and its end fires no hook.
+    { ...success("npm test", {}, { run_in_background: true }), tool_response: { stdout: "", stderr: "", interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: "bx2zl1tmp" } },
+    { ...success("npm test", {}, { timeout: 2000 }), tool_response: { stdout: "", stderr: "", interrupted: false, isImage: false, noOutputExpected: false, backgroundTaskId: "b75svf0fj", timedOutAfterMs: 2000 } },
+    success("npm test", { agent_id: "a1", agent_type: "general-purpose" }),
+    { ...success("npm test"), tool_name: "Read", tool_input: { file_path: "/repo/package.json" } },
+    // The input can hold the hook's own keys: only the head's count.
+    { ...success("x"), tool_name: "mcp__x__y", tool_input: { tool_name: "Bash", command: "npm test" } },
+    { ...success("x"), tool_name: "Write", tool_input: { file_path: "/a", content: `"command":"npm test" ${"x".repeat(2_000_000)}` } },
+  ];
+  for (const input of runs) ok(await hook("pass", input));
+  ok(await hook("pass", success("npm test"), { HC_TERMINAL_ID: "" }));
+  assert.deepEqual(calls(), []);
+  assert.deepEqual(labels(), []);
+});
+
 test("a stalled hc gives up within the hook's 5 s timeout, quietly, on every action", async () => {
   const runs = await Promise.all([
     hook("start", { agent_id: "a1" }, { FAKE_STALL: "1" }),
@@ -357,6 +484,7 @@ test("a stalled hc gives up within the hook's 5 s timeout, quietly, on every act
     hook("fail", failure(), { FAKE_STALL: "1" }),
     hook("compact", preCompact(), { FAKE_STALL: "1" }),
     hook("clear", session("compact"), { FAKE_STALL: "1" }),
+    hook("pass", success("npm test"), { FAKE_STALL: "1" }),
   ]);
   for (const r of runs) {
     ok(r);

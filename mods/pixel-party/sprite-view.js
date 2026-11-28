@@ -300,6 +300,7 @@ function tail(sprite) {
  * @property {Element} left The left foot's layer.
  * @property {Element} right The right foot's layer.
  * @property {Element} torso The body and eyes, as one layer.
+ * @property {boolean} tube Whether it holds its test tube when testing.
  */
 
 /**
@@ -487,11 +488,12 @@ const WORK = {
     },
   },
   // Running tests: a test tube at its right, bubbles lighting from the bottom of its liquid
-  // up and out of it, which the creature watches.
+  // up and out of it, which the creature watches. Without the tube, it only watches.
   testing: {
     eyes: "look",
-    build({ u, nudge, t, torso }) {
+    build({ u, nudge, t, torso, tube: held }) {
       torso.loop("top", { from: 0, to: -nudge, period: 900 });
+      if (!held) return { behind: [], front: [] };
       // Two columns at the right edge, where no kind has an eye: glass over liquid.
       const tube = [mark([[10, 5, 2, 3]], PROP.glass, u), mark([[10, 8, 2, 4]], t.accent, u)];
       const side = Math.floor((u - nudge) / 2);
@@ -655,9 +657,11 @@ function accents(status, u) {
  *   takes the status's place: no status look, motion or way of working is drawn.
  * @param {number} [options.stage] How long the status has held, as the number of its
  *   STAGES reached (default 0, also when its start is unknown). No look uses it yet.
+ * @param {boolean} [options.tube] Whether a testing creature holds its test tube (default
+ *   true). The drawer takes it away while it shows how the tests came out.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0 } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage: _stage = 0, tube = true } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
@@ -677,7 +681,7 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
 
   // Working, the way of working moves the parts and draws its own marks; a turn, the same.
   /** @type {Parts} */
-  const parts = { u, size, nudge, t: /** @type {Theme} */ (theme()), sprite, left, right, torso };
+  const parts = { u, size, nudge, t: /** @type {Theme} */ (theme()), sprite, left, right, torso, tube };
   const worked = shot ? shot.build({ ...parts, id: `${id}-${turn.kind}-${turn.n}`, step: turn.step }) : how?.build(parts);
   if (look === "done") {
     figure.loop("top", { from: 0, to: -u, period: 700, easing: "ease-out" });

@@ -31,6 +31,9 @@ move according to what their agents are doing.
   on rewind, jittering under a blinking `◀◀`.
 - **Smoke.** With [the same hooks](#failed-commands), a command an agent runs that fails
   makes its creature cough, and a puff of black smoke goes up from its face.
+- **Test results.** With [the same hooks](#test-results), tests that pass get a thumbs up
+  in front of the creature's right side, and tests that fail make it drop its test tube,
+  which spills.
 - **Worker bees.** Every helper an agent starts is a little figure that flies out of its
   creature from a puff of smoke and stays beside it until the helper ends: a sheep for a
   terminal started with `hc run`, with no setup, and a honey bee for a sub-agent, with
@@ -177,7 +180,8 @@ The whole puff takes about a second. Each failure is a puff of its own, so two i
 are two puffs.
 
 A failure is a shell command that ends with an exit code other than 0. A failed read or
-edit is not one, nor a command the person interrupts, nor one a sub-agent runs. It needs
+edit is not one, nor a command the person interrupts, nor one a sub-agent runs, and failed
+[tests](#test-results) show their own way. It needs
 the hook `just hooks` installs: [`tools/bee-hook.sh fail`](#worker-bees) on Claude Code's
 `PostToolUseFailure`, which Claude Code sends for exactly these. Codex has no such event,
 so a Codex creature never smokes. The hook keeps a `pixel.result` label on the agent's
@@ -185,6 +189,32 @@ terminal, with a new value for each failure. Any agent can report one itself:
 
 ```sh
 hc label "$HC_TERMINAL_ID" pixel.result=failed.$$   # a new value each time
+```
+
+## Test results
+
+When a Claude Code agent's tests pass, its creature puts its test tube down and a thumbs
+up pops up in front of its right side, holds a moment and fades. When they fail, the
+creature drops the tube: it tips over, lands on its side, and the liquid runs out of it
+into a puddle before it all fades. Each takes about two seconds, and the next tests start over.
+
+Tests are a shell command the [ways of working](#ways-of-working) call testing, such as
+`npm test`, `cargo test`, `pytest` or `node --test`, and their result is the command's exit
+code. So the tests must be the command's last part and its only test run: `npm test &&
+npm run lint` ends as the lint does, and `npm test; echo done` as `echo` does. A command
+with a pipe or `||` in it shows none either, as `npm test | tail` ends as `tail` does and
+`npm test || true` always ends well. Nor does `npm run build && npm test` show failed tests
+when it fails, as the build may be what failed, though it shows passed ones; only a `cd`
+may come before the tests that way. A command like these that fails is then only a
+[failed command](#failed-commands). A test command in the background shows nothing, whether
+it was sent there or outlived its timeout: Claude Code sends no hook when it ends. It needs
+two of the hooks `just hooks` installs: [`tools/bee-hook.sh pass`](#worker-bees) on Claude
+Code's `PostToolUse`, which it sends after each tool that ran to the end, and `fail`, as for
+a failed command. Codex has no event for a failed command, and how its `PostToolUse` acts
+is unmeasured, so a Codex creature shows neither. Any agent can report its own tests:
+
+```sh
+hc label "$HC_TERMINAL_ID" pixel.result=tests-passed.$$   # or tests-failed; a new value each time
 ```
 
 ## Magic arrivals
@@ -281,8 +311,8 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
   just hooks             # both, or `just hooks claude` / `just hooks codex`
   ```
 
-  It adds seven hooks to `~/.claude/settings.json` and six to `~/.codex/hooks.json` (Codex
-  has no event for a failed command) after the ones already there, keeps the file as it was beside it (`.bak-pixel-party-<time>`), and
+  It adds eight hooks to `~/.claude/settings.json` and six to `~/.codex/hooks.json` (Codex
+  has no event for a failed command, so it gets neither hook for a command's result) after the ones already there, keeps the file as it was beside it (`.bak-pixel-party-<time>`), and
   is safe to run again. It never changes a hook that is already there: if one of yours
   also runs a `bee-hook.sh` (even this one, under a matcher that limits it to some tools),
   the new hook goes after it and a note says so. A file it
@@ -301,13 +331,15 @@ shows `hc` helpers as bees. Now, two `hc` helpers and one sub-agent look like th
       "PreToolUse": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh tool", "timeout": 5 }] }],
       "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh think", "timeout": 5 }] }],
       "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh fail", "timeout": 5 }] }],
-      "PreCompact": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh compact", "timeout": 5 }] }]
+      "PreCompact": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh compact", "timeout": 5 }] }],
+      "PostToolUse": [{ "hooks": [{ "type": "command", "command": "/path/to/herdr-mod-pixel-art/tools/bee-hook.sh pass", "timeout": 5 }] }]
     }
   }
   ```
 
   The hook does nothing outside an `hc` terminal, and gives up on an `hc` call after 2
-  seconds. The tool hook takes about 30 ms, so each tool waits that long to start. `clear` removes
+  seconds. The tool hook takes about 30 ms, so each tool waits that long to start. After a
+  tool, `pass` calls `hc` only for tests that passed. `clear` removes
   the labels a killed session left behind, `pixel.work` and `pixel.result` too. It keeps the labels of
   a program still running on the same terminal (an agent's own `claude -p` starts a session
   too): the `pixel.hive` label names the program that owns them. Any other agent can do the same from its own hooks:
@@ -358,7 +390,8 @@ declarations in `types/`.
 The mod runs `hc label` to save a choice. The optional bee hook runs `hc label` and
 `hc get` on its own agent's terminal. Before a shell command it reads the command's
 first 512 bytes and keeps only its kind (testing, building, installing, git or other) in
-the `pixel.work` label; `just hooks` edits Claude Code's and Codex's hook
+the `pixel.work` label, and after one it keeps only whether it failed, or whether its tests
+passed, in the `pixel.result` label; `just hooks` edits Claude Code's and Codex's hook
 files and keeps a backup of each. Edit tracking watches local agent
 repositories (and the git folder of a linked worktree), runs Git to count changes and
 read HEAD's reflog for new commits and its other moves (with `tail`), and reads up to 50 untracked files per

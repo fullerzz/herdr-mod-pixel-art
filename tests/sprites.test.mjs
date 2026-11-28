@@ -345,6 +345,15 @@ test("the ways for kinds of command move their props: bubbles light in turn, the
     assert.ok(tube.slice(3).flat().every((c) => c === t.accent || c === "#ffffff"), "liquid with bubbles in it fills the tube's foot, at the right edge");
     assert.ok(tube.slice(0, 3).flat().every((c) => c !== null && c !== t.accent), "glass over it");
 
+    // While the drawer shows how the tests came out, the creature has put its tube down.
+    const empty = spriteElement(sprite, { id: "s", px: 1, status: "working", work: "testing", tube: false });
+    const bare = raster(empty).slice(5).map((row) => row.slice(10));
+    assert.ok(bare.flat().every((c) => c !== "#cfe3ea" && c !== t.accent), "no tube without it");
+    assert.ok(!loops(empty).some((l) => l.color === "#ffffff"), "and no bubbles");
+    assert.ok(loops(empty).some((l) => l.property === "top"), "it still bobs as it watches");
+    assert.equal(tree(spriteElement(sprite, { id: "s", status: "working", work: "testing", tube: true })), tree(working(sprite, "testing")), "it holds the tube by default");
+    assert.equal(tree(spriteElement(sprite, { id: "s", status: "working", work: "reading", tube: false })), tree(working(sprite, "reading")), "only testing has a tube to put down");
+
     const building = loops(working(sprite, "building"));
     const rise = building.find((l) => l.property === "top" && l.color === "#a4553a");
     const reel = building.find((l) => l.property === "height");

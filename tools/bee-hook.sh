@@ -5,7 +5,8 @@
 # - `pixel.work`, what the agent is doing: one of sprite-view.js's WORKS. The drawer's
 #   creature works that way; without the label it works its own way.
 # - `pixel.result`, the last result a tool had: `<kind>.<nonce>`, new for each one, so the
-#   drawer plays it once however many come in a row. Only `failed`, a failed command, so far.
+#   drawer plays it once however many come in a row: `failed`, a failed command, or a test
+#   command's own result, `tests-passed` or `tests-failed`.
 #
 #   bee-hook.sh start   a sub-agent started: add its label        (Claude Code: SubagentStart)
 #   bee-hook.sh stop    a sub-agent ended: remove its label       (Claude Code: SubagentStop)
@@ -13,7 +14,9 @@
 #   bee-hook.sh tool    a tool is about to run: what it does      (Claude Code: PreToolUse)
 #                       A shell command says more: testing, building, installing or git.
 #   bee-hook.sh think   a prompt came in: it thinks               (Claude Code: UserPromptSubmit)
-#   bee-hook.sh fail    a tool failed: a failed command coughs smoke (Claude Code: PostToolUseFailure)
+#   bee-hook.sh fail    a tool failed: a failed command coughs smoke, failed tests drop
+#                       their tube                                (Claude Code: PostToolUseFailure)
+#   bee-hook.sh pass    a tool ran to the end: passed tests, a thumbs up (Claude Code: PostToolUse)
 #   bee-hook.sh compact the context is about to be compacted        (Claude Code: PreCompact)
 #                       It ends at the compaction's session start: `clear` takes the way away.
 #
@@ -29,13 +32,13 @@ action="${1:-}"
 LC_ALL=C
 export LC_ALL
 case "$action" in
-  tool | think)
-    # These run before every tool and prompt, so they parse only the head of the hook's
+  tool | think | pass)
+    # These run around every tool and prompt, so they parse only the head of the hook's
     # JSON, up to the tool's own input: an input can be megabytes (a Write), with keys of
     # its own named like the hook's. Claude Code puts `agent_id` and `tool_name` before it,
     # after short fields only. A shell tool's command is the one thing read from the input,
-    # from its first 512 bytes. The rest is read and thrown away unparsed, so the agent's
-    # write never finds the pipe closed.
+    # from its first 512 bytes, and after a tool whether it went to the background. The rest
+    # is read and thrown away unparsed, so the agent's write never finds the pipe closed.
     input="$(head -c 8192 2>/dev/null || true)"
     cat >/dev/null 2>&1 || true
     # What comes after is the tool's own input: only a shell tool's command is read from it.
@@ -52,6 +55,10 @@ case "$action" in
     all="$(cat 2>/dev/null || true)"
     case "$(printf '%s' "$all" | tail -c 64)" in *'"is_interrupt":true'* | *'"is_interrupt": true'*) interrupted=1 ;; esac
     input="$(printf '%s' "$all" | head -c 8192)"
+    case "$input" in
+      *'"tool_input"'*) tool_input="${input#*\"tool_input\"}" ;;
+      *) tool_input="" ;;
+    esac
     input="${input%%\"tool_input\"*}"
     ;;
   # The others are rare, and no order of their fields is promised: all of it.
@@ -167,6 +174,46 @@ command_work() {
   done
 }
 
+# The shell command ran tests, and its exit code, which `$1` says how it ended (pass or
+# fail), is theirs. The tests are its last command and its only test run: `npm test && npm
+# run lint` ends as the lint does, and in `npm test; npm run test:e2e` the first run's result
+# is lost. Not with a pipe or `||`: `npm test | tail` ends as `tail` does, and `npm test ||
+# true` always passes. A failure counts only when nothing but a `cd` comes before the tests
+# with `&&`, as `npm run build && npm test` fails when the build does. Not a command cut at
+# 512 bytes, whose end is unknown, nor one the shell sends to the background (`npm test &`).
+# A quoted string is one word, whatever it holds (`git commit -m "wip; npm test"`), and a
+# quote with no end shows nothing. A subshell: its settings and words stay its own.
+tests_ran() (
+  set -f
+  cmd="$(command_of)"
+  # The command's closing quote is in what was read: it was not cut.
+  case "$(printf '%.512s' "$tool_input")" in *"\"$cmd\""*) ;; *) return 1 ;; esac
+  # JSON writes a `"` as `\"`.
+  cmd="$(printf '%s' "$cmd" | sed -e 's/\\"[^"]*\\"/Q/g' -e "s/'[^']*'/Q/g")"
+  case "$cmd" in *[\"\']* | *'|'*) return 1 ;; esac
+  # A newline (`\n` in JSON) ends a command as `;` does, unless a backslash or `&&` goes on
+  # past it, and a redirect's `&` (`2>&1`, `&>`) ends none. A subshell's brackets keep no
+  # result of their own.
+  cmd="$(printf '%s' "$cmd" | sed -e 's/\\\\\\n/ /g' -e 's/&&[[:space:]]*\\n/\&\& /g' -e 's/\\n/;/g' \
+    -e 's/[<>]&/>/g' -e 's/&>/>/g' -e 's/[()`]/ /g' -e 's/[[:space:];]*$//')"
+  case "$cmd" in *'&') return 1 ;; esac
+  last="${cmd##*[;&]}"
+  [ "$(command_work "$last")" = testing ] || return 1
+  before="${cmd%"$last"}"
+  IFS=';&'
+  for part in $before; do
+    [ "$(command_work "$part")" != testing ] || return 1
+  done
+  [ "$1" = fail ] || return 0
+  IFS='&'
+  for part in ${before##*;}; do
+    IFS=' 	'
+    # shellcheck disable=SC2086
+    set -- $part
+    [ "${1:-cd}" = cd ] || return 1
+  done
+)
+
 # What the agent is doing, by the tool it is about to run: Claude Code's names and Codex's.
 # A tool not named here is no clue: the label goes, and the creature works its own way.
 work_of() {
@@ -202,9 +249,22 @@ case "$action" in
     # sub-agent's failure is its bee's business; one the person interrupted is no failure.
     [ -z "$id" ] && [ -z "${interrupted:-}" ] || exit 0
     case "$(field tool_name)" in
-      # This hook's pid makes the value new for each failure.
-      Bash | shell | local_shell | exec_command) hc2 label "$HC_TERMINAL_ID" "pixel.result=failed.$$" ;;
+      Bash | shell | local_shell | exec_command)
+        if tests_ran fail; then kind=tests-failed; else kind=failed; fi
+        # This hook's pid makes the value new for each failure.
+        hc2 label "$HC_TERMINAL_ID" "pixel.result=$kind.$$"
+        ;;
     esac
+    ;;
+  pass)
+    # Claude Code sends this for every tool that ran to the end, so it calls hc only for
+    # tests of the agent's own that passed. A command in the background has only started:
+    # one sent there, or one that outlived its timeout, gets this with a `backgroundTaskId`
+    # after its empty output, and its end gets no hook.
+    [ -z "$id" ] || exit 0
+    case "$(field tool_name)" in Bash | shell | local_shell | exec_command) ;; *) exit 0 ;; esac
+    case "$tool_input" in *'"backgroundTaskId"'*) exit 0 ;; esac
+    tests_ran pass && hc2 label "$HC_TERMINAL_ID" "pixel.result=tests-passed.$$"
     ;;
   compact)
     [ -z "$id" ] || exit 0

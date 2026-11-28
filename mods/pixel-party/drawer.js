@@ -22,7 +22,9 @@
 // move plug into the same table (`ONE_SHOTS`), one entry each.
 //
 // A command an agent runs that fails is a puff of black smoke: the creature coughs, and the
-// smoke goes up from its face and clears.
+// smoke goes up from its face and clears. Tests show how they came out instead: passed, a
+// thumbs up pops up over the creature's right side; failed, it drops its test tube, which
+// spills.
 //
 // A new agent arrives by a magic trick: a wand taps the empty cell, a puff of smoke and
 // sparkles goes up, and the creature is there when it clears. "Abracadabra!" stands in for
@@ -69,6 +71,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @property {Exit | null} exit The trick it leaves by, if it is gone.
  * @property {Puff | null} puff The puff a new bee of its flies out of, if any.
  * @property {Soot | null} soot The black smoke a failed command of its coughs up, if any.
+ * @property {Verdict | null} verdict How its last tests came out, while that shows.
  * @property {Flier[]} bees Its helpers, as bees.
  * @property {string | null} work What it is doing, as its hooks say (`pixel.work`), if they do.
  * @property {number} stage How many of its status's STAGES it has held for: 0 when its start is unknown.
@@ -93,10 +96,16 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
  * @typedef {{ first: string, steps: [ms: number, step: string | null][], draw: (t: Theme, address: string, shot: Shot) => Element, hides?: boolean }} OneShot
  */
 /** @typedef {Show<"cough" | "rise">} Soot Black smoke from a failed command. */
+/** @typedef {"raise" | "up" | "fade"} ThumbStep */
+/** @typedef {"hold" | "tip" | "fall" | "spill" | "fade"} DropStep */
+/**
+ * How tests came out: passed, a thumbs up; failed, the test tube dropped.
+ * @typedef {Show<ThumbStep | DropStep> & { passed: boolean }} Verdict
+ */
 
 /**
  * A result an agent's hooks reported since it was last drawn: the kind its `pixel.result`
- * label names ("failed").
+ * label names ("failed", "tests-passed", "tests-failed").
  * @typedef {{ address: string, kind: string }} Report
  */
 
@@ -160,11 +169,15 @@ const PUFF_STEPS = [[BEE_HOLD + 20, "clear"], [800, null]];
 /** @type {[ms: number, step: Soot["step"] | null][]} After "cough": the smoke goes up and clears. */
 const SOOT_STEPS = [[250, "rise"], [1000, null]];
 const COUGH = 2; // px the creature lurches down as it coughs
+/** @type {[ms: number, step: ThumbStep | null][]} After "raise": it pops up, holds, and fades. */
+const THUMB_STEPS = [[30, "up"], [1400, "fade"], [2000, null]];
+/** @type {[ms: number, step: DropStep | null][]} After "hold": the tube tips, lands on its side, spills, and fades. */
+const DROP_STEPS = [[80, "tip"], [180, "fall"], [480, "spill"], [1700, "fade"], [2300, null]];
 const TRICK_WORD = "Abracadabra!";
 const EXIT_WORD = "Poof!";
 /** The label an agent's hooks keep what it is doing in (`tools/bee-hook.sh`): one of sprite-view's WORKS. */
 const WORK = "pixel.work";
-/** The label an agent's hooks keep its last result in (`tools/bee-hook.sh fail`): `<kind>.<nonce>`, new for each one. */
+/** The label an agent's hooks keep its last result in (`tools/bee-hook.sh fail` and `pass`): `<kind>.<nonce>`, new for each one. */
 const RESULT = "pixel.result";
 
 /** @type {Record<Status, string>} */
@@ -247,6 +260,8 @@ export default class Drawer {
   reports = [];
   /** @type {Map<string, Soot>} By agent address. */
   soots = new Map();
+  /** @type {Map<string, Verdict>} By agent address: one at a time, so the next tests replace it. */
+  verdicts = new Map();
   /** @type {Map<string, number | null>} When each agent's status began, ms since the epoch, by address; null when unknown. */
   since = new Map();
   /** @type {Map<string, number>} Each agent's stage on the last draw, by address. */
@@ -560,7 +575,11 @@ export default class Drawer {
     this.react(cx);
     this.clock(list, now, cx);
     this.reported(list, byAddress);
-    for (const { address, kind } of this.reports) if (kind === "failed") this.play(this.soots, address, "cough", SOOT_STEPS, cx);
+    for (const { address, kind } of this.reports) {
+      if (kind === "failed") this.play(this.soots, address, "cough", SOOT_STEPS, cx);
+      else if (kind === "tests-passed") this.play(this.verdicts, address, "raise", THUMB_STEPS, cx, { passed: true });
+      else if (kind === "tests-failed") this.play(this.verdicts, address, "hold", DROP_STEPS, cx, { passed: false });
+    }
     if (!list.length && !this.ghosts.size) {
       this.drawn = [];
       return div();
@@ -584,6 +603,7 @@ export default class Drawer {
         exit: /** @type {Exit | null} */ (null),
         puff: this.puffs.get(a.address) ?? null,
         soot: this.soots.get(a.address) ?? null,
+        verdict: this.verdicts.get(a.address) ?? null,
         bees: bees.get(a.address) ?? [],
         work: byAddress.get(a.address)?.labels?.[WORK] ?? null,
         stage: this.stages.get(a.address) ?? 0,
@@ -596,7 +616,7 @@ export default class Drawer {
       const ghost = this.ghosts.get(old.a.address);
       const exit = this.exits.get(old.a.address);
       if (!ghost || !exit) continue;
-      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, stamp: null, move: null, trick: null, exit, puff: null, soot: null, bees: [] });
+      items.splice(Math.min(i, items.length), 0, { ...ghost, line: EXIT_WORD, on: false, hit: null, stamp: null, move: null, trick: null, exit, puff: null, soot: null, verdict: null, bees: [] });
     }
     this.drawn = items;
 
@@ -1020,6 +1040,88 @@ const ONE_SHOTS = {
   reset: { first: "front", steps: REWIND_STEPS, draw: rewindElement, hides: true },
 };
 
+// A thumbs up, 7 by 7 cells: the thumb up, the fist under it with its fingers to the right.
+// h the hand, f the folds between the fingers.
+const THUMB = [
+  "...hh..",
+  "...hh..",
+  "..hhh..",
+  "hhhhhhh",
+  "hhfffff",
+  "hhhhhhh",
+  ".hfffff",
+];
+/** @type {Record<string, Color>} A hand of its own gold, the stamp's outline round it. */
+const THUMB_PAINT = { h: "#ffcf4a", f: "#d99a2b" };
+const THUMB_RUNS = runsOf(THUMB);
+const THUMB_W = THUMB[0].length * STAMP_PX;
+const THUMB_H = THUMB.length * STAMP_PX;
+const THUMB_X = CELL - 6 - THUMB_W; // px: over the creature's right side, its right edge the tube's
+const THUMB_TOP = 16; // px, up
+const THUMB_RISE = 6; // px it pops up by
+
+// The test tube from the sprite's testing, falling. Its 10 by 8 cells have the upright tube in
+// the two columns at the right, just where the sprite holds it (36..42 by 19..40 in the cell),
+// and room to the left for it to fall into. g glass, a the liquid, the theme's accent as in
+// the sprite. It tips to its left and lands on its side, open end first, and the liquid runs
+// out of it into a puddle.
+/** @type {Record<"hold" | "tip" | "fall" | "spill", string[]>} */
+const TUBE = {
+  hold: ["........gg", "........gg", "........gg", "........aa", "........aa", "........aa", "........aa", ".........."],
+  tip: ["..........", "..........", "....gg....", ".....gg...", "......gaa.", ".......aaa", "........aa", ".........."],
+  fall: ["..........", "..........", "..........", "..........", "..........", "..........", "...gggaaaa", "...gggaaaa"],
+  spill: ["..........", "..........", "..........", "..........", "..........", "..........", "...ggggggg", "aaaggggggg"],
+};
+const TUBE_RUNS = /** @type {Record<keyof typeof TUBE, [x: number, y: number, w: number, c: string][]>} */ (
+  Object.fromEntries(Object.entries(TUBE).map(([step, grid]) => [step, runsOf(grid)]))
+);
+const TUBE_X = 6 + 10 * PX - 8 * STAMP_PX; // px: the box's left, so its 9th column is the sprite's 11th
+const TUBE_TOP = 4 + 5 * PX; // px: its top row is the sprite's 6th, the tube's top
+const GLASS = "#cfe3ea"; // the sprite's glass
+
+// How tests came out, beside the creature, which has put its own tube down meanwhile.
+// Passed: a thumbs up, unseen a little low, pops up, holds and fades. Failed: the tube, drawn
+// where the creature held it, tips over, lands on its side, spills, and fades. Each frame of
+// the fall is its own layer, shown in its step, as the signpost's turn is. The ids carry the
+// verdict's number, so the next tests start over.
+/**
+ * @param {Theme} t
+ * @param {string} address
+ * @param {Verdict} verdict
+ * @returns {Element}
+ */
+function verdictElement(t, address, { n, step, passed }) {
+  const id = `pp-verdict-${address}-${n}`;
+  if (passed) {
+    return div()
+      .id(id)
+      .absolute()
+      .left(THUMB_X)
+      .top(THUMB_TOP + (step === "raise" ? THUMB_RISE : 0))
+      .w(THUMB_W)
+      .h(THUMB_H)
+      .opacity(step === "up" ? 1 : 0)
+      .transition("top", { duration: 220, easing: "ease-out" })
+      .transition("opacity", step === "fade" ? { duration: 600, easing: "ease-in" } : { duration: 120, easing: "ease-out" })
+      .children(pixels(THUMB_RUNS, (c) => THUMB_PAINT[c], OUTLINE));
+  }
+  const frame = step === "fade" ? "spill" : step;
+  /** @type {(c: string) => Color} */
+  const paint = (c) => (c === "g" ? GLASS : t.accent);
+  const frames = /** @type {const} */ (["hold", "tip", "fall", "spill"]).map((at) =>
+    div().id(`${id}-${at}`).absolute().left(0).top(0).size_full().opacity(frame === at ? 1 : 0).transition("opacity", { duration: 40 }).children(pixels(TUBE_RUNS[at], paint, OUTLINE)));
+  return div()
+    .id(id)
+    .absolute()
+    .left(TUBE_X)
+    .top(TUBE_TOP)
+    .w(10 * STAMP_PX)
+    .h(8 * STAMP_PX)
+    .opacity(step === "fade" ? 0 : 1)
+    .transition("opacity", { duration: 600, easing: "ease-in" })
+    .children(frames);
+}
+
 // The bees in the lanes under the sprite's box. Each has a place by its position in the
 // list, so when one leaves the ones after it glide up a place. A new bee starts unseen in
 // the middle of the sprite.
@@ -1065,14 +1167,15 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // rises after. A trick hides the sprite until it reveals it, an exit hides it under its
 // smoke, a one-shot that draws the creature itself hides it while it plays, and a new bee's
 // puff goes over its middle. A failed command's black smoke goes over its face and up, while
-// the sprite lurches with the cough; the box's own top is the stamp's.
+// the sprite lurches with the cough; the box's own top is the stamp's. How tests came out
+// goes beside it, while it holds no tube of its own.
 /**
  * @param {Theme} t
  * @param {Item} it
  * @param {"left" | "right" | "bottom"} side
  * @returns {Element}
  */
-function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, work, stage, turn }, side) {
+function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, verdict, bees, work, stage, turn }, side) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
   const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
@@ -1098,6 +1201,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, wor
       hit: hit && { n: hit.n, damage: hit.removed > 0, live: hit.live, size: hit.size },
       stage,
       turn,
+      tube: !verdict,
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
       .when(Boolean(shot?.hides), (el) => el.opacity(0))
@@ -1109,6 +1213,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, wor
     .when(Boolean(exit), (el) => el.child(trickElement(`pp-exit-${a.address}-${exit.n}`, exit.step)))
     .when(Boolean(puff), (el) => el.child(smoke(`pp-puff-${a.address}-${puff.n}`, CENTER, BEE_PX, puff.step === "clear")))
     .when(Boolean(soot), (el) => el.child(smoke(`pp-soot-${a.address}-${soot.n}`, FACE, BEE_PX, soot.step === "rise", SOOT)))
+    .when(Boolean(verdict), (el) => el.child(verdictElement(t, a.address, verdict)))
     .when(Boolean(shot), (el) => el.child(shot.draw(t, a.address, move)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el

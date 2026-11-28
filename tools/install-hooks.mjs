@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Adds the bee hooks (tools/bee-hook.sh) to Claude Code's and Codex's own hook files, so
 // their sub-agents show as bees and their creatures do what the agent does (and, for Claude
-// Code, cough smoke when a command fails). Both keep hooks
+// Code, cough smoke when a command fails and show how tests came out). Both keep hooks
 // as JSON, in the same shape:
 //
 //   Claude Code   ~/.claude/settings.json   (or $CLAUDE_CONFIG_DIR)
@@ -43,8 +43,11 @@ export const EVENTS = /** @type {const} */ ({
   PreCompact: "compact",
 });
 
-/** Claude Code's events beyond those. Codex (0.172) has no event for a failed tool. */
-export const CLAUDE_EVENTS = /** @type {const} */ ({ ...EVENTS, PostToolUseFailure: "fail" });
+/**
+ * Claude Code's events beyond those: a tool that failed, and one that ran to the end. Codex
+ * (0.172) has no event for a failed tool, and what its PostToolUse means is unmeasured.
+ */
+export const CLAUDE_EVENTS = /** @type {const} */ ({ ...EVENTS, PostToolUseFailure: "fail", PostToolUse: "pass" });
 
 /** A file this won't change, and why. Nothing was written. */
 export class Refusal extends Error {}
