@@ -5,7 +5,8 @@ generated pixel creature. The creatures stand in a floating drawer at the window
 move according to what their agents are doing.
 
 - **Drawer.** One sprite per agent. On a side edge only the sprites show; hover slides out
-  each agent's name and what it is doing, and the creatures turn to look that way. Click a
+  each agent's name and what it is doing, and the creatures turn to look that way. While
+  you drag the drawer, the creatures hang on and sway like riders on a bus. Click a
   row to go to that agent. The current agent's creature wears a small gold crown, so even
   a closed drawer shows which agent the keys act on.
 - **Motion.** A sprite works while its agent works, sweating and reaching for coffee the

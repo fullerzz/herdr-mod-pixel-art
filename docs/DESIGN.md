@@ -192,7 +192,7 @@ these guarantees:
 ### Contract: `sprite-view.js`
 
 ```js
-export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null }): Element;
+export function spriteElement(sprite, { id, px = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null, ride = false }): Element;
 export const HIT: { added: "#3ddc6a", removed: "#ff4d5e" };
 export const FIRE: { red: "#e5381f", orange: "#ff8c1a", yellow: "#ffd447" };
 export const DOUSE: { water: "#2f8fe8", spray: "#a3d8ff", steam: "#e3eaf0", haze: "#9eabb7" };
@@ -441,8 +441,15 @@ export function daytimeOf(hour): "night" | "morning" | null;  // the part of the
   its open or glancing eyes look that way, and so does every copy a way of working draws:
   they are `look` or `look` mirrored, whichever moves the pupils (the dark eye cells) that
   way against `open`. Most `look` eyes glance right, but pip eyes glance left. Happy and
-  closed eyes are a status's cue and stay. The step is the one motion that may leave the box, by that cell; `null`
-  faces out, as before.
+  closed eyes are a status's cue and stay. The step and the ride's sway are the only motions
+  that may leave the box: the step by that cell, the sway by its reach; `null` faces out, as
+  before.
+- `ride` is a boolean, default false. Riding, everything the sprite draws, facing a way or
+  not, sways from side to side as one layer, as a rider on a bus does: `.loop("left")` from
+  minus to plus two thirds of a cell (rounded, at least 1 px; 2 px at 3 px a cell), 800 ms
+  there and back, easing in and out, around where it stands. The layer has an id of its own,
+  `<id>-ride`, so the sway runs on through every draw while the ride lasts. At rest it is the
+  sprite that does not ride. Not riding draws no such layer.
 
 ### Contract: `edits.js`
 
@@ -681,12 +688,20 @@ Picker props are `{ view: "picker", terminal, overlay }`.
 - `placement()` decides the shape. On the right edge the sprite cell is on the right. On
   the left edge, and docked in a layout block, it is on the left. On the top and bottom
   edges the sprites stand in a row with names under them.
-- The layout never changes on hover: the drawer slides, the content stays. Only the
+- The layout never changes on hover or drag: the drawer slides, the content stays. Only the
   creatures move: while `placement().hovered` and not `dragging`, every creature turns
   toward the side the drawer opens to, away from its edge: left on the right edge, right
   on the left edge, down on the top edge and up on the bottom edge. Herdr gives no pointer
   position, so they all turn the same way. Docked in a layout block there is no placement
   and they never turn. Each draw reads `hovered`; that Herdr draws the mod again when it
+  changes is not measured, and `types/herdr.d.ts` does not say.
+- While `placement().dragging`, every creature hangs on instead, like a rider on a bus: it
+  faces out, or down at its bees when worried, and rides (`spriteElement`'s `ride`), swaying
+  2 px to each side and back every 800 ms, all of them together. The sway stays inside the
+  sprite cell's 6 px margin, clear of the stripe, and moves only the sprite: the crown, the
+  stripe and everything else in the box hold still. Docked there is no drag. The sway runs
+  natively, so one draw as the drag starts and one as it ends are enough, and no timer runs.
+  Each draw reads `dragging`; as with `hovered`, that Herdr draws the mod again when it
   changes is not measured, and `types/herdr.d.ts` does not say.
 - The text column names the agent and shows its status line: the agent's own message
   (`terminals()` entry's `report.msg`) when it has one.

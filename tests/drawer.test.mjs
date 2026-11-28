@@ -42,7 +42,7 @@ const layoutOf = (tree) => shape(nodeOf(tree), false);
 
 // The sprite drawn for an agent, and the one spriteElement draws for a seed in its place.
 const spriteIn = (tree, address) => shape(find(tree, `pp-spr-${address}`));
-const spriteOf = (seed, address, status, face = null) => look(spriteElement(makeSprite(seed), { id: `pp-spr-${address}`, px: 3, status, face }));
+const spriteOf = (seed, address, status, face = null, ride = false) => look(spriteElement(makeSprite(seed), { id: `pp-spr-${address}`, px: 3, status, face, ride }));
 
 const bgs = (node) => below(node).flatMap((n) => calls(n, "bg").map(([c]) => c));
 const focusOn = (address, { agent = address } = {}) => {
@@ -309,7 +309,7 @@ test("a new current agent's crown waits for its creature to appear, and a leavin
   assert.deepEqual(crowned(tree), [], "the ghost wears no crown");
 });
 
-test("every edge, and docked with no placement, renders with unique ids; hover moves only the creatures, and drag changes nothing", () => {
+test("every edge, and docked with no placement, renders with unique ids; hover and drag move only the creatures", () => {
   STATUSES.forEach((status, i) => mock.agent(i % 2 ? `vps/t${i}` : `t${i}`, { status }));
   for (const edge of EDGES) {
     const trees = [];
@@ -322,7 +322,8 @@ test("every edge, and docked with no placement, renders with unique ids; hover m
     const [still, hovered, dragged] = trees;
     assert.deepEqual(layoutOf(hovered), layoutOf(still), `${edge}: hover changes no layout`);
     assert.notDeepEqual(look(hovered), look(still), `${edge}: hover moves the creatures`);
-    assert.deepEqual(look(dragged), look(still), `${edge}: drag changes nothing`);
+    assert.deepEqual(layoutOf(dragged), layoutOf(still), `${edge}: drag changes no layout`);
+    assert.notDeepEqual(look(dragged), look(still), `${edge}: drag moves the creatures`);
   }
   mock.state.placement = null;
   assert.equal(items(render()).length, STATUSES.length);
@@ -340,6 +341,26 @@ test("on hover every creature turns toward the side the drawer opens to, away fr
       });
     }
   }
+});
+
+test("while the drawer is dragged every creature hangs on and sways, facing out, and stops when it lands", () => {
+  STATUSES.forEach((status, i) => mock.agent(`t${i}`, { status }));
+  const drawer = new Drawer();
+  const cx = context();
+  for (const edge of EDGES) {
+    for (const [hovered, dragging] of [[true, true], [false, false]]) {
+      mock.state.placement = { edge, align: "center", vertical: edge === "left" || edge === "right", hovered, dragging };
+      const tree = drawer.render(cx);
+      check(tree);
+      STATUSES.forEach((status, i) => {
+        assert.deepEqual(spriteIn(tree, `t${i}`), spriteOf(`t${i}`, `t${i}`, status, null, dragging), `${edge}, ${status}, dragging ${dragging}`);
+        assert.equal(Boolean(find(tree, `pp-spr-t${i}-ride`)), dragging, `${edge}, ${status}: it sways only while dragged`);
+      });
+    }
+  }
+  mock.state.placement = null;
+  const docked = drawer.render(cx);
+  STATUSES.forEach((status, i) => assert.deepEqual(spriteIn(docked, `t${i}`), spriteOf(`t${i}`, `t${i}`, status), `docked, ${status}: no ride`));
 });
 
 test("on a side edge the sprite cell is on the edge side, and is 48 px wide", () => {

@@ -21,8 +21,8 @@ const set = (address, fields) => {
   mock.state.terminals = mock.state.terminals.map((x) => (x.address === address ? { ...x, ...fields } : x));
 };
 const label = (address, key) => set(address, { labels: { ...mock.state.terminals.find((x) => x.address === address).labels, [key]: "1" } });
-const place = (edge, hovered = false) => {
-  mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered, dragging: false };
+const place = (edge, hovered = false, dragging = false) => {
+  mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered, dragging };
 };
 
 // A tree as plain data, handlers dropped: two sprites compare equal when they look the same.
@@ -34,7 +34,7 @@ const shape = (node) => ({
   children: node.children.map((c) => (nodeOf(c) ? shape(nodeOf(c)) : c)),
 });
 const spriteIn = (tree, address) => shape(find(tree, `pp-spr-${address}`));
-const spriteOf = (address, status, face = null) => shape(nodeOf(spriteElement(makeSprite(address), { id: `pp-spr-${address}`, px: 3, status, face })));
+const spriteOf = (address, status, face = null, ride = false) => shape(nodeOf(spriteElement(makeSprite(address), { id: `pp-spr-${address}`, px: 3, status, face, ride })));
 const sweatOf = (tree, address) => find(tree, `pp-sweat-${address}`);
 
 const draw = (drawer, cx) => {
@@ -122,6 +122,18 @@ test("on hover a worried creature turns with the others, and still sweats", () =
     place(edge, true);
     const tree = draw(...Object.values(start()));
     assert.deepEqual(spriteIn(tree, "t1"), spriteOf("t1", "idle", OPEN_SIDE[edge]), edge);
+    assert.ok(sweatOf(tree, "t1"), edge);
+  }
+});
+
+test("while the drawer is dragged a worried creature hangs on with the others, still looking down and sweating", () => {
+  mock.agent("t1", { status: "idle" });
+  helper("t3", "t1", { status: "blocked" });
+  for (const edge of EDGES) {
+    place(edge, true, true);
+    const tree = draw(...Object.values(start()));
+    assert.deepEqual(spriteIn(tree, "t1"), spriteOf("t1", "idle", "down", true), edge);
+    assert.ok(find(tree, "pp-spr-t1-ride"), `${edge}: it sways`);
     assert.ok(sweatOf(tree, "t1"), edge);
   }
 });

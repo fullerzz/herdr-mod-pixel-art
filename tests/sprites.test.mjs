@@ -1403,6 +1403,31 @@ test("facing a way, a still creature steps a cell that way, and to a side its ey
   }
 });
 
+test("riding, all a creature draws sways from side to side as one, under an id of its own, facing a way or not", () => {
+  for (const seed of ["t1", "knight7", "vps/t3"]) {
+    const sprite = makeSprite(seed);
+    // Facing a way, a prop can step out of the box, which raster refuses: face a still creature.
+    const poses = [...STATUSES.map((status) => [status, null]), ...Object.keys(FACES).map((face) => [null, face])];
+    for (const [status, face] of poses) {
+      const why = `${seed}, ${status}, facing ${face}`;
+      const riding = spriteElement(sprite, { id: "s", px: 1, status, face, ride: true });
+      check(riding);
+      assert.deepEqual(raster(riding), raster(spriteElement(sprite, { id: "s", px: 1, status, face })), `${why}: at rest it is the creature that does not ride`);
+      const layers = nodeOf(riding).children.map(nodeOf);
+      assert.equal(layers.length, 1, `${why}: all of it is one layer`);
+      assert.equal(layers[0].id, "s-ride", `${why}: the layer has an id of its own, so the sway runs on through each draw`);
+    }
+    // Two thirds of a cell each way: 2 px of the 6 px either side of the drawer's 36 px sprite.
+    for (const [px, reach] of [[1, 1], [3, 2], [6, 4]]) {
+      const layer = nodeOf(nodeOf(spriteElement(sprite, { id: "s", px, ride: true })).children[0]);
+      const loops = calls(layer, "loop").map(([property, { from, to }]) => ({ property, from, to }));
+      assert.deepEqual(loops, [{ property: "left", from: -reach, to: reach }], `${seed} at ${px} px: it sways ${reach} px each way`);
+      assert.equal(last(layer, "left"), 0, "around where it stands");
+    }
+    assert.ok(walk(spriteElement(sprite, { id: "s", px: 3 })).every((node) => node.id !== "s-ride"), `${seed}: not riding, no sway`);
+  }
+});
+
 test("facing a side, the eyes a creature draws look that way, pip eyes too", () => {
   let pips = 0;
   for (let i = 0; i < 64; i++) {

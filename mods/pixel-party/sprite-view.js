@@ -56,6 +56,9 @@
 // Facing a way (`face`), the creature, with its props and marks, steps a cell toward it, and
 // to a side its open or glancing eyes look that way. The drawer turns its creatures toward
 // its open side on hover.
+//
+// Riding (`ride`), all of it sways from side to side as one, as a rider on a bus does. The
+// drawer has its creatures ride while it is dragged.
 
 import { div } from "gpui-kit";
 import { theme } from "herdr";
@@ -1143,6 +1146,8 @@ const DAYTIME = {
  */
 const STEP = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
 
+const RIDE_MS = 800; // ms a sway takes, there and back
+
 /** @type {(rects: Rect[]) => Rect[]} The same rectangles, left and right swapped. */
 const mirrored = (rects) => rects.map((r) => ({ ...r, x: GRID - r.x - r.w }));
 
@@ -1220,9 +1225,11 @@ function accents(status, u, stage) {
  * @param {Facing | null} [options.face] The way the creature faces, or null to face out. It
  *   steps a cell that way with all it draws, and to a side its open or glancing eyes look
  *   that way; happy and closed eyes are a status's cue and stay.
+ * @param {boolean} [options.ride] Whether the creature rides (default false): it sways from
+ *   side to side with all it draws, two thirds of a cell each way, as a rider on a bus does.
  * @returns {Element} GRID * px square.
  */
-export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null } = /** @type {any} */ ({})) {
+export function spriteElement(sprite, { id, px: u = 3, status = null, work = null, hit = null, turn = null, stage = 0, tube = true, daytime = null, face = null, ride = false } = /** @type {any} */ ({})) {
   if (typeof id !== "string" || !id) throw new TypeError("spriteElement needs an id");
   const size = GRID * u;
   const { body, feet, eyes } = sprite.parts;
@@ -1281,7 +1288,11 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
   // Facing a way, all of it steps as one, so every prop and mark keeps its place on the creature.
   // The step snaps, as a pixel creature turns round: no id, no transition.
   const shown = step ? [div().absolute().left(step[0] * u).top(step[1] * u).size(size).children(drawn)] : drawn;
-  return div().id(id).relative().size(size).flex_none().children(shown);
+  // Riding, it all sways as one around where it stands, facing a way or not. The sway has an
+  // id of its own, so it runs on through every draw while the ride lasts.
+  const sway = Math.max(1, Math.round((2 * u) / 3));
+  const ridden = ride ? [div().id(`${id}-ride`).absolute().left(0).top(0).size(size).loop("left", { from: -sway, to: sway, period: RIDE_MS }).children(shown)] : shown;
+  return div().id(id).relative().size(size).flex_none().children(ridden);
 }
 
 /** @typedef {"front" | "left" | "back" | "right"} Face A side the creature is seen from. */
