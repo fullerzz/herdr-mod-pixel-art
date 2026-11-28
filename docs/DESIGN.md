@@ -41,7 +41,9 @@ picker lets the person choose another creature for an agent.
   "approved" by its shape: red is the "Needs you" cue, so the stamp never relies on it.
 - **Signposts.** A checkout or switch in an agent's repository flips a signpost by its
   sprite: it shows pointing back the way HEAD came from, turns edge-on, and points the
-  other way, then fades. Other moves of HEAD get one-shots of their own the same way.
+  other way, then fades. A reset rewinds the sprite: it spins backwards three times, its rows
+  jittering like a worn tape, under a blinking `◀◀`. Other moves of HEAD get one-shots of
+  their own the same way.
 - **Smoke.** A shell command an agent runs that fails makes its sprite cough: it lurches,
   and a puff of black smoke goes up from its face and clears. Only Claude Code's hooks say
   so (`PostToolUseFailure`).
@@ -123,8 +125,9 @@ export function makeSprite(seed: string): Sprite;    // deterministic, never thr
 export function randomSeed(rand?: () => number): string;  // 6 chars of [a-z0-9]
 ```
 
-`Sprite` is opaque to the drawer and the picker: they pass it to `spriteElement` and read
-nothing from it. Its shape is the sprites module's own business, with these guarantees:
+`Sprite` is opaque to the drawer and the picker: they pass it to `spriteElement` or
+`faceRects` and read nothing from it. Its shape is the sprites module's own business, with
+these guarantees:
 
 - The same seed gives a deeply equal sprite. Any string is a seed, including an address
   such as `vps/t3` and the empty string.
@@ -146,6 +149,7 @@ export const TURNS: Record<string, Turn>;       // one-shots for a status change
 export const WORKS: readonly string[];          // walk typing reading hammering searching thinking signal testing building installing git compacting
 export function ownWork(sprite): string;        // one of WORKS' first seven, the same for the same seed
 export const STAGES: Record<Status, number[]>;  // ms a status holds to reach each stage; all empty for now
+export function faceRects(sprite, face, px = 3): { x, y, w, h, color }[];  // the creature still from one side, in px
 ```
 
 - Returns one element exactly `GRID * px` square that does not shrink in a flex row.
@@ -229,6 +233,10 @@ export const STAGES: Record<Status, number[]>;  // ms a status holds to reach ea
   changes the longer a status holds (a block that burns hotter, an idle that gathers dust)
   adds its times to `STAGES` and reads `stage`. None does yet: every list is empty, and
   `stage` changes nothing.
+- `faceRects` is the creature still, seen from one side, for a caller that turns it: `face`
+  is `"front"` (its open eyes), `"back"` (no eyes), or `"left"` or `"right"`, turned that
+  way edge-on: a third as wide, centered, with only the eye on that side. The two turned
+  faces mirror each other. Rectangles are in px, inside the `GRID * px` square.
 
 ### Contract: `edits.js`
 
@@ -267,17 +275,21 @@ export class EditWatcher {
   on from the reflog's end, with no moves. An absent
   reflog (no commits yet) reads as `START`; a line git has not finished is left for the next
   read.
-- A `HeadMove` is `{ sha, subject }`: the commit HEAD moved to and git's reflog note. A
-  commit is a move whose note is `commit: `, `commit (initial|amend|merge): ` or
-  `merge <x>: Merge made by ...` (a clean `git merge` that made a merge commit). A
-  checkout, reset, rebase, pull, fast-forward or cherry-pick (`commit (cherry-pick): ` too) is
-  not.
+- A `HeadMove` is `{ from, sha, subject }`: the commit HEAD was at, the commit it moved to,
+  and git's reflog note. A commit is a move whose note is `commit: `,
+  `commit (initial|amend|merge): ` or `merge <x>: Merge made by ...` (a clean `git merge`
+  that made a merge commit). A checkout, reset, rebase, pull, fast-forward or cherry-pick
+  (`commit (cherry-pick): ` too) is not.
 - Any other move is a `Move`, `{ kind, sha, subject }`, when its note names a known command.
-  `MoveKind` is `checkout` (`git switch` too), `reset` (`git stash` too), `rebase`, `pull`
-  (its note carries its options: `pull --rebase (pick): `), `cherry-pick` (`commit
-  (cherry-pick): ` too), `merge` (a fast-forward) or `revert`. A note of any other kind
+  `MoveKind` is `checkout` (`git switch` too), `reset` (`git stash` too, and
+  `branch: Reset to ` from `git checkout -B` of the branch already checked out; from another
+  branch, `-B` writes only a checkout's note), `rebase`, `pull` (its note carries its
+  options: `pull --rebase (pick): `), `cherry-pick` (`commit (cherry-pick): ` too), `merge`
+  (a fast-forward) or `revert`. A note of any other kind
   (`clone: `, `am: `) is no move, and nor is a checkout of the branch already checked out
-  (`checkout: moving from main to main`): HEAD goes nowhere.
+  (`checkout: moving from main to main`): HEAD goes nowhere. The watcher drops a reset that
+  leaves HEAD at the commit it was at (`git stash`, `git reset --hard`), so it never hides
+  an older move in the same look.
 - Commits and moves count from the first good read: starting Herdr is no commit, and so is anything
   already in the reflog when that first read failed. A repository found where a folder had
   none (`git init`) counts from the start of its reflog, and is reported as soon as it is
@@ -435,7 +447,8 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   follow by eye. A new stamp on the same agent replaces the last, with new ids.
 - A move of HEAD that is no commit lands on the same agents a hit or a stamp would, as the
   one-shot for its kind: one entry per kind in `ONE_SHOTS` (its first step, its steps'
-  times, and how a step draws in the box over the sprite). It plays with `play` into
+  times, how a step draws in the box over the sprite, and `hides` when it draws the
+  creature itself, which keeps the sprite unseen while it plays). It plays with `play` into
   `moves`, by address, so a new move on the same agent replaces the last, with new ids, and
   it is forgotten when it ends. A kind without an entry shows nothing yet, and starts no
   timer.
@@ -445,6 +458,14 @@ Picker props are `{ view: "picker", terminal, overlay }`.
   later fades in over 200 ms. At 700 ms the board turns edge-on, one plank, and at 820 ms it
   points right, the way HEAD went; each frame of the turn is its own layer, swapped over
   60 ms. The sign holds, fades over 600 ms from 2.4 s, and is gone at 3.1 s.
+- A reset's one-shot is a rewind. It hides the sprite and draws the creature itself where
+  the sprite stands, a face of `faceRects` every 80 ms: front, turned to its left, back,
+  turned to its right, three turns, the other way from where it walks; then it is gone at
+  960 ms and the sprite is back. Rows 0-3, 4-7 and 8-11 slip sideways each on its own beat
+  (`.loop("left")`, ±1, ±2 and ±1 px, 100, 130 and 110 ms), keeping their ids through the
+  turn so the slip runs on. A tracking bar, 2 px of translucent white, rolls up and down
+  over it, and a `◀◀`, 6 by 5 cells of 2 px in white over a dark shadow, blinks at the
+  box's upper left. The sprite's fire and work props go with it for that second.
 - Bees sit under the sprite's box, never over the creature: in lanes of three, as wide as
   the sprite cell, so a closed drawer shows them. An agent's cell grows by one lane for
   up to three bees and two for more, and has none without bees. With more than six bees

@@ -15,8 +15,9 @@
 // A move is a commit made here when git's note of it is one `git commit` or `git merge`
 // writes for a new commit ("commit: ...", "commit (amend): ...", "merge x: Merge made by
 // ..."). A checkout, reset, rebase, pull or cherry-pick moves HEAD too, and is no commit: it
-// is reported as a move of its kind, read from the same note. A linked worktree keeps its HEAD
-// outside its folder, so its git folder is watched as well.
+// is reported as a move of its kind, read from the same note. A reset that leaves HEAD where
+// it was (`git stash`, `git reset --hard`) is none. A linked worktree keeps its HEAD outside
+// its folder, so its git folder is watched as well.
 
 import { exec, readTextFile, watchFolder } from "herdr";
 
@@ -81,9 +82,9 @@ export const hitSize = (lines) => (lines >= CRIT_LINES ? "crit" : lines >= HIT_L
 const git = (cwd, args) => exec("git", ["--no-optional-locks", ...args], { cwd });
 
 /**
- * One move of HEAD, a line of its reflog: `sha` is the commit HEAD moved to, `subject` git's
- * note of why.
- * @typedef {{ sha: string, subject: string }} HeadMove
+ * One move of HEAD, a line of its reflog: `from` is the commit HEAD was at, `sha` the commit
+ * it moved to, `subject` git's note of why.
+ * @typedef {{ from: string, sha: string, subject: string }} HeadMove
  */
 /**
  * How far HEAD's reflog has been read: the lines read, and the text of the last of them.
@@ -101,8 +102,8 @@ export const START = Object.freeze({ lines: 0, last: "" });
  */
 export function parseReflog(lines) {
   return lines.flatMap((line) => {
-    const m = /^[0-9a-f]+ ([0-9a-f]+) [^\t]*\t(.*)$/.exec(line);
-    return m ? [{ sha: m[1], subject: m[2] }] : [];
+    const m = /^([0-9a-f]+) ([0-9a-f]+) [^\t]*\t(.*)$/.exec(line);
+    return m ? [{ from: m[1], sha: m[2], subject: m[3] }] : [];
   });
 }
 
@@ -126,7 +127,8 @@ export const isCommit = (subject) =>
 /**
  * The kind of a move that is no commit, from the git command its reflog note names; null for
  * a commit and for a note of any other kind. `git switch` writes a checkout's note, `git stash`
- * a reset's, a fast-forward `git merge` a merge's, and a cherry-pick concluded after a conflict
+ * a reset's, `git checkout -B` of the branch checked out a reset's of its own
+ * (`branch: Reset to ...`) before its checkout's (from another branch, only a checkout's), a fast-forward `git merge` a merge's, and a cherry-pick concluded after a conflict
  * `commit (cherry-pick): ...`. A pull's note carries its options (`pull --rebase (pick): ...`).
  * A checkout of the branch already checked out (`moving from main to main`) goes nowhere, and
  * is none.
@@ -136,6 +138,7 @@ export const isCommit = (subject) =>
 export function moveKind(subject) {
   if (isCommit(subject) || /^checkout: moving from (.+) to \1$/.test(subject)) return null;
   if (subject.startsWith("commit (cherry-pick):")) return "cherry-pick";
+  if (subject.startsWith("branch: Reset to ")) return "reset";
   const m = /^(checkout|reset|rebase|pull|cherry-pick|merge|revert)(?=[ :])/.exec(subject);
   return m ? /** @type {MoveKind} */ (m[1]) : null;
 }
@@ -382,7 +385,8 @@ export class EditWatcher {
   /**
    * Reports one thing per look: the newest commit among these moves, else the newest move of
    * a known kind. A rebase writes many lines, often in one look, and is still one move; a
-   * commit outweighs the checkouts and resets around it.
+   * commit outweighs the checkouts and resets around it. A reset that leaves HEAD where it was
+   * (`git stash`, `git reset --hard`) is no move, so it never hides an older one.
    * @param {string} root
    * @param {HeadMove[]} moves Oldest first.
    * @param {AsyncContext} cx
@@ -390,7 +394,11 @@ export class EditWatcher {
   report(root, moves, cx) {
     const commit = moves.filter((m) => isCommit(m.subject)).at(-1);
     if (commit) return this.onCommit(root, commit.sha, cx);
-    const move = moves.map(({ sha, subject }) => ({ kind: moveKind(subject), sha, subject })).filter((m) => m.kind).at(-1);
-    if (move) this.onMove(root, /** @type {Move} */ (move), cx);
+    /** @type {Move | undefined} */
+    const move = moves.flatMap(({ from, sha, subject }) => {
+      const kind = moveKind(subject);
+      return kind && !(kind === "reset" && from === sha) ? [{ kind, sha, subject }] : [];
+    }).at(-1);
+    if (move) this.onMove(root, move, cx);
   }
 }

@@ -104,7 +104,7 @@ test("only a commit made here is a commit: a `git commit` or a merge commit, not
   };
   for (const [subject, commit] of Object.entries(notes)) assert.equal(isCommit(subject), commit, subject);
   const moves = parseReflog([`${"0".repeat(40)} ${"8".repeat(40)} Ada Lovelace <ada@x> 1794700000 +0000\tcommit: fix the login\twith a tab`, "garbage"]);
-  assert.deepEqual(moves, [{ sha: "8".repeat(40), subject: "commit: fix the login\twith a tab" }]);
+  assert.deepEqual(moves, [{ from: "0".repeat(40), sha: "8".repeat(40), subject: "commit: fix the login\twith a tab" }]);
 });
 
 test("the reflog is read on from where the last read got to, never twice and never with a gap", async () => {
@@ -124,7 +124,7 @@ test("the reflog is read on from where the last read got to, never twice and nev
     command === "tail" ? ok(expired.slice(Number(args[1].slice(1)) - 1).map((l) => `${l}\n`).join("")) : logged(command, args, opts);
   const after = await readMoves(logFile(), next.to);
   mock.state.exec = logged;
-  assert.deepEqual(after, { moves: [{ sha: "d".repeat(40), subject: "commit: four" }], to: { lines: 6, last: expired.at(-1) } }, "the last line read is found where it is now");
+  assert.deepEqual(after, { moves: [{ from: "c".repeat(40), sha: "d".repeat(40), subject: "commit: four" }], to: { lines: 6, last: expired.at(-1) } }, "the last line read is found where it is now");
   repo.log = [["c", "commit: three"]];
   assert.deepEqual(await readMoves(logFile(), next.to), { moves: [], to: { lines: 1, last: line(["c", "commit: three"], 0, repo.log) } }, "a rewritten reflog is read on from its end, with no moves");
   repo.log = null;

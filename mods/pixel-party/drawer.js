@@ -17,7 +17,8 @@
 // mark that holds a moment before it fades.
 //
 // A checkout in an agent's repository flips a signpost by its sprite: it shows pointing the
-// way HEAD came from, turns edge-on, and points the other way before it fades. Other kinds of
+// way HEAD came from, turns edge-on, and points the other way before it fades. A reset rewinds
+// the creature: it spins backwards, jittering like a worn tape, under a "◀◀". Other kinds of
 // move plug into the same table (`ONE_SHOTS`), one entry each.
 //
 // A command an agent runs that fails is a puff of black smoke: the creature coughs, and the
@@ -43,8 +44,8 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, focused, run, theme, placement } from "herdr";
 import { seedFor, openPicker, setAvatar, clearAvatar } from "./identity.js";
-import { makeSprite, randomSeed } from "./sprites.js";
-import { spriteElement, HIT, STAGES, TURNS } from "./sprite-view.js";
+import { GRID, makeSprite, randomSeed } from "./sprites.js";
+import { faceRects, spriteElement, HIT, STAGES, TURNS } from "./sprite-view.js";
 import { EditWatcher, hitSize } from "./edits.js";
 import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 
@@ -52,7 +53,7 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @import { Bee } from "./bees.js" */
 /** @import { HitSize, Lines, Move, MoveKind } from "./edits.js" */
 /** @import { AgentInfo, ExecResult, Status, TabInfo } from "herdr" */
-/** @import { SpriteTurn, Theme } from "./sprite-view.js" */
+/** @import { Face, SpriteTurn, Theme } from "./sprite-view.js" */
 
 /**
  * One agent as the drawer shows it.
@@ -87,8 +88,9 @@ import { beesOf, beeElement, BEE_W, BEE_H } from "./bees.js";
 /** @typedef {Show<string> & { move: Move }} Shot A move of HEAD being shown, and the move. */
 /**
  * What one kind of move plays: its first step, when each next step starts (null: gone), and
- * how a step draws, in the box over the sprite.
- * @typedef {{ first: string, steps: [ms: number, step: string | null][], draw: (t: Theme, address: string, shot: Shot) => Element }} OneShot
+ * how a step draws, in the box over the sprite. `hides` keeps the sprite unseen while it
+ * plays, for a one-shot that draws the creature itself.
+ * @typedef {{ first: string, steps: [ms: number, step: string | null][], draw: (t: Theme, address: string, shot: Shot) => Element, hides?: boolean }} OneShot
  */
 /** @typedef {Show<"cough" | "rise">} Soot Black smoke from a failed command. */
 
@@ -949,8 +951,74 @@ function signElement(_t, address, { n, step }) {
     .children([div().absolute().left(0).top(0).size_full().children(paint(POST_RUNS)), ...boards]);
 }
 
+// A reset's rewind: the creature itself, drawn in turn from the front, turned to its left, from
+// the back and turned to its right (`faceRects`), three times over. That is the other way
+// from where it walks: it spins backwards. Like a worn tape, its rows slip sideways in three
+// bands, each on its own beat, a tracking bar rolls over it, and a "◀◀" blinks at the box's
+// upper left.
+const SPRITE = GRID * PX; // px: the sprite, square, centered in the box
+const SPRITE_X = (CELL - SPRITE) / 2;
+const SPRITE_Y = (CELL_H - SPRITE) / 2;
+/** @type {Face[]} One turn, backwards. */
+const TURN = ["front", "left", "back", "right"];
+const REWIND_FRAME = 80; // ms each face shows
+const REWIND_TURNS = 3;
+/** @type {[ms: number, step: Face | null][]} After "front": each face in turn, then gone. */
+const REWIND_STEPS = [
+  ...Array.from({ length: REWIND_TURNS * TURN.length - 1 }, (_, i) => /** @type {[number, Face]} */ ([(i + 1) * REWIND_FRAME, TURN[(i + 1) % TURN.length]])),
+  [REWIND_TURNS * TURN.length * REWIND_FRAME, null],
+];
+/** @type {[from: number, to: number, period: number, swing: number][]} The bands of rows that slip, and how: ms there and back, px each way. */
+const BANDS = [[0, 4, 100, 1], [4, 8, 130, 2], [8, GRID, 110, 1]];
+// "◀◀", 6 by 5 cells of 2 px.
+const REWIND_GLYPH = [
+  "..x..x",
+  ".xx.xx",
+  "xxxxxx",
+  ".xx.xx",
+  "..x..x",
+];
+const GLYPH_PX = 2;
+const GLYPH_RUNS = runsOf(REWIND_GLYPH);
+const GLYPH_W = REWIND_GLYPH[0].length * GLYPH_PX;
+const GLYPH_H = REWIND_GLYPH.length * GLYPH_PX;
+/** @type {Color} A tape deck's on-screen white, over a dark shadow so it reads on a light theme. */
+const GLYPH_INK = "#ffffff";
+/** @type {Color} */
+const TRACKING = "#ffffff73";
+
+/**
+ * @param {Theme} _t
+ * @param {string} address
+ * @param {Shot} shot
+ * @returns {Element}
+ */
+function rewindElement(_t, address, { n, step }) {
+  const id = `pp-rewind-${address}-${n}`;
+  const rects = faceRects(makeSprite(seedFor(address)), /** @type {Face} */ (step), PX);
+  // Each band keeps its id from face to face, so its slip runs on through the turn.
+  const bands = BANDS.map(([from, to, period, swing], i) =>
+    div().id(`${id}-band-${i}`).absolute().left(0).top(0).size(SPRITE).loop("left", { from: -swing, to: swing, period, easing: "linear" }).children(
+      rects.flatMap((r) => {
+        const [top, bottom] = [Math.max(r.y, from * PX), Math.min(r.y + r.h, to * PX)];
+        return top < bottom ? [div().absolute().left(r.x).top(top).w(r.w).h(bottom - top).bg(r.color)] : [];
+      })));
+  const bar = div().id(`${id}-bar`).absolute().left(0).top(0).w(SPRITE).h(2).bg(TRACKING).loop("top", { from: PX, to: SPRITE - 2 * PX, period: 700, easing: "linear" });
+  /** @type {(color: Color, d: number) => Element} The glyph in one color, moved by `d` px. */
+  const ink = (color, d) => div().absolute().left(d).top(d).size_full().children(GLYPH_RUNS.map(([x, y, w]) =>
+    div().absolute().left(x * GLYPH_PX).top(y * GLYPH_PX).w(w * GLYPH_PX).h(GLYPH_PX).bg(color)));
+  const glyph = div().id(`${id}-glyph`).absolute().left(3).top(2).w(GLYPH_W).h(GLYPH_H).loop("opacity", { from: 1, to: 0.35, period: 480 })
+    .child(ink(STAMP_DARK, 1))
+    .child(ink(GLYPH_INK, 0));
+  const tape = div().id(`${id}-tape`).absolute().left(SPRITE_X).top(SPRITE_Y).size(SPRITE).children([...bands, bar]);
+  return div().id(id).absolute().left(0).top(0).size_full().child(tape).child(glyph);
+}
+
 /** @type {Partial<Record<MoveKind, OneShot>>} The one-shot each kind of move plays; a kind not here shows nothing yet. */
-const ONE_SHOTS = { checkout: { first: "plant", steps: SIGN_STEPS, draw: signElement } };
+const ONE_SHOTS = {
+  checkout: { first: "plant", steps: SIGN_STEPS, draw: signElement },
+  reset: { first: "front", steps: REWIND_STEPS, draw: rewindElement, hides: true },
+};
 
 // The bees in the lanes under the sprite's box. Each has a place by its position in the
 // list, so when one leaves the ones after it glide up a place. A new bee starts unseen in
@@ -995,8 +1063,9 @@ const go = (a) => run("pane.focus", { pane: a.pane });
 // so the box adds only the tint. A hit's numbers, a stamp and a move's one-shot go over the
 // sprite, in the box, so a closed drawer shows them too. The box dips as the stamp lands and
 // rises after. A trick hides the sprite until it reveals it, an exit hides it under its
-// smoke, and a new bee's puff goes over its middle. A failed command's black smoke goes over
-// its face and up, while the sprite lurches with the cough; the box's own top is the stamp's.
+// smoke, a one-shot that draws the creature itself hides it while it plays, and a new bee's
+// puff goes over its middle. A failed command's black smoke goes over its face and up, while
+// the sprite lurches with the cough; the box's own top is the stamp's.
 /**
  * @param {Theme} t
  * @param {Item} it
@@ -1005,6 +1074,7 @@ const go = (a) => run("pane.focus", { pane: a.pane });
  */
 function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, work, stage, turn }, side) {
   const hidden = trick ? trick.step !== "reveal" : Boolean(exit) && (exit.step === "poof" || exit.step === "clear");
+  const shot = move && ONE_SHOTS[move.move.kind];
   const blocked = a.status === "blocked";
   const color = cueColor(t, a.status);
   const stripe = side === "bottom"
@@ -1030,6 +1100,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, wor
       turn,
     })
       .when(Boolean(trick || exit), (el) => el.opacity(hidden ? 0 : 1).transition("opacity", { duration: 360, easing: "ease-out" }))
+      .when(Boolean(shot?.hides), (el) => el.opacity(0))
       .when(Boolean(soot), (el) => el
         .top(soot.step === "cough" ? COUGH : 0)
         .transition("top", soot.step === "cough" ? { duration: 60, easing: "ease-out" } : { duration: 300, easing: "ease-out" })))
@@ -1038,7 +1109,7 @@ function cell(t, { a, seed, hit, stamp, move, trick, exit, puff, soot, bees, wor
     .when(Boolean(exit), (el) => el.child(trickElement(`pp-exit-${a.address}-${exit.n}`, exit.step)))
     .when(Boolean(puff), (el) => el.child(smoke(`pp-puff-${a.address}-${puff.n}`, CENTER, BEE_PX, puff.step === "clear")))
     .when(Boolean(soot), (el) => el.child(smoke(`pp-soot-${a.address}-${soot.n}`, FACE, BEE_PX, soot.step === "rise", SOOT)))
-    .when(Boolean(move), (el) => el.child(ONE_SHOTS[move.move.kind].draw(t, a.address, move)))
+    .when(Boolean(shot), (el) => el.child(shot.draw(t, a.address, move)))
     .when(Boolean(hit), (el) => el.child(numbers(a.address, hit)))
     .when(Boolean(stamp), (el) => el
       .top(stamp.step === "press" ? STAMP_DIP : 0)

@@ -27,6 +27,8 @@ move according to what their agents are doing.
   holds a moment, then fades.
 - **Signposts.** When an agent checks out or switches to another branch, a signpost by its
   creature flips from pointing back to pointing the other way.
+- **Rewinds.** When an agent resets its branch, its creature spins backwards like a tape
+  on rewind, jittering under a blinking `◀◀`.
 - **Smoke.** With [the same hooks](#failed-commands), a command an agent runs that fails
   makes its creature cough, and a puff of black smoke goes up from its face.
 - **Worker bees.** Every helper an agent starts is a little figure that flies out of its
@@ -140,6 +142,17 @@ with no setup. The sign shows at the creature's lower left pointing back, the wa
 agent came from, then its board turns and points the other way, the way it went. It holds
 a moment and fades, about three seconds in all. A checkout lands on the same agents as a
 commit. A checkout of the branch already checked out goes nowhere and shows nothing.
+
+## Rewinds
+
+A `git reset` in an agent's repository rewinds its creature, with no setup, and so does a
+`git checkout -B` of the branch it is on. A `git checkout -B` from another branch flips the
+signpost, as any checkout does. The creature spins backwards three times in about a
+second: front, turned to its left, back, turned to its right. Its rows slip sideways like a
+worn VHS tape, a tracking bar rolls over it, and a `◀◀` blinks at the cell's upper left.
+Then it is itself again. A reset lands on the same agents as a commit. A reset that leaves
+the branch where it was, such as `git stash` or `git reset --hard` to drop changes, shows
+nothing.
 
 ## Failed commands
 

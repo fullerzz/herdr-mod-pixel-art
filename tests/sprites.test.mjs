@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { theme } from "herdr";
 import { div } from "gpui-kit";
 import { GRID, hashSeed, makeSprite, randomSeed } from "../mods/pixel-party/sprites.js";
-import { DOUSE, FIRE, HIT, TURNS, WORKS, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
+import { DOUSE, FIRE, HIT, TURNS, WORKS, faceRects, ownWork, spriteElement } from "../mods/pixel-party/sprite-view.js";
 import { calls, check, nodeOf, walk } from "./mocks/gpui.mjs";
 
 const STATUSES = [null, "working", "blocked", "done", "idle"];
@@ -583,4 +583,27 @@ test("a turn is given the creature's parts and moves them as a way of working do
   } finally {
     delete TURNS.jig;
   }
+});
+
+test("a creature seen from each side: its front in open eyes, its back without, edge-on a third as wide with the near eye", () => {
+  /** @type {(rects: object[]) => Set<string>} */
+  const keys = (rects) => new Set(rects.map(({ x, y, w, h, color }) => [x, y, w, h, color].join(",")));
+  const mirror = (rects) => rects.map((r) => ({ ...r, x: GRID * 3 - r.x - r.w }));
+  const width = (rects) => Math.max(...rects.map((r) => r.x + r.w)) - Math.min(...rects.map((r) => r.x));
+  for (const seed of SEEDS) {
+    const sprite = makeSprite(seed);
+    const [front, left, back, right] = ["front", "left", "back", "right"].map((face) => faceRects(sprite, face));
+    const { body, feet, eyes } = sprite.parts;
+    assert.equal(front.length, body.length + feet[0].length + feet[1].length + eyes.open.length, seed);
+    assert.ok([...keys(back)].every((k) => keys(front).has(k)) && back.length === front.length - eyes.open.length, `${seed}: the back is the front without its eyes`);
+    assert.ok(width(left) * 3 === width(front) && width(right) === width(left), `${seed}: edge-on, a third as wide`);
+    const [l, r] = [keys(left), keys(right)];
+    assert.ok([...l].some((k) => !r.has(k)), `${seed}: turned left and right differ`);
+    assert.deepEqual(keys(mirror(left)), r, `${seed}: each shows the eye on its own side`);
+    for (const rect of [...front, ...left]) {
+      assert.ok(rect.x >= 0 && rect.y >= 0 && rect.x + rect.w <= GRID * 3 && rect.y + rect.h <= GRID * 3, `${seed}: inside the box`);
+      assert.match(rect.color, HEX);
+    }
+  }
+  assert.ok(faceRects(makeSprite("t1"), "left", 6).every((r) => Number.isInteger(r.x) && r.w >= 2), "px follows the size");
 });

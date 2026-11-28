@@ -27,6 +27,9 @@
 // back to its status's look when the turn is over.
 //
 //   douse    blocked to working: water pours on the fire and puts it out, steam rises
+//
+// `faceRects` is the creature still from one side, front, back or turned edge-on, for a
+// caller that turns it.
 
 import { div } from "gpui-kit";
 import { theme } from "herdr";
@@ -686,6 +689,26 @@ export function spriteElement(sprite, { id, px: u = 3, status = null, work = nul
 
   const { behind, front } = worked ?? accents(look, u);
   return div().id(id).relative().size(size).flex_none().children([...behind, hit ? struck(figure, sprite, id, u, hit) : figure, ...front]);
+}
+
+/** @typedef {"front" | "left" | "back" | "right"} Face A side the creature is seen from. */
+
+/**
+ * The creature still, seen from one side, as rectangles in px in its GRID * px square: from
+ * the front in its open eyes, from the back with none, and turned to its left or its right
+ * edge-on, a third as wide and centered, with only the eye on that side showing.
+ * @param {Sprite} sprite
+ * @param {Face} face
+ * @param {number} [u] Pixels per cell (default 3).
+ * @returns {{ x: number, y: number, w: number, h: number, color: Color }[]}
+ */
+export function faceRects({ parts: { body, feet, eyes } }, face, u = 3) {
+  const edge = face === "left" || face === "right";
+  const near = eyes.open.filter((r) => (face === "left" ? r.x < GRID / 2 : r.x >= GRID / 2));
+  const rects = [...body, ...feet[0], ...feet[1], ...(face === "front" ? eyes.open : edge ? near : [])];
+  const across = edge ? u / 3 : u;
+  const x0 = (GRID * (u - across)) / 2;
+  return rects.map((r) => ({ x: x0 + r.x * across, y: r.y * u, w: r.w * across, h: r.h * u, color: r.color }));
 }
 
 /**

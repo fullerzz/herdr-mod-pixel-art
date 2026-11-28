@@ -1,7 +1,8 @@
 // Hits: lines an agent adds or removes, read from git, shown over its sprite in the drawer.
 // Moves: HEAD moved by a checkout, reset, rebase, pull or cherry-pick, read from its reflog,
-// landed on the drawer's agents; a checkout flips a signpost by the sprite. Git is faked
-// through the herdr stand-in's `exec`, and a change through `mock.touch`.
+// landed on the drawer's agents; a checkout flips a signpost by the sprite, and a reset
+// rewinds the creature. Git is faked through the herdr stand-in's `exec`, and a change
+// through `mock.touch`.
 
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
@@ -352,7 +353,8 @@ test("a move's kind is the git command its reflog note names; a commit or a note
     "checkout: moving from main to main": null, // the branch already checked out: HEAD stays
     "checkout: moving from main to main-2": "checkout",
     "reset: moving to HEAD~1": "reset",
-    "reset: moving to HEAD": "reset", // `git stash`
+    "reset: moving to HEAD": "reset", // `git stash`, `git reset --hard`: HEAD stays, so the watcher drops it
+    "branch: Reset to HEAD~1": "reset", // `git checkout -B main HEAD~1`, before "checkout: moving from main to main"
     "rebase (start): checkout main": "rebase",
     "rebase (pick): yy": "rebase",
     "rebase (finish): returning to refs/heads/y": "rebase",
@@ -434,6 +436,24 @@ test("a note of no known kind is no move, and never hides an older one in the sa
   assert.deepEqual(got, [["checkout", "checkout: moving from main to x", sha("c"), "/repo"]]);
   await moves([]);
   assert.equal(got.length, 1, "a file saved: HEAD did not move");
+});
+
+test("a reset that leaves HEAD where it was is no move, and never hides an older one in the same look", async () => {
+  const got = await watcher();
+  await moves([["a", "reset: moving to HEAD"]]); // `git stash`
+  assert.deepEqual(got, []);
+  await moves([["b", "checkout: moving from main to x"], ["b", "reset: moving to HEAD"]]);
+  assert.deepEqual(got, [["checkout", "checkout: moving from main to x", sha("b"), "/repo"]]);
+  await moves([["a", "branch: Reset to HEAD~1"], ["a", "checkout: moving from x to x"]]); // `git checkout -B x HEAD~1`
+  assert.deepEqual(got.at(-1), ["reset", "branch: Reset to HEAD~1", sha("a"), "/repo"]);
+  assert.equal(got.length, 2);
+});
+
+test("git checkout -B from another branch writes only a checkout's note, so it is a checkout", async () => {
+  const got = await watcher();
+  // `git checkout -B main other` run on `other`: main moves, but HEAD's reflog gets no `branch: Reset to`.
+  await moves([["b", "checkout: moving from other to main"]]);
+  assert.deepEqual(got, [["checkout", "checkout: moving from other to main", sha("b"), "/repo"]]);
 });
 
 /** The signpost by an agent's sprite, or null. */
@@ -520,13 +540,14 @@ test("a second checkout starts a new sign; the first one's steps no longer touch
   assert.equal(signOf(tree, "t1"), null, "the second's own end clears it");
 });
 
-test("a checkout of the branch already checked out, and a move of a kind with no one-shot yet, show nothing", async () => {
+test("a checkout of the branch already checked out, a reset that stays, and a move of a kind with no one-shot yet, show nothing", async () => {
   mock.agent("t1", { status: "working" });
   mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
   const { drawer, cx } = await start();
   const before = cx.notified;
   await moves([["a", "checkout: moving from main to main"]]);
-  for (const subject of ["reset: moving to HEAD~1", "rebase (finish): returning to refs/heads/x", "pull: Fast-forward", "cherry-pick: fix"]) {
+  await moves([["a", "reset: moving to HEAD"]]);
+  for (const subject of ["rebase (finish): returning to refs/heads/x", "pull: Fast-forward", "cherry-pick: fix"]) {
     await moves([["b", subject]]);
   }
   assert.equal(cx.notified, before, "nothing to draw");
@@ -557,6 +578,110 @@ test("every edge renders a sign beside a stamp with unique ids", async () => {
       mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
       const tree = draw(drawer, cx);
       assert.ok(signOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
+    }
+  }
+});
+
+/** The rewind in an agent's box, or null. */
+const rewindOf = (tree, address) => walk(tree).find((n) => /^pp-rewind-[^-]+-\d+$/.test(n.id ?? "") && n.id.startsWith(`pp-rewind-${address}-`)) ?? null;
+/** The rewind's slipping bands of rows. */
+const bandsOf = (rewind) => walk(rewind).filter((n) => /-band-\d+$/.test(n.id ?? ""));
+/** The creature as a rewind draws it: each pixel as "left,top,w,h,color" in px, the bands put together. */
+const faceOf = (rewind) => new Set(bandsOf(rewind).flatMap((band) => walk(band).slice(1).map((px) => ["left", "top", "w", "h", "bg"].map((k) => last(px, k)).join(","))));
+/** How wide the drawn creature is, in px. */
+function widthOf(face) {
+  const spans = [...face].map((key) => key.split(",").map(Number)).map(([x, , w]) => [x, x + w]);
+  return Math.max(...spans.map(([, to]) => to)) - Math.min(...spans.map(([from]) => from));
+}
+/** A face's pixels mirrored across the sprite's middle. */
+const mirrored = (face) => new Set([...face].map((key) => {
+  const [x, y, w, h, color] = key.split(",");
+  return [36 - Number(x) - Number(w), y, w, h, color].join(",");
+}));
+const same = (a, b) => a.size === b.size && [...a].every((k) => b.has(k));
+
+test("a reset rewinds the creature: it spins backwards three times, jittering, under a blinking rewind mark, then is itself again", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  let tree = draw(drawer, cx);
+  assert.equal(rewindOf(tree, "t1"), null, "no move, no rewind");
+  const before = cx.notified;
+  await moves([["b", "reset: moving to HEAD~1"]]);
+  assert.ok(cx.notified > before, "the drawer draws again");
+  assert.equal(drawer.moves.get("t1").move.kind, "reset");
+  tree = draw(drawer, cx);
+  const rewind = () => rewindOf(tree, "t1");
+  const sprite = () => find(tree, "pp-spr-t1");
+  assert.ok(rewind() && walk(find(tree, "pp-box-t1")).includes(rewind()), "in the sprite's box, so a closed drawer shows it");
+  assert.equal(last(sprite(), "opacity"), 0, "the creature itself goes unseen while its copy turns");
+  assert.ok(find(rewind(), `${rewind().id}-glyph`), "a rewind mark");
+  assert.ok(calls(find(rewind(), `${rewind().id}-glyph`), "loop").some(([p]) => p === "opacity"), "that blinks");
+  const bands = bandsOf(rewind());
+  assert.ok(bands.length >= 3, "the creature slips in bands of rows");
+  const slips = bands.map((band) => calls(band, "loop").find(([p]) => p === "left")?.[1]);
+  assert.ok(slips.every((policy) => policy && policy.from < 0 && policy.to > 0), "each slips sideways both ways");
+  assert.equal(new Set(slips.map((policy) => policy.period)).size, slips.length, "each on its own beat, so the rows tear apart");
+  assert.ok(calls(find(rewind(), `${rewind().id}-bar`), "loop").some(([p]) => p === "top"), "a tracking bar rolls over it");
+
+  const faces = [];
+  const ids = [];
+  for (let ms = 0; ms < 960; ms += 80) {
+    cx.run(ms);
+    tree = draw(drawer, cx);
+    assert.equal(last(sprite(), "opacity"), 0, `still unseen at ${ms} ms`);
+    faces.push(faceOf(rewind()));
+    ids.push(bandsOf(rewind()).map((band) => band.id).join(" "));
+  }
+  assert.equal(new Set(ids).size, 1, "the bands keep their ids through the turn, so the jitter runs on");
+  const [front, left, back, right] = faces;
+  assert.ok(widthOf(front) >= 24 && widthOf(back) >= 24, "full width from the front and the back");
+  assert.ok(widthOf(left) <= 12 && widthOf(right) <= 12, "a third as wide, edge-on");
+  assert.ok([...back].every((k) => front.has(k)) && back.size < front.size, "the back is the front without its eyes");
+  assert.ok(!same(left, right) && same(mirrored(left), right), "edge-on, one eye shows on the side it turns to: left, then right");
+  for (let i = 4; i < 12; i++) assert.ok(same(faces[i], faces[i % 4]), `turn ${Math.floor(i / 4) + 1} like the first`);
+
+  cx.run(960);
+  tree = draw(drawer, cx);
+  assert.equal(rewind(), null, "the rewind is over");
+  assert.notEqual(last(sprite(), "opacity"), 0, "and the creature is itself again");
+  assert.equal(drawer.moves.size, 0, "forgotten too");
+});
+
+test("git checkout -B is a reset, and a second reset starts the rewind over", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "branch: Reset to HEAD~1"], ["b", "checkout: moving from main to main"]]);
+  const first = rewindOf(draw(drawer, cx), "t1").id;
+  cx.run(400);
+  // The first rewind's steps still to come, held back to run after the second starts.
+  const pending = cx.timers.filter((t) => !t.every);
+  cx.timers = cx.timers.filter((t) => t.every);
+  await moves([["c", "reset: moving to ORIG_HEAD"]]);
+  const second = rewindOf(draw(drawer, cx), "t1").id;
+  assert.notEqual(second, first, "a new id: it starts over from the front");
+  const front = faceOf(rewindOf(draw(drawer, cx), "t1"));
+  for (const t of pending) t.handler(cx);
+  const tree = draw(drawer, cx);
+  assert.equal(rewindOf(tree, "t1")?.id, second, "the first one's end does not clear the second");
+  assert.ok(same(faceOf(rewindOf(tree, "t1")), front), "nor turns it: it is still at its own first face");
+  cx.run(5000);
+  assert.equal(rewindOf(draw(drawer, cx), "t1"), null, "the second's own end clears it");
+});
+
+test("every edge renders a rewind beside a stamp with unique ids", async () => {
+  mock.agent("t1", { status: "working" });
+  mock.state.panes = [{ pane: "p-t1", cwd: "/repo" }];
+  const { drawer, cx } = await start();
+  await moves([["b", "commit: x"]]);
+  await moves([["a", "reset: moving to HEAD~1"]]);
+  for (const step of [0, 80, 160, 240]) {
+    cx.run(step);
+    for (const edge of ["top", "right", "bottom", "left", null]) {
+      mock.state.placement = edge && { edge, align: "center", vertical: edge === "left" || edge === "right", hovered: false, dragging: false };
+      const tree = draw(drawer, cx);
+      assert.ok(rewindOf(tree, "t1") && walk(tree).some((n) => n.id?.startsWith("pp-stamp-t1-")), `${edge} at ${step} ms`);
     }
   }
 });
