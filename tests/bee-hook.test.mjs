@@ -170,6 +170,8 @@ test("a tool about to run says what the agent is doing, in Claude Code's names a
     WebFetch: "signal",
     WebSearch: "signal",
     web_search: "signal",
+    Agent: "delegating",
+    Task: "delegating",
   };
   for (const [tool, work] of Object.entries(cases)) {
     ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool, tool_input: { command: "\"tool_name\": \"Read\"" } }));
@@ -277,7 +279,7 @@ test("only a shell tool's command is read, from its input's first 512 bytes, and
 
 test("a tool that says nothing about the work takes the label away: the creature works its own way", async () => {
   seed(["pixel.avatar=knight7", "pixel.work=typing"]);
-  for (const tool of ["TodoWrite", "Agent", "mcp__linear__get_issue", "Skill", ""]) {
+  for (const tool of ["TodoWrite", "TaskStop", "TaskOutput", "mcp__linear__get_issue", "Skill", ""]) {
     seed(["pixel.avatar=knight7", "pixel.work=typing"]);
     ok(await hook("tool", { hook_event_name: "PreToolUse", tool_name: tool }));
     assert.deepEqual(labels(), ["pixel.avatar=knight7"], tool);

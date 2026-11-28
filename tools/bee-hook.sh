@@ -227,6 +227,9 @@ work_of() {
     BashOutput | KillShell) echo hammering ;;
     Grep | Glob | LS) echo searching ;;
     WebFetch | WebSearch | web_search) echo signal ;;
+    # Starting a sub-agent. Older Claude Code names the tool Task; TaskCreate, TaskStop and
+    # the like are other tools.
+    Agent | Task) echo delegating ;;
   esac
 }
 

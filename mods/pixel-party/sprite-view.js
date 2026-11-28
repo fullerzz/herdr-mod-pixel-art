@@ -707,6 +707,29 @@ const WORK = {
       return { behind: [], front: [...rails, rod, plate] };
     },
   },
+  // Starting a sub-agent: a megaphone held up over its head, calling its bees, the calls
+  // pulsing out of its bell toward the right edge while the body bobs with each shout.
+  delegating: {
+    eyes: "open",
+    build({ u, nudge, size, t, torso }) {
+      const call = { period: 900 };
+      torso.loop("top", { from: 0, to: -nudge, ...call, easing: "ease-out" });
+      // In the rows over any eye: a mouthpiece, a cone and a bell three cells tall at
+      // column 9, pointing right. Its handle goes down behind the creature to the shoulder.
+      /** @type {Cells} */
+      const horn = [[8, 1], [9, 0, 1, 3]];
+      const handle = mark([[8, 2, 1, 2]], t.dim, u);
+      const megaphone = [
+        mark([[7, 1]], t.dim, u),
+        div().absolute().left(nudge).top(nudge).size(size).child(mark(horn, PROP.shadow, u)),
+        mark(horn, t.foreground, u),
+      ];
+      // Same period, two easings: the inner call goes out before the outer one, at the edge.
+      const inner = mark([[10, 1]], t.working, u).loop("opacity", { from: 0.3, to: 1, ...call, easing: "ease-out" });
+      const outer = mark([[11, 0, 1, 3]], t.working, u).loop("opacity", { from: 0.3, to: 1, ...call, easing: "ease-in" });
+      return { behind: [handle], front: [...megaphone, inner, outer] };
+    },
+  },
 };
 
 /** Every way of working, by name. `walk` was the only one before the agents' hooks told more. */

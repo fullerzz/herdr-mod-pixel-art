@@ -270,8 +270,8 @@ const working = (sprite, work, px = 3) => spriteElement(sprite, { id: "s", px, s
 /** An element's whole tree as text: every node's kind and calls, children aside. */
 const tree = (el) => JSON.stringify(walk(el).map((node) => [node.kind, node.calls.filter(([name]) => name !== "child" && name !== "children")]));
 
-test("there are twelve ways of working, walk among them, and the test covers every kind", () => {
-  assert.deepEqual([...WORKS].sort(), ["building", "compacting", "git", "hammering", "installing", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
+test("there are thirteen ways of working, walk among them, and the test covers every kind", () => {
+  assert.deepEqual([...WORKS].sort(), ["building", "compacting", "delegating", "git", "hammering", "installing", "reading", "searching", "signal", "testing", "thinking", "typing", "walk"]);
   assert.equal(KINDS.length, 10);
 });
 
@@ -524,6 +524,27 @@ test("compacting, a press comes down on the creature's head and squishes it a ce
     // The press and its rails show in a single frame, at the edges and over the head.
     const board = raster(working(sprite, "compacting", 1));
     assert.ok(board.every((row) => row[0] === t.dim && row[GRID - 1] === t.dim), `${sprite.kind}: rails at both edges`);
+  }
+});
+
+test("delegating, a megaphone held up over the head calls out toward the right edge, in step with the body", () => {
+  const t = theme();
+  for (const sprite of KINDS) {
+    // The megaphone and its calls show in a single frame, in the rows over any eye.
+    const board = raster(working(sprite, "delegating", 1));
+    assert.deepEqual([0, 1, 2].map((y) => board[y][9]), Array(3).fill(t.foreground), `${sprite.kind}: the bell, three cells tall`);
+    assert.equal(board[1][8], t.foreground, `${sprite.kind}: the cone`);
+    assert.equal(board[1][7], t.dim, `${sprite.kind}: the mouthpiece`);
+    assert.deepEqual([board[1][10], ...[0, 1, 2].map((y) => board[y][11])], Array(4).fill(t.working), `${sprite.kind}: two calls out of the bell`);
+
+    // The calls pulse out in turn, the inner first, once a shout of the body.
+    const root = nodeOf(working(sprite, "delegating"));
+    const calling = walk(root).filter((node) => calls(node, "loop").some(([p]) => p === "opacity")).map((node) => ({ color: walk(node).map((c) => last(c, "bg")).find(Boolean), ...calls(node, "loop")[0][1] }));
+    assert.deepEqual(calling.map((c) => [c.color, c.easing]), [[t.working, "ease-out"], [t.working, "ease-in"]]);
+    const figure = nodeOf(root.children.find((c) => nodeOf(c).children.length === 3));
+    const [[property, shout]] = calls(nodeOf(figure.children[2]), "loop");
+    assert.equal(property, "top");
+    assert.ok(shout.to < shout.from && calling.every((c) => c.period === shout.period), "the body bobs with each call");
   }
 });
 

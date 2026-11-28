@@ -23,9 +23,9 @@ move according to what their agents are doing.
   bubbles a test tube while it runs tests, lifts bricks with a crane while it builds,
   unpacks a box while it installs, grows a branching twig while it uses git, hammers
   while it runs other commands, sweeps a lens while it searches, holds up an antenna
-  while it fetches from the web, thinks when a prompt comes in, and is squished in a
-  press while it compacts its context. Without the hook, each creature works its own way,
-  the same every time.
+  while it fetches from the web, calls through a megaphone while it starts a sub-agent,
+  thinks when a prompt comes in, and is squished in a press while it compacts its
+  context. Without the hook, each creature works its own way, the same every time.
 - **Time of day.** A creature at rest keeps a prop for the local time of day beside it:
   a lantern at night, a cup of coffee in the morning.
 - **Hits.** When an agent adds or removes lines in its git repository, the numbers pop
@@ -298,7 +298,7 @@ trick arrives again.
 ![Another creature working the four ways for kinds of command, side by side: a bubbling test tube, a crane lifting a brick, a box it unpacks, and a branching twig](docs/command-ways.gif)
 
 The second recording shows the four ways for kinds of command: testing, building,
-installing and git. Both recordings are older than compacting. A creature whose agent was
+installing and git. Both recordings are older than compacting and delegating. A creature whose agent was
 idle or done wakes up before it works: for a second and a half it yawns with its eyes shut,
 stretches up, and drops back with its eyes popped open. Then it shows what its agent is
 doing, when the agent's hooks say:
@@ -314,6 +314,7 @@ doing, when the agent's hooks say:
 | hammering | runs any other command | Bash |
 | searching | searches code | Grep, Glob |
 | signal | fetches from the web | WebFetch, WebSearch |
+| delegating | starts a sub-agent | Agent (Task in older versions) |
 | thinking | has a new prompt to think about | none: a prompt came in |
 | compacting | compacts its context | none: a compaction began |
 
@@ -342,7 +343,7 @@ They keep a `pixel.work` label on the agent's terminal. The hooks of a sub-agent
 leave it alone: a sub-agent is a bee. Any agent can say what it is doing itself:
 
 ```sh
-hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the eleven ways, or walk
+hc label "$HC_TERMINAL_ID" pixel.work=reading   # one of the twelve ways, or walk
 hc label "$HC_TERMINAL_ID" pixel.work=          # its own way again
 ```
 
